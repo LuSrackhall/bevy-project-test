@@ -1,4 +1,6 @@
 use bevy::prelude::*;
+use bevy_prototype_lyon::prelude::*;
+use bevy_prototype_lyon::shapes;
 
 use crate::core::*;
 
@@ -76,10 +78,16 @@ pub struct SoldierDiedEvent {
 pub struct SoldierBundle {
     pub soldier: Soldier,
     pub transform: Transform,
+    pub shape: Shape,
 }
 
 impl SoldierBundle {
     pub fn new(soldier_type: SoldierType, faction: Faction, position: Vec2) -> Self {
+        let color = match faction {
+            Faction::Player => Color::srgb(0.3, 0.5, 0.9),
+            Faction::Enemy => Color::srgb(0.9, 0.3, 0.3),
+            Faction::Neutral => Color::srgb(0.5, 0.5, 0.5),
+        };
         Self {
             soldier: Soldier {
                 soldier_type,
@@ -97,6 +105,9 @@ impl SoldierBundle {
                 is_exiled: false,
             },
             transform: Transform::from_xyz(position.x, position.y, 3.0),
+            shape: ShapeBuilder::with(&shapes::RegularPolygon { sides: 3, center: Vec2::ZERO, feature: shapes::RegularPolygonFeature::Radius(6.0) })
+                .fill(Fill::color(color))
+                .build(),
         }
     }
 }

@@ -1,4 +1,6 @@
 use bevy::prelude::*;
+use bevy_prototype_lyon::prelude::*;
+use bevy_prototype_lyon::shapes;
 
 use crate::core::*;
 use crate::soldier::SoldierBundle;
@@ -13,6 +15,15 @@ impl Plugin for CityPlugin {
                 let max_health = city_max_health(data.level);
                 let max_pop = city_max_population(data.level, &mut rand::thread_rng());
                 let spawn_interval = 5.0 / soldier_spawn_speed_multiplier(SoldierType::Militia);
+                let color = match data.faction {
+                    Faction::Player => Color::srgb(0.2, 0.6, 1.0),
+                    Faction::Enemy => Color::srgb(1.0, 0.2, 0.2),
+                    Faction::Neutral => Color::srgb(0.6, 0.6, 0.6),
+                };
+                let radius = 15.0 + data.level as f32 * 3.0;
+                let shape = ShapeBuilder::with(&shapes::Circle { radius, center: Vec2::ZERO })
+                    .fill(Fill::color(color))
+                    .build();
                 commands.spawn((
                     City {
                         level: data.level,
@@ -29,6 +40,7 @@ impl Plugin for CityPlugin {
                     },
                     CityPosition(data.position),
                     Transform::from_xyz(data.position.x, data.position.y, 1.0),
+                    shape,
                 ));
             }
         });
@@ -96,7 +108,7 @@ fn city_spawn_system(
                 city.faction,
                 pos.0,
             );
-            commands.spawn((bundle.soldier, bundle.transform));
+            commands.spawn((bundle.soldier, bundle.transform, bundle.shape));
         }
     }
 }

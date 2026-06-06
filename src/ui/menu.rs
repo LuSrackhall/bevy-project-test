@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use bevy::text::TextFont;
 
 use crate::core::GameState;
 
@@ -23,17 +24,18 @@ enum MenuButton {
     Help,
 }
 
-fn setup_main_menu(mut commands: Commands) {
+fn setup_main_menu(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.spawn((
         Node { width: Val::Percent(100.0), height: Val::Percent(100.0), flex_direction: FlexDirection::Column, justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() },
         MainMenuUI,
     ))
     .with_children(|parent| {
-        parent.spawn(Text::new("城池争霸"));
-        parent.spawn((Button, Node { margin: UiRect::all(Val::Px(10.0)), padding: UiRect::all(Val::Px(20.0)), ..default() }, MenuButton::SinglePlayer)).with_child(Text::new("单人模式"));
-        parent.spawn((Button, Node { margin: UiRect::all(Val::Px(10.0)), padding: UiRect::all(Val::Px(20.0)), ..default() }, MenuButton::MultiPlayer)).with_child(Text::new("多人模式 (开发中)"));
-        parent.spawn((Button, Node { margin: UiRect::all(Val::Px(10.0)), padding: UiRect::all(Val::Px(20.0)), ..default() }, MenuButton::Settings)).with_child(Text::new("设置"));
-        parent.spawn((Button, Node { margin: UiRect::all(Val::Px(10.0)), padding: UiRect::all(Val::Px(20.0)), ..default() }, MenuButton::Help)).with_child(Text::new("帮助"));
+        let font_handle = asset_server.load("fonts/Arial Unicode.ttf");
+        parent.spawn((Text::new("城池争霸"), TextFont { font: font_handle.clone(), font_size: 48.0, ..default() }));
+        parent.spawn((Button, Node { margin: UiRect::all(Val::Px(10.0)), padding: UiRect::all(Val::Px(20.0)), ..default() }, MenuButton::SinglePlayer)).with_child((Text::new("单人模式"), TextFont { font: font_handle.clone(), font_size: 24.0, ..default() }));
+        parent.spawn((Button, Node { margin: UiRect::all(Val::Px(10.0)), padding: UiRect::all(Val::Px(20.0)), ..default() }, MenuButton::MultiPlayer)).with_child((Text::new("多人模式 (开发中)"), TextFont { font: font_handle.clone(), font_size: 24.0, ..default() }));
+        parent.spawn((Button, Node { margin: UiRect::all(Val::Px(10.0)), padding: UiRect::all(Val::Px(20.0)), ..default() }, MenuButton::Settings)).with_child((Text::new("设置"), TextFont { font: font_handle.clone(), font_size: 24.0, ..default() }));
+        parent.spawn((Button, Node { margin: UiRect::all(Val::Px(10.0)), padding: UiRect::all(Val::Px(20.0)), ..default() }, MenuButton::Help)).with_child((Text::new("帮助"), TextFont { font: font_handle.clone(), font_size: 24.0, ..default() }));
     });
 }
 

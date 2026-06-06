@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use bevy::text::TextFont;
 
 use crate::core::{GameState, SoldierType};
 use crate::city::{City, CitySelectedEvent};
@@ -33,7 +34,8 @@ struct CityInfoText;
 #[derive(Component)]
 pub struct SoldierTypeButton(pub SoldierType);
 
-fn setup_hud(mut commands: Commands) {
+fn setup_hud(mut commands: Commands, asset_server: Res<AssetServer>) {
+    let font_handle = asset_server.load("fonts/Arial Unicode.ttf");
     commands.spawn((
         Node {
             width: Val::Percent(100.0),
@@ -59,10 +61,10 @@ fn setup_hud(mut commands: Commands) {
             TopBar,
         ))
         .with_children(|parent| {
-            parent.spawn(Text::new("🏰 0/0"));
-            parent.spawn(Text::new("👥 0"));
-            parent.spawn(Text::new("⏱️ 0:00"));
-            parent.spawn((Button, Node { padding: UiRect::all(Val::Px(5.0)), ..default() })).with_child(Text::new("⏸️"));
+            parent.spawn((Text::new("🏰 0/0"), TextFont { font: font_handle.clone(), font_size: 16.0, ..default() }));
+            parent.spawn((Text::new("👥 0"), TextFont { font: font_handle.clone(), font_size: 16.0, ..default() }));
+            parent.spawn((Text::new("⏱️ 0:00"), TextFont { font: font_handle.clone(), font_size: 16.0, ..default() }));
+            parent.spawn((Button, Node { padding: UiRect::all(Val::Px(5.0)), ..default() })).with_child((Text::new("⏸️"), TextFont { font: font_handle.clone(), font_size: 16.0, ..default() }));
         });
 
         parent.spawn(Node { flex_grow: 1.0, ..default() });
@@ -80,11 +82,11 @@ fn setup_hud(mut commands: Commands) {
             BottomPanel,
         ))
         .with_children(|parent| {
-            parent.spawn((Text::new("城池 Lv.?"), CityInfoText));
+            parent.spawn(((Text::new("城池 Lv.?"), CityInfoText), TextFont { font: font_handle.clone(), font_size: 18.0, ..default() }));
             parent.spawn(Node { flex_direction: FlexDirection::Row, ..default() })
             .with_children(|parent| {
                 for (st, label) in [(SoldierType::Militia, "民兵"), (SoldierType::Infantry, "步兵"), (SoldierType::Archer, "弓兵"), (SoldierType::Cavalry, "骑兵")] {
-                    parent.spawn((Button, Node { padding: UiRect::all(Val::Px(10.0)), margin: UiRect::all(Val::Px(5.0)), ..default() }, SoldierTypeButton(st))).with_child(Text::new(label));
+                    parent.spawn((Button, Node { padding: UiRect::all(Val::Px(10.0)), margin: UiRect::all(Val::Px(5.0)), ..default() }, SoldierTypeButton(st))).with_child((Text::new(label), TextFont { font: font_handle.clone(), font_size: 16.0, ..default() }));
                 }
             });
         });
@@ -94,9 +96,9 @@ fn setup_hud(mut commands: Commands) {
             BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.6)),
         ))
         .with_children(|parent| {
-            parent.spawn(Button::default()).with_child(Text::new("⭕框选"));
-            parent.spawn(Button::default()).with_child(Text::new("⬜框选"));
-            parent.spawn(Button::default()).with_child(Text::new("🛡️举盾"));
+            parent.spawn(Button::default()).with_child((Text::new("⭕框选"), TextFont { font: font_handle.clone(), font_size: 16.0, ..default() }));
+            parent.spawn(Button::default()).with_child((Text::new("⬜框选"), TextFont { font: font_handle.clone(), font_size: 16.0, ..default() }));
+            parent.spawn(Button::default()).with_child((Text::new("🛡️举盾"), TextFont { font: font_handle.clone(), font_size: 16.0, ..default() }));
         });
     });
 }

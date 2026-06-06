@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use bevy::text::TextFont;
 
 use crate::core::GameState;
 
@@ -23,16 +24,17 @@ enum PauseButton {
     MainMenu,
 }
 
-fn setup_pause_menu(mut commands: Commands) {
+fn setup_pause_menu(mut commands: Commands, asset_server: Res<AssetServer>) {
+    let font_handle = asset_server.load("fonts/Arial Unicode.ttf");
     commands.spawn((
         Node { width: Val::Percent(100.0), height: Val::Percent(100.0), flex_direction: FlexDirection::Column, justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() },
         BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.7)),
         PauseMenuUI,
     ))
     .with_children(|parent| {
-        parent.spawn(Text::new("⏸️ 游戏暂停"));
+        parent.spawn((Text::new("⏸️ 游戏暂停"), TextFont { font: font_handle.clone(), font_size: 36.0, ..default() }));
         for (label, button) in [("▶️ 继续游戏", PauseButton::Resume), ("⚙️ 设置", PauseButton::Settings), ("🔄 重新开始", PauseButton::Restart), ("🚪 返回主菜单", PauseButton::MainMenu)] {
-            parent.spawn((Button, Node { margin: UiRect::all(Val::Px(10.0)), padding: UiRect::all(Val::Px(20.0)), ..default() }, button)).with_child(Text::new(label));
+            parent.spawn((Button, Node { margin: UiRect::all(Val::Px(10.0)), padding: UiRect::all(Val::Px(20.0)), ..default() }, button)).with_child((Text::new(label), TextFont { font: font_handle.clone(), font_size: 24.0, ..default() }));
         }
     });
 }
