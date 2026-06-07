@@ -14,7 +14,8 @@ impl Plugin for CombatPlugin {
            .add_systems(Update, archer_attack_system.run_if(in_state(GameState::Playing)))
            .add_systems(Update, arrow_movement_system.run_if(in_state(GameState::Playing)))
            .add_systems(Update, arrow_damage_system.run_if(in_state(GameState::Playing)))
-           .add_systems(Update, melee_attack_system.run_if(in_state(GameState::Playing)));
+           .add_systems(Update, melee_attack_system.run_if(in_state(GameState::Playing)))
+           .add_systems(Update, arrow_fade_system.run_if(in_state(GameState::Playing)));
     }
 }
 
@@ -25,6 +26,22 @@ pub struct Arrow {
     pub speed: f32,
     pub from_faction: Faction,
     pub shooter: Option<Entity>,
+    pub lifetime: Timer,       // 2.5s once, starts when target is lost
+    pub last_dir: Vec2,        // inertia direction after losing target
+}
+
+impl Arrow {
+    fn new(target: Entity, damage: f32, speed: f32, from_faction: Faction, shooter: Option<Entity>) -> Self {
+        Self {
+            target,
+            damage,
+            speed,
+            from_faction,
+            shooter,
+            lifetime: Timer::from_seconds(2.5, TimerMode::Once),
+            last_dir: Vec2::ZERO,
+        }
+    }
 }
 
 fn combat_engagement_system(
@@ -117,7 +134,7 @@ fn archer_attack_system(
                 .build();
 
             commands.spawn((
-                Arrow { target: target_entity, damage, speed: 400.0, from_faction: my_faction, shooter: Some(entity) },
+                Arrow::new(target_entity, damage, 400.0, my_faction, Some(entity)),
                 Transform::from_xyz(archer_pos.x, archer_pos.y, 4.0),
                 arrow_shape,
             ));
@@ -127,14 +144,24 @@ fn archer_attack_system(
 
 fn arrow_movement_system(
     time: Res<Time>,
-    mut arrow_query: Query<(Entity, &mut Transform, &Arrow)>,
+    mut arrow_query: Query<(Entity, &mut Transform, &mut Arrow)>,
     target_query: Query<&Transform, Without<Arrow>>,
 ) {
-    for (_entity, mut transform, arrow) in arrow_query.iter_mut() {
+    for (_entity, mut transform, mut arrow) in arrow_query.iter_mut() {
         if let Ok(target_transform) = target_query.get(arrow.target) {
+            // Target alive — track it
             let dir = (target_transform.translation.truncate() - transform.translation.xy()).normalize_or_zero();
             transform.translation.x += dir.x * arrow.speed * time.delta_secs();
             transform.translation.y += dir.y * arrow.speed * time.delta_secs();
+            arrow.last_dir = dir;
+            // Don't tick lifetime — keeps elapsed at 0 while tracking
+        } else {
+            // Target lost — coast on inertia, start fade countdown
+            arrow.lifetime.tick(time.delta());
+            if arrow.last_dir != Vec2::ZERO {
+                transform.translation.x += arrow.last_dir.x * arrow.speed * time.delta_secs();
+                transform.translation.y += arrow.last_dir.y * arrow.speed * time.delta_secs();
+            }
         }
     }
 }
@@ -280,6 +307,28 @@ fn melee_attack_system(
                     }
                 }
             }
+        }
+    }
+}
+
+/// Fade and despawn arrows that have lost their target
+fn arrow_fade_system(
+    mut commands: Commands,
+    mut query: Query<(Entity, &Arrow, &mut Shape)>,
+) {
+    let total = 2.5f32;
+    for (entity, arrow, mut shape) in query.iter_mut() {
+        let elapsed = arrow.lifetime.elapsed_secs();
+        if elapsed < 0.001 {
+            continue; // still tracking, not fading yet
+        }
+        if elapsed >= total {
+            commands.entity(entity).despawn();
+            continue;
+        }
+        let alpha = 1.0 - (elapsed / total);
+        if let Some(ref mut fill) = shape.fill {
+            fill.color.set_alpha(alpha);
         }
     }
 }
