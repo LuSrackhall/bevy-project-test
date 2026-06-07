@@ -2,12 +2,23 @@ use bevy::prelude::*;
 use bevy::input::mouse::AccumulatedMouseScroll;
 
 use crate::core::GameState;
+use crate::core::Faction;
+use crate::map::MapGenerated;
 
 pub struct CameraPlugin;
 
 impl Plugin for CameraPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, setup_camera)
+           .add_observer(|trigger: On<MapGenerated>, mut cam_query: Query<&mut Transform, With<MainCamera>>| {
+               // Center camera on first player city
+               if let Some(city) = trigger.cities.iter().find(|c| c.faction == Faction::Player) {
+                   for mut transform in cam_query.iter_mut() {
+                       transform.translation.x = city.position.x;
+                       transform.translation.y = city.position.y;
+                   }
+               }
+           })
            .add_systems(Update, camera_drag_system.run_if(in_state(GameState::Playing)))
            .add_systems(Update, camera_zoom_system.run_if(in_state(GameState::Playing)));
     }

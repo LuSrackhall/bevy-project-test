@@ -4,6 +4,7 @@ mod city;
 mod soldier;
 mod combat;
 mod camera;
+mod input;
 mod ui;
 mod ai;
 mod game;
@@ -18,6 +19,7 @@ use city::CityPlugin;
 use soldier::SoldierPlugin;
 use combat::CombatPlugin;
 use camera::CameraPlugin;
+use input::InputPlugin;
 use ui::UiPlugin;
 use ai::AiPlugin;
 use game::GamePlugin;
@@ -42,6 +44,7 @@ fn main() {
         .add_plugins(SoldierPlugin)
         .add_plugins(CombatPlugin)
         .add_plugins(CameraPlugin)
+        .add_plugins(InputPlugin)
         .add_plugins(UiPlugin)
         .add_plugins(AiPlugin)
         .add_plugins(GamePlugin)

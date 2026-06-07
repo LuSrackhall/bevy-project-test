@@ -71,7 +71,7 @@ fn generate_map(
         });
     }
 
-    info!("Map generated: {} cities ({} player, {} enemy, {} neutral)",
+    warn!("Map generated: {} cities ({} player, {} enemy, {} neutral)",
         cities.len(),
         cities.iter().filter(|c| c.faction == Faction::Player).count(),
         cities.iter().filter(|c| c.faction == Faction::Enemy).count(),

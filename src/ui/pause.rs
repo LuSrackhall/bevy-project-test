@@ -32,9 +32,15 @@ fn setup_pause_menu(mut commands: Commands, asset_server: Res<AssetServer>) {
         PauseMenuUI,
     ))
     .with_children(|parent| {
-        parent.spawn((Text::new("⏸️ 游戏暂停"), TextFont { font: font_handle.clone(), font_size: 36.0, ..default() }));
-        for (label, button) in [("▶️ 继续游戏", PauseButton::Resume), ("⚙️ 设置", PauseButton::Settings), ("🔄 重新开始", PauseButton::Restart), ("🚪 返回主菜单", PauseButton::MainMenu)] {
-            parent.spawn((Button, Node { margin: UiRect::all(Val::Px(10.0)), padding: UiRect::all(Val::Px(20.0)), ..default() }, button)).with_child((Text::new(label), TextFont { font: font_handle.clone(), font_size: 24.0, ..default() }));
+        parent.spawn((Text::new("游戏暂停"), TextFont { font: font_handle.clone(), font_size: 36.0, ..default() }));
+        for (label, button) in [
+            ("继续游戏", PauseButton::Resume),
+            ("设置", PauseButton::Settings),
+            ("重新开始", PauseButton::Restart),
+            ("返回主菜单", PauseButton::MainMenu),
+        ] {
+            parent.spawn((Button, Node { margin: UiRect::all(Val::Px(10.0)), padding: UiRect::all(Val::Px(20.0)), ..default() }, button))
+                .with_child((Text::new(label), TextFont { font: font_handle.clone(), font_size: 24.0, ..default() }));
         }
     });
 }

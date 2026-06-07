@@ -8,24 +8,19 @@ pub struct SoldierPlugin;
 
 impl Plugin for SoldierPlugin {
     fn build(&self, app: &mut App) {
-        app.add_observer(|trigger: On<SoldierDiedEvent>, mut soldier_query: Query<&mut Soldier>| {
-            let ev = &trigger;
-            if let Some(killer) = ev.killer {
-                if let Ok(mut killer_soldier) = soldier_query.get_mut(killer) {
-                    killer_soldier.exp += EXP_PER_KILL;
-                    while killer_soldier.exp >= EXP_TO_LEVEL {
-                        killer_soldier.exp -= EXP_TO_LEVEL;
-                        killer_soldier.level += 1;
-                        killer_soldier.max_health += LEVEL_HP_GAIN;
-                        killer_soldier.health = killer_soldier.max_health;
-                        killer_soldier.attack += LEVEL_ATTACK_GAIN;
-                    }
+        // Experience/population on kill handled inline in combat systems to avoid Query conflict
+        app.add_observer(|trigger: On<SoldierDiedEvent>, mut city_query: Query<&mut City>| {
+            // Decrease origin city population when soldier dies in combat
+            if let Some(origin) = trigger.city_origin {
+                if let Ok(mut city) = city_query.get_mut(origin) {
+                    city.population = city.population.saturating_sub(1);
                 }
             }
         });
         app.add_systems(Update, soldier_movement_system.run_if(in_state(GameState::Playing)))
            .add_systems(Update, soldier_city_interaction_system.run_if(in_state(GameState::Playing)))
-           .add_systems(Update, soldier_aura_heal_system.run_if(in_state(GameState::Playing)));
+           .add_systems(Update, soldier_aura_heal_system.run_if(in_state(GameState::Playing)))
+           .add_systems(Update, slow_debuff_tick_system.run_if(in_state(GameState::Playing)));
     }
 }
 
@@ -75,21 +70,21 @@ pub struct SoldierDiedEvent {
     pub city_origin: Option<Entity>,
 }
 
-pub struct SoldierBundle {
-    pub soldier: Soldier,
-    pub transform: Transform,
-    pub shape: Shape,
-}
+pub struct SoldierBundle;
 
 impl SoldierBundle {
-    pub fn new(soldier_type: SoldierType, faction: Faction, position: Vec2) -> Self {
+    pub fn spawn(commands: &mut Commands, soldier_type: SoldierType, faction: Faction, position: Vec2, city_origin: Option<Entity>) {
         let color = match faction {
             Faction::Player => Color::srgb(0.3, 0.5, 0.9),
             Faction::Enemy => Color::srgb(0.9, 0.3, 0.3),
             Faction::Neutral => Color::srgb(0.5, 0.5, 0.5),
         };
-        Self {
-            soldier: Soldier {
+        // Build shape inline (exactly like cities do)
+        let shape = ShapeBuilder::with(&shapes::Circle { radius: 12.0, center: Vec2::ZERO })
+            .fill(Fill::color(color))
+            .build();
+        commands.spawn((
+            Soldier {
                 soldier_type,
                 faction,
                 health: soldier_base_health(soldier_type),
@@ -101,23 +96,21 @@ impl SoldierBundle {
                 attack_timer: Timer::from_seconds(ATTACK_INTERVAL, TimerMode::Repeating),
                 target: None,
                 state: SoldierState::Moving,
-                city_origin: None,
+                city_origin,
                 is_exiled: false,
             },
-            transform: Transform::from_xyz(position.x, position.y, 3.0),
-            shape: ShapeBuilder::with(&shapes::RegularPolygon { sides: 3, center: Vec2::ZERO, feature: shapes::RegularPolygonFeature::Radius(6.0) })
-                .fill(Fill::color(color))
-                .build(),
-        }
+            Transform::from_xyz(position.x, position.y, 3.0),
+            shape,
+        ));
     }
 }
 
 fn soldier_movement_system(
     time: Res<Time>,
-    mut query: Query<(&mut Transform, &mut Soldier, Option<&SlowDebuff>, Option<&InfantryShield>)>,
-    target_query: Query<&Transform, (Without<Soldier>, With<crate::city::CityPosition>)>,
+    mut query: Query<(Entity, &mut Transform, &mut Soldier, Option<&SlowDebuff>, Option<&InfantryShield>)>,
+    target_query: Query<&Transform, Without<Soldier>>,
 ) {
-    for (mut transform, soldier, slow, shield) in query.iter_mut() {
+    for (_entity, mut transform, mut soldier, slow, shield) in query.iter_mut() {
         let mut speed = soldier.speed;
         if let Some(shield) = shield {
             if shield.0 == ShieldState::ShieldUp {
@@ -132,7 +125,18 @@ fn soldier_movement_system(
 
         if let Some(target) = soldier.target {
             if let Ok(target_transform) = target_query.get(target) {
-                let dir = (target_transform.translation.truncate() - transform.translation.xy()).normalize_or_zero();
+                let target_pos = target_transform.translation.xy();
+                let my_pos = transform.translation.xy();
+                let dist = my_pos.distance(target_pos);
+
+                // Check if reached target (waypoint or static point)
+                if dist < 5.0 {
+                    soldier.target = None;
+                    soldier.state = SoldierState::Moving;
+                    continue;
+                }
+
+                let dir = (target_pos - my_pos).normalize_or_zero();
                 transform.translation.x += dir.x * speed * time.delta_secs();
                 transform.translation.y += dir.y * speed * time.delta_secs();
             }
@@ -140,15 +144,18 @@ fn soldier_movement_system(
     }
 }
 
-use crate::city::{City, CityCapturedEvent};
+use crate::city::City; // Removed CityCapturedEvent — capture now handled by city_capture_system
 
 fn soldier_city_interaction_system(
     mut commands: Commands,
     soldier_query: Query<(Entity, &Transform, &Soldier)>,
     mut city_query: Query<(Entity, &mut City, &Transform)>,
 ) {
+    // Track origin cities that need population decrement
+    let mut origin_decrements: Vec<Entity> = Vec::new();
+
     for (soldier_entity, soldier_transform, soldier) in soldier_query.iter() {
-        for (city_entity, mut city, city_transform) in city_query.iter_mut() {
+        for (_city_entity, mut city, city_transform) in city_query.iter_mut() {
             let dist = soldier_transform.translation.xy()
                 .distance(city_transform.translation.xy());
             let threshold = city.visual_radius;
@@ -157,6 +164,7 @@ fn soldier_city_interaction_system(
             if soldier.faction != city.faction {
                 let damage = city_damage_per_soldier(soldier.attack);
                 city.health -= damage;
+                city.last_attacker_faction = Some(soldier.faction);
             } else {
                 if city.health < city.max_health {
                     let heal = city_heal_amount(city.max_health, city.health);
@@ -176,26 +184,21 @@ fn soldier_city_interaction_system(
                 }
             }
 
-            if city.health <= 0.0 && city.faction != Faction::Neutral {
-                let old_faction = city.faction;
-                let new_faction = match old_faction {
-                    Faction::Player => Faction::Enemy,
-                    Faction::Enemy => Faction::Player,
-                    _ => old_faction,
-                };
-                city.faction = new_faction;
-                city.level = city.level.saturating_sub(1).max(1);
-                city.max_health = city_max_health(city.level);
-                city.health = city.max_health * 0.2;
-                city.max_population = city_max_population(city.level, &mut rand::thread_rng());
-                city.population = 0;
-                city.level_exp = 0.0;
-                city.visual_radius = 20.0 + city.level as f32 * 5.0;
-                commands.trigger(CityCapturedEvent { entity: city_entity, old_faction, new_faction });
+            // Decrease origin city population (soldier consumed by city entry)
+            if let Some(origin) = soldier.city_origin {
+                origin_decrements.push(origin);
             }
 
+            // Soldier consumed — city capture is handled independently by city_capture_system
             commands.entity(soldier_entity).despawn();
             break;
+        }
+    }
+
+    // Apply population decrements (after dropping city_query mutable borrow from iter_mut)
+    for origin in origin_decrements {
+        if let Ok((_, mut city, _)) = city_query.get_mut(origin) {
+            city.population = city.population.saturating_sub(1);
         }
     }
 }
@@ -216,13 +219,25 @@ fn soldier_aura_heal_system(
                 total_heal += CITY_AURA_BASE_HEAL + city.level as f32 - 1.0;
             }
             let to_soldier = (soldier_transform.translation.xy() - city_transform.translation.xy()).normalize_or_zero();
-            let spawn_dir = Vec2::X;
-            if to_soldier.dot(spawn_dir) > 0.5 && dist <= CITY_AURA_SPAWN_DIR_RADIUS {
+            if to_soldier.dot(city.spawn_direction) > 0.5 && dist <= CITY_AURA_SPAWN_DIR_RADIUS {
                 total_heal += CITY_AURA_BASE_HEAL + city.level as f32 - 1.0;
             }
         }
         if total_heal > 0.0 {
             soldier.health = (soldier.health + total_heal * time.delta_secs()).min(soldier.max_health);
+        }
+    }
+}
+
+fn slow_debuff_tick_system(
+    time: Res<Time>,
+    mut commands: Commands,
+    mut query: Query<(Entity, &mut SlowDebuff)>,
+) {
+    for (entity, mut slow) in query.iter_mut() {
+        slow.timer.tick(time.delta());
+        if slow.timer.just_finished() {
+            commands.entity(entity).remove::<SlowDebuff>();
         }
     }
 }

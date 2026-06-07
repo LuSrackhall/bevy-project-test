@@ -136,6 +136,8 @@ pub const ARCHER_SLOW_MAX_REDUCTION: f32 = 0.35;
 pub const ARCHER_SLOW_DURATION: f32 = 1.0;
 pub const ARCHER_MELEE_RANGE: f32 = 50.0;
 pub const ARCHER_MELEE_DAMAGE_MULT: f32 = 0.85;
+// 减速最大叠层上限（保证移速不低于原始速度 35%）
+pub const MAX_SLOW_STACKS: u32 = 9;
 
 // 经验
 pub const EXP_PER_KILL: u32 = 1;
