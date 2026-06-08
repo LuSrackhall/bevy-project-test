@@ -36,7 +36,7 @@ pub struct SoldierUnitConfig {
     pub pierce_unlock_level: u32,
 }
 
-fn default_arrow_speed() -> u32 { 40 }
+fn default_arrow_speed() -> u32 { 20 }
 fn default_range_base() -> u32 { 380 }
 fn default_range_max() -> u32 { 600 }
 fn default_range_max_level() -> u32 { 4 }
@@ -72,7 +72,7 @@ impl SoldierUnitConfig {
     /// Max flight ticks (used for precomputation).
     pub fn max_flight_ticks(&self) -> u32 {
         let max_dist = self.attack_range_max + self.overshoot_base + (self.attack_range_max_level - 1) * self.overshoot_per_level;
-        if self.arrow_speed == 0 { return 17; }
+        if self.arrow_speed == 0 { return 34; }
         (max_dist + self.arrow_speed - 1) / self.arrow_speed
     }
 

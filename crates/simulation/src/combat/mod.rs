@@ -34,8 +34,8 @@ pub struct ArrowMarker;
 
 /// Decay duration in ticks: 20 ticks at 20Hz = 1 second.
 pub const ARROW_DECAY_TICKS: u32 = 20;
-/// Collision radius for arrow hits — must be >= arrow_speed (40) to prevent tunneling.
-const ARROW_HIT_RADIUS: i64 = 45 * FIXED_ONE; // 45 units > arrow_speed(40)
+/// Collision radius for arrow hits — must be >= arrow_speed to prevent tunneling.
+const ARROW_HIT_RADIUS: i64 = 22 * FIXED_ONE; // 22 units ≥ arrow_speed(20)
 
 const FIXED_ONE: i64 = 256;
 

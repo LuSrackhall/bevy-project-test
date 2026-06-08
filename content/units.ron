@@ -51,7 +51,7 @@
         aggression_range: 600,
         attack_interval_ticks: 10,
         spawn_speed_mult: 0.5,
-        arrow_speed: 40,
+        arrow_speed: 20,
         attack_range_base: 380,
         attack_range_max: 600,
         attack_range_max_level: 4,
