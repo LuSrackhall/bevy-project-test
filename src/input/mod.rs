@@ -236,6 +236,22 @@ fn command_issue_system(
         return;
     }
 
+    // Priority 2.5: Clicked on a friendly city → return to city (heal/upgrade)
+    let hit_friendly = all_cities.iter()
+        .filter(|(_, t, c)| c.faction == Faction::Player && t.translation.xy().distance(world_pos) <= c.visual_radius)
+        .map(|(e, _, _)| e)
+        .next();
+
+    if let Some(target) = hit_friendly {
+        for &soldier_entity in &selection.selected_soldiers {
+            if let Ok((_, mut soldier)) = soldier_set.p1().get_mut(soldier_entity) {
+                soldier.target = Some(target);
+                soldier.state = SoldierState::Moving;
+            }
+        }
+        return;
+    }
+
     // Priority 3: Empty ground → move to waypoint
     let waypoint = commands.spawn((
         Waypoint,
