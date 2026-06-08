@@ -5,12 +5,24 @@ pub mod ui;
 
 use bevy::prelude::*;
 
+/// Game state enum — shared across the render view.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, States, Default)]
+pub enum GameState {
+    #[default]
+    MainMenu,
+    Playing,
+    Paused,
+    GameOver,
+}
+
 pub struct RenderViewPlugin;
 
 impl Plugin for RenderViewPlugin {
     fn build(&self, app: &mut App) {
         app
+            .init_state::<GameState>()
             .init_resource::<crate::selection::SelectionState>()
+            .add_plugins(crate::ui::UiPlugin)
             .add_systems(Startup, crate::camera::setup_camera)
             .add_systems(Update, (
                 crate::debug_shape::draw_debug_shapes_system,
@@ -24,6 +36,28 @@ impl Plugin for RenderViewPlugin {
                 crate::selection::drag_visual_system,
                 crate::selection::command_issue_system,
                 crate::selection::waypoint_cleanup_system,
-            ));
+                check_victory_system,
+            ).run_if(in_state(GameState::Playing)));
+    }
+}
+
+/// Check if all cities of one faction are gone.
+fn check_victory_system(
+    mut sim_world: bevy::ecs::system::NonSendMut<bevy_adapter::tick::SimulationWorld>,
+    mut next_state: ResMut<NextState<GameState>>,
+) {
+    let world = &mut sim_world.0;
+    let mut query = world.query::<(&simulation::soldier::FactionComponent,)>();
+    let mut player = false;
+    let mut enemy = false;
+    for (f,) in query.iter(world) {
+        match f.0 {
+            simulation::types::Faction::Player => player = true,
+            simulation::types::Faction::Enemy => enemy = true,
+            _ => {}
+        }
+    }
+    if !player || !enemy {
+        next_state.set(GameState::GameOver);
     }
 }

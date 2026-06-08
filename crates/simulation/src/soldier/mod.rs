@@ -272,7 +272,7 @@ pub fn city_capture_check_system(world: &mut World) {
 
     for (entity, city_id, old_faction, new_faction) in captures {
         let mut em = world.entity_mut(entity);
-        let (nl, nmax) = {
+        let (nl, _nmax) = {
             if let Some(mut c) = em.get_mut::<CityComponent>() {
                 let nl = c.level.saturating_sub(1).max(1);
                 let nm = nl * city_config.level_hp_multiplier;

@@ -142,7 +142,7 @@ pub fn melee_attack_system(world: &mut World) {
 
         let Some(te) = find_entity_by_unit_id(world, tid) else { continue };
 
-        let (thp, tmax, tst, _tfac, torg) = {
+        let (thp, tmax, tst, _tfac, _torg) = {
             let em = world.entity(te);
             let hp = em.get::<Health>();
             (hp.map(|h| h.current), hp.map(|h| h.max),

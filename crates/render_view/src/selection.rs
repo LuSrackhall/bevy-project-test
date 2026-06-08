@@ -176,12 +176,7 @@ pub fn selection_shortcut_system(
             .collect();
     }
 
-    // Esc deselects first, pause handled by game system
-    if keyboard.just_pressed(KeyCode::Escape) {
-        if !selection.selected_unit_ids.is_empty() {
-            selection.selected_unit_ids.clear();
-        }
-    }
+    // Esc handled by ui::handle_pause_input (deselect then pause)
 }
 
 // ══════════ Selection visual ══════════
