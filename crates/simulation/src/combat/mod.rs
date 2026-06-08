@@ -128,7 +128,7 @@ pub fn melee_attack_system(world: &mut World) {
             }).collect()
     };
 
-    let mut pending_deaths: Vec<(Entity, Option<UnitId>)> = Vec::new();
+    let mut pending_deaths: Vec<(Entity, Option<UnitId>, Option<UnitId>)> = Vec::new(); // (target, killer, city_origin)
     let mut xp_grants: Vec<(Entity, u32)> = Vec::new();
     let mut ls_hits: Vec<(Entity, u32, u32, bool)> = Vec::new();
     let mut ls_kills: Vec<(Entity, u32, u32, bool)> = Vec::new();
@@ -142,7 +142,7 @@ pub fn melee_attack_system(world: &mut World) {
 
         let Some(te) = find_entity_by_unit_id(world, tid) else { continue };
 
-        let (thp, tmax, tst, _tfac, _torg) = {
+        let (thp, tmax, tst, _tfac, city_origin) = {
             let em = world.entity(te);
             let hp = em.get::<Health>();
             (hp.map(|h| h.current), hp.map(|h| h.max),
@@ -176,7 +176,7 @@ pub fn melee_attack_system(world: &mut World) {
             };
 
             if died {
-                pending_deaths.push((te, Some(ad.uid)));
+                pending_deaths.push((te, Some(ad.uid), city_origin));
                 xp_grants.push((ad.entity, combat_config.level_up.exp_per_kill));
                 ls_kills.push((ad.entity, damage, ad.level, ad.has_fearless));
             } else {
@@ -204,11 +204,19 @@ pub fn melee_attack_system(world: &mut World) {
 
     // Process deaths (dedup by entity — same target may be killed by multiple attackers)
     let mut seen = std::collections::HashSet::new();
-    for (te, kid) in pending_deaths {
+    for (te, kid, origin) in pending_deaths {
         if seen.contains(&te) { continue; }
         seen.insert(te);
         let uid = find_unit_id(world, te).unwrap_or(UnitId(0));
         world.despawn(te);
+        // Decrement origin city population when soldier dies in combat
+        if let Some(origin_id) = origin {
+            if let Some(oe) = find_entity_by_unit_id(world, origin_id) {
+                if let Some(mut c) = world.entity_mut(oe).get_mut::<CityComponent>() {
+                    c.population = c.population.saturating_sub(1);
+                }
+            }
+        }
         let mut events = world.resource_mut::<SimulationEvents>();
         events.destroyed.push(UnitDestroyed { unit_id: uid, killer_id: kid });
     }
@@ -314,7 +322,7 @@ pub fn arrow_hit_system(world: &mut World) {
             .collect()
     };
 
-    let mut deaths: Vec<(Entity, Option<UnitId>)> = Vec::new();
+    let mut deaths: Vec<(Entity, Option<UnitId>, Option<UnitId>)> = Vec::new(); // (target, shooter, city_origin)
     let mut xp: Vec<(Entity, u32)> = Vec::new();
     let mut to_despawn: Vec<Entity> = Vec::new();
 
@@ -353,7 +361,8 @@ pub fn arrow_hit_system(world: &mut World) {
         };
 
         if died {
-            deaths.push((te, shooter));
+            let origin = world.entity(te).get::<CityOrigin>().map(|c| c.0);
+            deaths.push((te, shooter, origin));
             if let Some(sid) = shooter {
                 if let Some(se) = find_entity_by_unit_id(world, sid) {
                     xp.push((se, combat_config.level_up.exp_per_kill));
@@ -368,11 +377,19 @@ pub fn arrow_hit_system(world: &mut World) {
         if let Some(mut l) = world.entity_mut(e).get_mut::<Level>() { l.exp += x; }
     }
     let mut seen = std::collections::HashSet::new();
-    for (te, kid) in deaths {
+    for (te, kid, origin) in deaths {
         if seen.contains(&te) { continue; }
         seen.insert(te);
         let uid = find_unit_id(world, te).unwrap_or(UnitId(0));
         world.despawn(te);
+        // Decrement origin city population
+        if let Some(origin_id) = origin {
+            if let Some(oe) = find_entity_by_unit_id(world, origin_id) {
+                if let Some(mut c) = world.entity_mut(oe).get_mut::<CityComponent>() {
+                    c.population = c.population.saturating_sub(1);
+                }
+            }
+        }
         let mut ev = world.resource_mut::<SimulationEvents>();
         ev.destroyed.push(UnitDestroyed { unit_id: uid, killer_id: kid });
     }
