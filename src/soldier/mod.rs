@@ -36,6 +36,8 @@ pub struct Soldier {
     pub exp: u32,
     pub attack_timer: Timer,
     pub target: Option<Entity>,
+    pub command_target: Option<Entity>,  // player's original order, not overwritten by auto-engage
+    pub force_move: bool,                // skip auto-engagement en route
     pub state: SoldierState,
     pub city_origin: Option<Entity>,
     pub is_exiled: bool,
@@ -95,6 +97,8 @@ impl SoldierBundle {
                 exp: 0,
                 attack_timer: Timer::from_seconds(ATTACK_INTERVAL, TimerMode::Repeating),
                 target: None,
+                command_target: None,
+                force_move: false,
                 state: SoldierState::Moving,
                 city_origin,
                 is_exiled: false,
@@ -123,15 +127,27 @@ fn soldier_movement_system(
             speed *= capped;
         }
 
-        if let Some(target) = soldier.target {
+        // Cavalry always moves toward command_target (player's original order)
+        // Non-cavalry follows target (which may be overwritten by auto-engage)
+        let move_target = if soldier.soldier_type == SoldierType::Cavalry {
+            soldier.command_target.or(soldier.target)
+        } else {
+            soldier.target
+        };
+
+        if let Some(target) = move_target {
             if let Ok(target_transform) = target_query.get(target) {
                 let target_pos = target_transform.translation.xy();
                 let my_pos = transform.translation.xy();
                 let dist = my_pos.distance(target_pos);
 
-                // Check if reached target (waypoint or static point)
                 if dist < 5.0 {
+                    // Reached destination
+                    if soldier.command_target == Some(target) {
+                        soldier.force_move = false; // arrival clears force-move
+                    }
                     soldier.target = None;
+                    soldier.command_target = None;
                     soldier.state = SoldierState::Moving;
                     continue;
                 }

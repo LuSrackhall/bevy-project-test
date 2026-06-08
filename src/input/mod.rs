@@ -12,6 +12,7 @@ pub struct InputPlugin;
 impl Plugin for InputPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<SelectionState>()
+           .init_resource::<ForceMoveNext>()
            .add_systems(Update, selection_click_system.run_if(in_state(GameState::Playing)))
            .add_systems(Update, drag_select_system.run_if(in_state(GameState::Playing)))
            .add_systems(Update, command_issue_system.run_if(in_state(GameState::Playing)))
@@ -23,6 +24,12 @@ impl Plugin for InputPlugin {
 }
 
 // ---- Resources ----
+
+/// One-shot toggle for force-move on next command (mobile toolbar button)
+#[derive(Resource, Default)]
+pub struct ForceMoveNext {
+    pub active: bool,
+}
 
 #[derive(Resource)]
 pub struct SelectionState {
@@ -186,6 +193,7 @@ fn drag_select_system(
 /// Right-click to issue move/attack commands
 fn command_issue_system(
     mouse: Res<ButtonInput<MouseButton>>,
+    keyboard: Res<ButtonInput<KeyCode>>,
     q_windows: Query<&Window>,
     camera_query: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
     all_cities: Query<(Entity, &Transform, &City)>,
@@ -195,6 +203,7 @@ fn command_issue_system(
         Query<(&Transform, &mut Soldier)>,
     )>,
     mut commands: Commands,
+    force_next: Option<ResMut<ForceMoveNext>>,
 ) {
     if !mouse.just_pressed(MouseButton::Right) { return; }
     if selection.selected_soldiers.is_empty() { return; }
@@ -204,66 +213,62 @@ fn command_issue_system(
     let Ok((camera, camera_transform)) = camera_query.single() else { return };
     let Some(world_pos) = screen_to_world(cursor, window, camera, camera_transform) else { return };
 
-    // Read enemies from the read-only query
+    // Determine force-move: Shift held OR mobile button was pressed
+    let shift = keyboard.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
+    let force = shift || force_next.as_ref().map_or(false, |f| f.active);
+    if let Some(mut f) = force_next { f.active = false; }
+
+    // Helper: apply order to all selected soldiers
+    let apply_order = |target: Entity, soldier_set: &mut ParamSet<(
+        Query<(Entity, &Transform, &Soldier)>,
+        Query<(&Transform, &mut Soldier)>,
+    )>, selection: &SelectionState, force: bool| {
+        for &se in &selection.selected_soldiers {
+            if let Ok((_, mut s)) = soldier_set.p1().get_mut(se) {
+                s.command_target = Some(target);
+                s.target = Some(target);
+                s.force_move = force;
+                s.state = SoldierState::Moving;
+            }
+        }
+    };
+
+    // Priority 1: enemy soldier
     let hit_enemy: Option<Entity> = soldier_set.p0().iter()
         .filter(|(_, t, s)| s.faction != Faction::Player && t.translation.xy().distance(world_pos) <= 12.0)
         .map(|(e, _, _)| e)
         .next();
-
     if let Some(target) = hit_enemy {
-        for &soldier_entity in &selection.selected_soldiers {
-            if let Ok((_, mut soldier)) = soldier_set.p1().get_mut(soldier_entity) {
-                soldier.target = Some(target);
-                soldier.state = SoldierState::Moving;
-            }
-        }
+        apply_order(target, &mut soldier_set, &selection, force);
         return;
     }
 
-    // Priority 2: Clicked on an enemy/neutral city → attack it
+    // Priority 2: enemy/neutral city
     let hit_city = all_cities.iter()
         .filter(|(_, t, c)| c.faction != Faction::Player && t.translation.xy().distance(world_pos) <= c.visual_radius)
         .map(|(e, _, _)| e)
         .next();
-
     if let Some(target) = hit_city {
-        for &soldier_entity in &selection.selected_soldiers {
-            if let Ok((_, mut soldier)) = soldier_set.p1().get_mut(soldier_entity) {
-                soldier.target = Some(target);
-                soldier.state = SoldierState::Moving;
-            }
-        }
+        apply_order(target, &mut soldier_set, &selection, force);
         return;
     }
 
-    // Priority 2.5: Clicked on a friendly city → return to city (heal/upgrade)
+    // Priority 2.5: friendly city
     let hit_friendly = all_cities.iter()
         .filter(|(_, t, c)| c.faction == Faction::Player && t.translation.xy().distance(world_pos) <= c.visual_radius)
         .map(|(e, _, _)| e)
         .next();
-
     if let Some(target) = hit_friendly {
-        for &soldier_entity in &selection.selected_soldiers {
-            if let Ok((_, mut soldier)) = soldier_set.p1().get_mut(soldier_entity) {
-                soldier.target = Some(target);
-                soldier.state = SoldierState::Moving;
-            }
-        }
+        apply_order(target, &mut soldier_set, &selection, force);
         return;
     }
 
-    // Priority 3: Empty ground → move to waypoint
+    // Priority 3: empty ground → waypoint
     let waypoint = commands.spawn((
         Waypoint,
         Transform::from_xyz(world_pos.x, world_pos.y, 3.0),
     )).id();
-
-    for &soldier_entity in &selection.selected_soldiers {
-        if let Ok((_, mut soldier)) = soldier_set.p1().get_mut(soldier_entity) {
-            soldier.target = Some(waypoint);
-            soldier.state = SoldierState::Moving;
-        }
-    }
+    apply_order(waypoint, &mut soldier_set, &selection, force);
 }
 
 /// Maintain visual indicators on selected soldiers

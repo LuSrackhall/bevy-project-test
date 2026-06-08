@@ -5,6 +5,7 @@ use crate::core::*;
 use crate::city::{City, CitySelectedEvent, CityDeselectedEvent};
 use crate::input::SelectionState;
 use crate::input::SelectionMode;
+use crate::input::ForceMoveNext;
 use crate::soldier::{InfantryShield, ShieldState};
 
 pub struct HudPlugin;
@@ -31,7 +32,8 @@ impl Plugin for HudPlugin {
            .add_systems(Update, pause_button_system.run_if(in_state(GameState::Playing)))
            .add_systems(Update, soldier_type_button_system.run_if(in_state(GameState::Playing)))
            .add_systems(Update, shield_toggle_system.run_if(in_state(GameState::Playing)))
-           .add_systems(Update, selection_mode_toggle_system.run_if(in_state(GameState::Playing)));
+           .add_systems(Update, selection_mode_toggle_system.run_if(in_state(GameState::Playing)))
+           .add_systems(Update, force_move_button_system.run_if(in_state(GameState::Playing)));
     }
 }
 
@@ -68,6 +70,9 @@ pub struct SoldierTypeButton(pub SoldierType);
 
 #[derive(Component)]
 struct ShieldButton;
+
+#[derive(Component)]
+struct ForceMoveButton;
 
 #[derive(Component)]
 struct PauseButton;
@@ -208,6 +213,8 @@ fn setup_hud(mut commands: Commands, asset_server: Res<AssetServer>) {
                 .with_child((Text::new("[ ]框选"), TextFont { font: font_handle.clone(), font_size: 16.0, ..default() }));
             parent.spawn((Button, ShieldButton, Node { padding: UiRect::all(Val::Px(8.0)), margin: UiRect::all(Val::Px(4.0)), ..default() }))
                 .with_child((Text::new("盾"), TextFont { font: font_handle.clone(), font_size: 16.0, ..default() }));
+            parent.spawn((Button, ForceMoveButton, Node { padding: UiRect::all(Val::Px(8.0)), margin: UiRect::all(Val::Px(4.0)), ..default() }))
+                .with_child((Text::new("[>]优先"), TextFont { font: font_handle.clone(), font_size: 16.0, ..default() }));
         });
     });
 
@@ -370,6 +377,17 @@ fn selection_mode_toggle_system(
     for interaction in interaction_rect.iter_mut() {
         if *interaction == Interaction::Pressed {
             selection.selection_mode = SelectionMode::Rect;
+        }
+    }
+}
+
+fn force_move_button_system(
+    mut interaction_query: Query<&Interaction, (With<ForceMoveButton>, Changed<Interaction>)>,
+    mut force_next: ResMut<ForceMoveNext>,
+) {
+    for interaction in interaction_query.iter_mut() {
+        if *interaction == Interaction::Pressed {
+            force_next.active = true;
         }
     }
 }

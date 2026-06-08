@@ -50,26 +50,49 @@ fn combat_engagement_system(
         Query<(Entity, &Soldier, &Transform), Without<Arrow>>,
     )>,
 ) {
-    // Collect enemy data first from the immutable query
     let enemies: Vec<(Entity, Faction, Vec2)> = param_set.p1().iter()
         .map(|(e, s, t)| (e, s.faction, t.translation.xy()))
         .collect();
-    // Then iterate soldiers from the mutable query
+
     for (_entity, mut soldier, transform) in param_set.p0().iter_mut() {
-        let range = soldier_attack_range(soldier.soldier_type);
+        // Skip if force-move is active
+        if soldier.force_move {
+            continue;
+        }
+
+        let aggro = soldier_aggression_range(soldier.soldier_type);
+        let my_pos = transform.translation.xy();
+
+        // Find nearest enemy within aggression range
         let mut best: Option<(Entity, f32)> = None;
         for (enemy_entity, enemy_faction, enemy_pos) in &enemies {
             if *enemy_faction == soldier.faction { continue; }
-            let dist = transform.translation.xy().distance(*enemy_pos);
-            if dist <= range && best.as_ref().map_or(true, |(_, d)| dist < *d) {
+            let dist = my_pos.distance(*enemy_pos);
+            if dist <= aggro && best.as_ref().map_or(true, |(_, d)| dist < *d) {
                 best = Some((*enemy_entity, dist));
             }
         }
-        if let Some((target, _)) = best {
-            soldier.target = Some(target);
+
+        if let Some((enemy, _)) = best {
+            let is_cav = soldier.soldier_type == SoldierType::Cavalry;
+
+            if !is_cav {
+                // Non-cavalry: save current order, engage enemy
+                if soldier.command_target.is_none() && soldier.target.is_some() {
+                    soldier.command_target = soldier.target;
+                }
+                soldier.target = Some(enemy);
+            }
+            // Cavalry: don't touch target — keeps moving toward command_target
             soldier.state = SoldierState::Fighting;
         } else {
-            soldier.state = SoldierState::Moving;
+            // No enemy in range — resume original order if we were fighting
+            if soldier.state == SoldierState::Fighting {
+                soldier.state = SoldierState::Moving;
+                if let Some(cmd) = soldier.command_target.take() {
+                    soldier.target = Some(cmd);
+                }
+            }
         }
     }
 }
@@ -231,22 +254,47 @@ fn melee_attack_system(
 ) {
     let mut rng = rand::thread_rng();
 
+    // Collect enemy positions for cavalry independent targeting
+    let enemies: Vec<(Entity, Vec2, SoldierType, Faction, Option<Entity>)> = query.iter()
+        .filter(|(_, s, _, _)| s.soldier_type != SoldierType::Archer)
+        .map(|(e, s, t, _)| (e, t.translation.xy(), s.soldier_type, s.faction, s.city_origin))
+        .collect();
+
     // Phase 1: Tick attacker timers, collect those ready to attack
-    let mut attacks: Vec<(Entity, Entity, f32, SoldierType, u32, bool, Vec2)> = Vec::new();
+    let mut attacks: Vec<(Entity, Option<Entity>, f32, SoldierType, u32, bool, Vec2)> = Vec::new();
     for (entity, mut soldier, transform, fearless) in query.iter_mut() {
         if soldier.soldier_type == SoldierType::Archer { continue; }
         soldier.attack_timer.tick(time.delta());
         if !soldier.attack_timer.just_finished() { continue; }
         if soldier.state != SoldierState::Fighting { continue; }
-        if let Some(target) = soldier.target {
-            let attack = soldier.attack + soldier.level as f32 * LEVEL_ATTACK_GAIN
-                + if fearless.is_some() { FEARLESS_ATTACK_BONUS } else { 0.0 };
-            attacks.push((entity, target, attack, soldier.soldier_type, soldier.level, fearless.is_some(), transform.translation.xy()));
+
+        let attack = soldier.attack + soldier.level as f32 * LEVEL_ATTACK_GAIN
+            + if fearless.is_some() { FEARLESS_ATTACK_BONUS } else { 0.0 };
+
+        if soldier.soldier_type == SoldierType::Cavalry {
+            // Cavalry: find nearest enemy in attack range independently
+            let atk_range = soldier_attack_range(SoldierType::Cavalry);
+            let my_pos = transform.translation.xy();
+            let my_faction = soldier.faction;
+            let mut best: Option<(Entity, f32)> = None;
+            for (e, pos, _, faction, _) in &enemies {
+                if *faction == my_faction { continue; }
+                let d = my_pos.distance(*pos);
+                if d <= atk_range && best.as_ref().map_or(true, |(_, bd)| d < *bd) {
+                    best = Some((*e, d));
+                }
+            }
+            if let Some((enemy, _)) = best {
+                attacks.push((entity, Some(enemy), attack, SoldierType::Cavalry, soldier.level, fearless.is_some(), my_pos));
+            }
+        } else if let Some(target) = soldier.target {
+            attacks.push((entity, Some(target), attack, soldier.soldier_type, soldier.level, fearless.is_some(), transform.translation.xy()));
         }
     }
 
     // Phase 2: Process attacks
-    for (attacker_entity, target_entity, attack_power, stype, level, has_fearless, attacker_pos) in attacks {
+    for (attacker_entity, target_opt, attack_power, stype, level, has_fearless, attacker_pos) in attacks {
+        let Some(target_entity) = target_opt else { continue; };
         // Read target data
         let (target_health, target_max_health, target_st, target_origin, target_faction, target_pos) = {
             if let Ok((_, target, target_transform, _)) = query.get(target_entity) {

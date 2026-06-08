@@ -93,6 +93,15 @@ pub fn soldier_attack_range(soldier_type: SoldierType) -> f32 {
     }
 }
 
+/// Range at which a soldier will seek out enemies to engage (larger than attack range for melee)
+pub fn soldier_aggression_range(soldier_type: SoldierType) -> f32 {
+    match soldier_type {
+        SoldierType::Archer => 600.0,   // same as attack range
+        SoldierType::Cavalry => 200.0,  // fast, wide awareness
+        _ => 150.0,                      // Militia, Infantry
+    }
+}
+
 pub const ATTACK_INTERVAL: f32 = 0.5;
 
 pub fn soldier_spawn_speed_multiplier(soldier_type: SoldierType) -> f32 {
