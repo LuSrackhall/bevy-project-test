@@ -158,10 +158,10 @@
 
 ## 21. 验证与清理
 
-- [ ] 21.1 `cargo check --workspace` 全部通过，无编译错误
-- [ ] 21.2 `cargo test -p simulation` 全部通过（定点数/命令/系统单元测试）
+- [x] 21.1 `cargo check --workspace` 全部通过，无编译错误
+- [x] 21.2 `cargo test -p simulation` 全部通过（定点数/命令/系统单元测试）
 - [ ] 21.3 `cargo run` 启动游戏进入主菜单 → 单人模式 → 城池生成 → 产兵 → 框选移动 → 战斗 → AI 行为 → 暂停/结算 全部可用
 - [ ] 21.4 验证定点数精度：士兵移动 1000 像素后位置与预期偏差 < 1 像素（Fixed 精度误差）
 - [ ] 21.5 验证确定性：相同种子 + 相同命令序列运行两次 → 最终 state 完全一致
-- [ ] 21.6 删除旧 `src/` 下已迁移的模块文件（`core/`、`map/`、`city/`、`soldier/`、`combat/`、`ai/`、`camera/`、`input/`、`ui/`、`game/`）
-- [ ] 21.7 清理旧 Cargo.toml 中不再需要的依赖（game crate 消除后，检查 bevy/bevy_prototype_lyon/rand 的引用位置）
+- [x] 21.6 删除旧 `src/` 下已迁移的模块文件（`core/`、`map/`、`city/`、`soldier/`、`combat/`、`ai/`、`camera/`、`input/`、`ui/`、`game/`）
+- [x] 21.7 清理旧 Cargo.toml 中不再需要的依赖（game crate 消除后，检查 bevy/bevy_prototype_lyon/rand 的引用位置）
