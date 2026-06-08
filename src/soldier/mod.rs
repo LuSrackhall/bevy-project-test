@@ -155,32 +155,39 @@ fn soldier_city_interaction_system(
     let mut origin_decrements: Vec<Entity> = Vec::new();
 
     for (soldier_entity, soldier_transform, soldier) in soldier_query.iter() {
-        for (_city_entity, mut city, city_transform) in city_query.iter_mut() {
+        for (city_entity, mut city, city_transform) in city_query.iter_mut() {
             let dist = soldier_transform.translation.xy()
                 .distance(city_transform.translation.xy());
             let threshold = city.visual_radius;
             if dist > threshold { continue; }
 
             if soldier.faction != city.faction {
+                // Enemy/neutral city: always auto-attack
                 let damage = city_damage_per_soldier(soldier.attack);
                 city.health -= damage;
                 city.last_attacker_faction = Some(soldier.faction);
             } else {
-                if city.health < city.max_health {
-                    let heal = city_heal_amount(city.max_health, city.health);
-                    city.health = (city.health + heal).min(city.max_health);
-                } else if city.level < city.max_level {
-                    let exp_gain = city_level_up_gain(city.max_health);
-                    city.level_exp += exp_gain;
-                    let required = city_level_up_exp(city.max_health);
-                    if city.level_exp >= required {
-                        city.level_exp -= required;
-                        city.level += 1;
-                        city.max_health = city_max_health(city.level);
-                        city.health = city.max_health;
-                        city.max_population = city_max_population(city.level, &mut rand::thread_rng());
-                        city.visual_radius = 20.0 + city.level as f32 * 5.0;
+                // Friendly city: only interact if explicitly commanded (soldier.target points to this city)
+                if soldier.target == Some(city_entity) {
+                    if city.health < city.max_health {
+                        let heal = city_heal_amount(city.max_health, city.health);
+                        city.health = (city.health + heal).min(city.max_health);
+                    } else if city.level < city.max_level {
+                        let exp_gain = city_level_up_gain(city.max_health);
+                        city.level_exp += exp_gain;
+                        let required = city_level_up_exp(city.max_health);
+                        if city.level_exp >= required {
+                            city.level_exp -= required;
+                            city.level += 1;
+                            city.max_health = city_max_health(city.level);
+                            city.health = city.max_health;
+                            city.max_population = city_max_population(city.level, &mut rand::thread_rng());
+                            city.visual_radius = 20.0 + city.level as f32 * 5.0;
+                        }
                     }
+                } else {
+                    // Soldier just passing through friendly city — skip
+                    continue;
                 }
             }
 
