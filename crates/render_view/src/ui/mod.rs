@@ -11,6 +11,7 @@ impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
         app
             .init_resource::<hud::SelectedCity>()
+            .init_resource::<hud::HudTexts>()
             .add_systems(OnEnter(crate::GameState::MainMenu), menu::setup_main_menu)
             .add_systems(OnExit(crate::GameState::MainMenu), menu::cleanup_main_menu)
             .add_systems(Update, menu::menu_button_system.run_if(in_state(crate::GameState::MainMenu)))

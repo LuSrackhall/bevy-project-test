@@ -12,7 +12,6 @@ impl Plugin for PresentationPlugin {
             .add_systems(Update, (
                 crate::interpolation::compute_alpha_system,
                 crate::interpolation::interpolate_positions_system,
-                crate::binding::bind_new_entities_system,
             ));
     }
 }

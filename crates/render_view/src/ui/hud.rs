@@ -28,7 +28,8 @@ pub(crate) struct HudTexts {
 #[derive(Component)] pub(crate) struct HpFill;
 #[derive(Component)] pub struct SoldierTypeButton(pub SoldierType);
 
-pub fn setup_hud(mut commands: Commands, mut hud_text: ResMut<HudTexts>) {
+pub fn setup_hud(mut commands: Commands) {
+    let mut hud_text = HudTexts::default();
     commands.spawn((Node { width: Val::Percent(100.0), height: Val::Percent(100.0),
         flex_direction: FlexDirection::Column, justify_content: JustifyContent::SpaceBetween, ..default() },
         HudRoot,
@@ -108,7 +109,7 @@ pub fn setup_hud(mut commands: Commands, mut hud_text: ResMut<HudTexts>) {
         });
     });
 
-    commands.insert_resource(HudTexts::default());
+    commands.insert_resource(hud_text);
 }
 
 #[derive(Component)]

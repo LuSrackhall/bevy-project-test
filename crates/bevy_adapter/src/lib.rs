@@ -20,10 +20,10 @@ impl Plugin for BevyAdapterPlugin {
             .init_resource::<CommandBuffer>()
             .init_resource::<PendingEvents>()
             .init_resource::<ForceMoveNext>()
+            .add_systems(Startup, crate::lifecycle::backfill_entities_system)
             .add_systems(Update, (
                 crate::tick::tick_driver_system,
                 crate::lifecycle::sync_entities_system,
-                crate::lifecycle::backfill_entities_system,
             ));
     }
 }

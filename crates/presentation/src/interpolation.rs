@@ -1,16 +1,5 @@
 use bevy::prelude::*;
-
-/// Smoothed visual position computed each frame.
-#[derive(Component)]
-pub struct PresentationPosition(pub Vec2);
-
-/// Historical positions for interpolation between ticks.
-#[derive(Component)]
-pub struct InterpolationData {
-    pub previous_logical_pos: Vec2,
-    pub current_logical_pos: Vec2,
-    pub is_new: bool,
-}
+use bevy_adapter::binding::{PresentationPosition, InterpolationData};
 
 /// Global interpolation factor [0, 1) — how far we are from the last tick toward the next.
 #[derive(Resource, Default)]
@@ -27,10 +16,7 @@ pub fn compute_alpha_system(
 /// Each frame: interpolate positions and write PresentationPosition.
 pub fn interpolate_positions_system(
     alpha: Res<RenderInterpolationAlpha>,
-    mut render_query: Query<(
-        &mut PresentationPosition,
-        &InterpolationData,
-    )>,
+    mut render_query: Query<(&mut PresentationPosition, &InterpolationData)>,
 ) {
     let t = alpha.0;
     for (mut pres_pos, interp) in render_query.iter_mut() {
