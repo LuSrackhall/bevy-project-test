@@ -105,3 +105,42 @@ pub fn run_tick(world: &mut World, tick_number: u32) -> SimulationEvents {
     let events = world.resource::<SimulationEvents>().clone();
     events
 }
+
+#[cfg(test)]
+mod integration_tests {
+    use super::*;
+
+    #[test]
+    fn test_init_simulation_world_parses_all_configs() {
+        let world = init_simulation_world(42);
+        // Verify all configs loaded
+        assert!(world.get_resource::<SoldierConfig>().is_some());
+        assert!(world.get_resource::<CityGlobalConfig>().is_some());
+        assert!(world.get_resource::<CombatGlobalConfig>().is_some());
+        assert!(world.get_resource::<MapGenConfig>().is_some());
+        // Verify core resources
+        assert!(world.get_resource::<DeterministicRng>().is_some());
+        assert!(world.get_resource::<IdGenerator>().is_some());
+        assert!(world.get_resource::<CommandBuffer>().is_some());
+    }
+
+    #[test]
+    fn test_map_generation_creates_cities() {
+        let mut world = init_simulation_world(42);
+        map::generate_map(&mut world);
+        // Verify cities were created
+        let mut query = world.query::<(&soldier::CityComponent,)>();
+        let count = query.iter(&mut world).count();
+        assert!(count >= 6, "Expected at least 6 cities, got {}", count);
+    }
+
+    #[test]
+    fn test_soldier_config_values() {
+        let world = init_simulation_world(42);
+        let config = world.resource::<SoldierConfig>();
+        let militia = config.get(SoldierType::Militia);
+        assert_eq!(militia.health, 100);
+        assert_eq!(militia.attack, 16);
+        assert_eq!(militia.speed, 80);
+    }
+}
