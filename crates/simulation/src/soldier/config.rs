@@ -15,6 +15,72 @@ pub struct SoldierUnitConfig {
     pub aggression_range: u32,
     pub attack_interval_ticks: u32,
     pub spawn_speed_mult: f32,
+    // Archer-specific fields (serde default for non-archer types)
+    #[serde(default = "default_arrow_speed")]
+    pub arrow_speed: u32,
+    #[serde(default = "default_range_base")]
+    pub attack_range_base: u32,
+    #[serde(default = "default_range_max")]
+    pub attack_range_max: u32,
+    #[serde(default = "default_range_max_level")]
+    pub attack_range_max_level: u32,
+    #[serde(default = "default_overshoot_base")]
+    pub overshoot_base: u32,
+    #[serde(default = "default_overshoot_per_level")]
+    pub overshoot_per_level: u32,
+    #[serde(default = "default_pierce_base")]
+    pub pierce_base_chance: f32,
+    #[serde(default = "default_pierce_per_level")]
+    pub pierce_per_level: f32,
+    #[serde(default = "default_pierce_unlock")]
+    pub pierce_unlock_level: u32,
+}
+
+fn default_arrow_speed() -> u32 { 40 }
+fn default_range_base() -> u32 { 380 }
+fn default_range_max() -> u32 { 600 }
+fn default_range_max_level() -> u32 { 4 }
+fn default_overshoot_base() -> u32 { 20 }
+fn default_overshoot_per_level() -> u32 { 20 }
+fn default_pierce_base() -> f32 { 0.05 }
+fn default_pierce_per_level() -> f32 { 0.02 }
+fn default_pierce_unlock() -> u32 { 2 }
+
+impl SoldierUnitConfig {
+    /// Compute attack range for archers based on level.
+    pub fn compute_attack_range(&self, level: u32) -> u32 {
+        let lvl = level.min(self.attack_range_max_level);
+        let base = self.attack_range_base as u32;
+        let range = self.attack_range_max - self.attack_range_base;
+        let steps = self.attack_range_max_level - 1;
+        if steps == 0 { return base; }
+        base + (lvl - 1) * range / steps
+    }
+
+    /// Compute overshoot distance based on level.
+    pub fn compute_overshoot(&self, level: u32) -> u32 {
+        self.overshoot_base + level.saturating_sub(1) * self.overshoot_per_level
+    }
+
+    /// Compute flight ticks for an arrow based on level.
+    pub fn compute_flight_ticks(&self, level: u32) -> u32 {
+        let total_distance = self.compute_attack_range(level) + self.compute_overshoot(level);
+        if self.arrow_speed == 0 { return 10; }
+        (total_distance + self.arrow_speed - 1) / self.arrow_speed // ceil division
+    }
+
+    /// Max flight ticks (used for precomputation).
+    pub fn max_flight_ticks(&self) -> u32 {
+        let max_dist = self.attack_range_max + self.overshoot_base + (self.attack_range_max_level - 1) * self.overshoot_per_level;
+        if self.arrow_speed == 0 { return 17; }
+        (max_dist + self.arrow_speed - 1) / self.arrow_speed
+    }
+
+    /// Pierce chance for given level.
+    pub fn compute_pierce_chance(&self, level: u32) -> f32 {
+        if level < self.pierce_unlock_level { return 0.0; }
+        (self.pierce_base_chance + (level - self.pierce_unlock_level) as f32 * self.pierce_per_level).max(0.0)
+    }
 }
 
 /// Full soldier configuration, indexed by soldier type.

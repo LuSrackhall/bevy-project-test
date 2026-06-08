@@ -80,25 +80,22 @@ pub fn run_tick(world: &mut World, tick_number: u32) -> SimulationEvents {
     // Phase 8: Melee attacks
     combat::melee_attack_system(world);
 
-    // Phase 9: Archer attacks
+    // Phase 9: Archer attacks (direction-based)
     combat::archer_attack_system(world);
 
-    // Phase 10: Arrow hits
-    combat::arrow_hit_system(world);
+    // Phase 10: Arrow movement (flight + collision + decay)
+    combat::arrow_movement_system(world);
 
-    // Phase 11: Arrow expiration
-    combat::arrow_expire_system(world);
-
-    // Phase 12: Slow debuff ticks
+    // Phase 11: Slow debuff ticks
     soldier::slow_debuff_tick_system(world);
 
-    // Phase 13: Fearless buff ticks
+    // Phase 12: Fearless buff ticks
     soldier::fearless_buff_tick_system(world);
 
-    // Phase 14: Soldier level up
+    // Phase 13: Soldier level up
     soldier::soldier_level_up_system(world);
 
-    // Phase 15: AI decision
+    // Phase 14: AI decision
     ai::ai_decide(world, tick_number);
 
     // Extract and return events

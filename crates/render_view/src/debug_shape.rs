@@ -57,22 +57,28 @@ pub fn draw_debug_shapes_system(
         }
     }
 
-    // Draw arrows — bright yellow circles with direction lines toward targets
+    // Draw arrows — bright yellow, with decay-phase alpha/shrink
     {
         let mut query = world.query::<(&LogicalPosition, &Arrow)>();
         for (pos, arrow) in query.iter(world) {
             let p = Vec2::new(pos.0.x.to_float(), pos.0.y.to_float());
-            // Bright yellow for visibility
-            let color = Color::srgb(1.0, 0.93, 0.2);
 
-            // Draw arrow as circle
-            gizmos.circle_2d(p, 4.0, color);
+            // In decay phase: shrink and fade; in flight: full bright yellow
+            let (radius, alpha) = if arrow.decay_remaining > 0 {
+                let t = arrow.decay_remaining as f32 / simulation::combat::ARROW_DECAY_TICKS as f32;
+                (1.0 + 3.0 * t, 0.3 + 0.7 * t)
+            } else {
+                (4.0, 1.0)
+            };
+            let color = Color::srgba(1.0, 0.93, 0.2, alpha);
 
-            // Direction line toward target
-            if let Some(&target_pos) = positions.get(&arrow.target) {
-                let dir = (target_pos - p).normalize_or_zero();
-                gizmos.line_2d(p, p + dir * 8.0, color);
-            }
+            // Circle
+            gizmos.circle_2d(p, radius, color);
+
+            // Direction line (shorter in decay)
+            let dir_len = if arrow.decay_remaining > 0 { 4.0 } else { 10.0 };
+            let dir = Vec2::new(arrow.direction.x.to_float(), arrow.direction.y.to_float()).normalize_or_zero();
+            gizmos.line_2d(p, p + dir * dir_len, color);
         }
     }
 }
