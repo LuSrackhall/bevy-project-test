@@ -134,7 +134,9 @@ pub fn soldier_movement_system(world: &mut World) {
 
     {
         let mut q = world.query::<(Entity, &LogicalPosition, &Movement, &SoldierTypeComponent, &SoldierStateComponent, Option<&SlowDebuff>, Option<&ShieldComponent>)>();
-        for (e, pos, mov, st, _sst, slow, shield) in q.iter(world) {
+        for (e, pos, mov, st, sst, slow, shield) in q.iter(world) {
+            // Skip movement if Fighting (archers shooting, melee engaging)
+            if sst.0 == SoldierState::Fighting { continue; }
             let mut speed = mov.speed as f32;
             if let Some(sl) = slow {
                 let sc = &combat_config.slow_debuff;

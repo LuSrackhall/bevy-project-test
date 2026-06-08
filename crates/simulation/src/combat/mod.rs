@@ -34,8 +34,8 @@ pub struct ArrowMarker;
 
 /// Decay duration in ticks: 20 ticks at 20Hz = 1 second.
 pub const ARROW_DECAY_TICKS: u32 = 20;
-/// Collision radius for arrow hits, in internal units.
-const ARROW_HIT_RADIUS: i64 = 15 * FIXED_ONE; // 15 units
+/// Collision radius for arrow hits — must be >= arrow_speed (40) to prevent tunneling.
+const ARROW_HIT_RADIUS: i64 = 45 * FIXED_ONE; // 45 units > arrow_speed(40)
 
 const FIXED_ONE: i64 = 256;
 
@@ -285,7 +285,11 @@ pub fn archer_attack_system(world: &mut World) {
             }
         }
 
-        let Some((target_id, target_pos)) = nearest else { continue };
+        let Some((target_id, target_pos)) = nearest else {
+            // No enemy in range — restore Moving state
+            world.entity_mut(ad.entity).insert(SoldierStateComponent(SoldierState::Moving));
+            continue;
+        };
 
         // Compute flight direction and ticks
         let delta = target_pos - ad.pos;
@@ -316,8 +320,9 @@ pub fn archer_attack_system(world: &mut World) {
         let mut events = world.resource_mut::<SimulationEvents>();
         events.spawned.push(UnitSpawned { unit_id: aid, pos: ad.pos, faction: ad.faction, unit_kind: UnitKind::Arrow });
 
-        // Reset cooldown
+        // Reset cooldown and set Fighting state (prevents movement while shooting)
         world.entity_mut(ad.entity).insert(Attack { damage: ad.dmg, range: ad.range, interval_ticks: ad.interval, cooldown_remaining: ad.interval });
+        world.entity_mut(ad.entity).insert(SoldierStateComponent(SoldierState::Fighting));
     }
 }
 
@@ -344,7 +349,7 @@ pub fn arrow_movement_system(world: &mut World) {
 
     // Process each arrow
     {
-        let threshold = Fixed::from_int(15);
+        let threshold = Fixed(ARROW_HIT_RADIUS);
         let threshold_sq = threshold * threshold;
         let mut q = world.query::<(Entity, &mut LogicalPosition, &mut Arrow)>();
         for (ae, mut arrow_pos, mut arrow) in q.iter_mut(world) {
