@@ -1,29 +1,15 @@
 // content/map.ron
 // ═══════════════════════════════════════════════════════════════
-// 地图生成配置格式说明
-// ═══════════════════════════════════════════════════════════════
-//
+// 地图生成配置 — RON struct 格式
 // 修改后重启游戏生效，无需重新编译。
-// 随机种子由游戏启动参数或固定值指定，不影响配置。
-//
-// 字段说明：
-//   width, height:           地图尺寸 (内部单位)
-//   min_cities, max_cities:  城池总数范围 [min, max]
-//   city_min_distance:       城池间最小间距。若迭代 100 次无法
-//                            满足，则放宽此限制
-//   margin:                  城池距地图边缘的最小距离
-//   neutral_city_ratio:      中立城池占总城池数的比例范围 [min, max]
-//   city_level_range:        城池最高等级范围 [min, max]
-//                            实际每座城池在此范围内随机
 // ═══════════════════════════════════════════════════════════════
-
-{
-    "width": 2000,
-    "height": 2000,
-    "min_cities": 6,
-    "max_cities": 20,
-    "city_min_distance": 250,
-    "margin": 150,
-    "neutral_city_ratio": [0.3, 0.5],
-    "city_level_range": [3, 7],
-}
+(
+    width: 2000,
+    height: 2000,
+    min_cities: 6,
+    max_cities: 20,
+    city_min_distance: 250,
+    margin: 150,
+    neutral_city_ratio: [0.3, 0.5],
+    city_level_range: [3, 7],
+)
