@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use bevy::window::WindowResolution;
+use bevy_prototype_lyon::prelude::*;
 
 use bevy_adapter::BevyAdapterPlugin;
 use bevy_adapter::tick::SimulationWorld;
@@ -24,10 +25,9 @@ fn main() {
                 }),
                 ..default()
             }),
+            ShapePlugin,
         ))
         .insert_non_send_resource(init_sim_world())
-        .add_plugins(BevyAdapterPlugin)
-        .add_plugins(PresentationPlugin)
-        .add_plugins(RenderViewPlugin)
+        .add_plugins((BevyAdapterPlugin, PresentationPlugin, RenderViewPlugin))
         .run();
 }
