@@ -1,0 +1,11 @@
+[package]
+name = "render_view"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+simulation = { path = "../simulation" }
+bevy_adapter = { path = "../bevy_adapter" }
+presentation = { path = "../presentation" }
+bevy = "0.18"
+bevy_prototype_lyon = "0.16"

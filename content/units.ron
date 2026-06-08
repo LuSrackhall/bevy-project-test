@@ -1,0 +1,67 @@
+// content/units.ron
+// ═══════════════════════════════════════════════════════════════
+// 兵种配置格式说明
+// ═══════════════════════════════════════════════════════════════
+//
+// 文件结构：顶层为 Ron 对象，每个 key 对应一个兵种类型。
+//
+// 字段说明（所有数值均为游戏内部单位，非像素值）：
+//   health:             生命值 (1 ~ 10000)
+//   attack:             基础攻击力 (1 ~ 10000)
+//   speed:              移动速度 (内部单位/Tick, 1 ~ 500)
+//                       20Hz 下 80 speed ≈ 每秒移动约 80 像素
+//   attack_range:       攻击距离 (内部单位, 1 ~ 2000)
+//   aggression_range:   主动索敌距离 (内部单位)，单位在该半径内
+//                       发现敌人时自动接战
+//   attack_interval_ticks: 攻击冷却间隔 (Tick 数)
+//                       20Hz 下 10 Ticks = 0.5 秒
+//   spawn_speed_mult:   城池产兵速度倍率 (0.1 ~ 10.0)
+//                       值越大产兵越快
+//
+// 新增兵种：
+//   1. 复制一个现有条目
+//   2. 修改 key 名为新兵种名（snake_case）
+//   3. 在 simulation 代码的 SoldierType 枚举中添加对应变体
+//   4. 重启游戏即可生效
+//
+// 修改数值：直接编辑后重启游戏，无需重新编译。
+// ═══════════════════════════════════════════════════════════════
+
+{
+    "militia": {
+        "health": 100,
+        "attack": 16,
+        "speed": 80,
+        "attack_range": 30,
+        "aggression_range": 150,
+        "attack_interval_ticks": 10,
+        "spawn_speed_mult": 1.0,
+    },
+    "infantry": {
+        "health": 100,
+        "attack": 20,
+        "speed": 80,
+        "attack_range": 30,
+        "aggression_range": 150,
+        "attack_interval_ticks": 10,
+        "spawn_speed_mult": 0.5,
+    },
+    "archer": {
+        "health": 100,
+        "attack": 20,
+        "speed": 80,
+        "attack_range": 600,
+        "aggression_range": 600,
+        "attack_interval_ticks": 10,
+        "spawn_speed_mult": 0.5,
+    },
+    "cavalry": {
+        "health": 140,
+        "attack": 20,
+        "speed": 200,
+        "attack_range": 30,
+        "aggression_range": 200,
+        "attack_interval_ticks": 10,
+        "spawn_speed_mult": 0.3,
+    },
+}

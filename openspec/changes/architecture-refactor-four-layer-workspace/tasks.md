@@ -1,19 +1,19 @@
 ## 1. Workspace 基础设施搭建
 
-- [ ] 1.1 将根 `Cargo.toml` 改为 `[workspace]` 格式，`members = ["crates/*"]`，设置 `resolver = "2"`
-- [ ] 1.2 创建 `crates/simulation/Cargo.toml`：依赖 `bevy_ecs`（default-features=false）、`serde`+`derive`、`ron`、`rand`（no_std compatible features）
-- [ ] 1.3 创建 `crates/bevy_adapter/Cargo.toml`：依赖 `simulation`（path）、`bevy`（完整版）
-- [ ] 1.4 创建 `crates/presentation/Cargo.toml`：依赖 `simulation`（path）、`bevy_adapter`（path）、`bevy`
-- [ ] 1.5 创建 `crates/render_view/Cargo.toml`：依赖 `presentation`（path）、`bevy`、`bevy_prototype_lyon`
-- [ ] 1.6 创建每个 crate 的 `src/lib.rs` 骨架文件
-- [ ] 1.7 验证 workspace 全量编译：`cargo check --workspace` 通过（即使各 crate 为空）
+- [x] 1.1 将根 `Cargo.toml` 改为 `[workspace]` 格式，`members = ["crates/*"]`，设置 `resolver = "2"`
+- [x] 1.2 创建 `crates/simulation/Cargo.toml`：依赖 `bevy_ecs`（default-features=false）、`serde`+`derive`、`ron`、`rand`（no_std compatible features）
+- [x] 1.3 创建 `crates/bevy_adapter/Cargo.toml`：依赖 `simulation`（path）、`bevy`（完整版）
+- [x] 1.4 创建 `crates/presentation/Cargo.toml`：依赖 `simulation`（path）、`bevy_adapter`（path）、`bevy`
+- [x] 1.5 创建 `crates/render_view/Cargo.toml`：依赖 `presentation`（path）、`bevy`、`bevy_prototype_lyon`
+- [x] 1.6 创建每个 crate 的 `src/lib.rs` 骨架文件
+- [x] 1.7 验证 workspace 全量编译：`cargo check --workspace` 通过（即使各 crate 为空）
 
 ## 2. content/ 配置文件
 
-- [ ] 2.1 创建 `content/units.ron`：包含 militia/infantry/archer/cavalry 全部字段 + 文件头注释说明格式与修改方式
-- [ ] 2.2 创建 `content/cities.ron`：包含城池参数 + aura 子对象 + 文件头注释
-- [ ] 2.3 创建 `content/combat.ron`：包含 shield/cavalry/archer_multi_shot/slow_debuff/level_up/fearless 全部子对象 + 文件头注释
-- [ ] 2.4 创建 `content/map.ron`：包含地图生成参数 + 文件头注释
+- [x] 2.1 创建 `content/units.ron`：包含 militia/infantry/archer/cavalry 全部字段 + 文件头注释说明格式与修改方式
+- [x] 2.2 创建 `content/cities.ron`：包含城池参数 + aura 子对象 + 文件头注释
+- [x] 2.3 创建 `content/combat.ron`：包含 shield/cavalry/archer_multi_shot/slow_debuff/level_up/fearless 全部子对象 + 文件头注释
+- [x] 2.4 创建 `content/map.ron`：包含地图生成参数 + 文件头注释
 
 ## 3. simulation crate — 核心类型与命令体系
 

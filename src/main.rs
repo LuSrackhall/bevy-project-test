@@ -1,30 +1,26 @@
-mod core;
-mod map;
-mod city;
-mod soldier;
-mod combat;
-mod camera;
-mod input;
-mod ui;
-mod ai;
-mod game;
-
 use bevy::prelude::*;
 use bevy::window::WindowResolution;
-use bevy_prototype_lyon::prelude::*;
 
-use core::*;
-use map::MapPlugin;
-use city::CityPlugin;
-use soldier::SoldierPlugin;
-use combat::CombatPlugin;
-use camera::CameraPlugin;
-use input::InputPlugin;
-use ui::UiPlugin;
-use ai::AiPlugin;
-use game::GamePlugin;
+use bevy_adapter::BevyAdapterPlugin;
+use bevy_adapter::tick::SimulationWorld;
+use presentation::PresentationPlugin;
+use render_view::RenderViewPlugin;
+
+// Keep old state for now
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, States, Default)]
+pub enum GameState {
+    #[default]
+    MainMenu,
+    Playing,
+    Paused,
+    GameOver,
+}
 
 fn main() {
+    // Initialize simulation world with map
+    let mut sim_world = simulation::init_simulation_world(42);
+    simulation::map::generate_map(&mut sim_world);
+
     App::new()
         .add_plugins((
             DefaultPlugins.set(WindowPlugin {
@@ -35,18 +31,11 @@ fn main() {
                 }),
                 ..default()
             }),
-            ShapePlugin,
         ))
         .init_state::<GameState>()
-        .init_resource::<GameConfig>()
-        .add_plugins(MapPlugin)
-        .add_plugins(CityPlugin)
-        .add_plugins(SoldierPlugin)
-        .add_plugins(CombatPlugin)
-        .add_plugins(CameraPlugin)
-        .add_plugins(InputPlugin)
-        .add_plugins(UiPlugin)
-        .add_plugins(AiPlugin)
-        .add_plugins(GamePlugin)
+        .insert_non_send_resource(SimulationWorld(sim_world))
+        .add_plugins(BevyAdapterPlugin)
+        .add_plugins(PresentationPlugin)
+        .add_plugins(RenderViewPlugin)
         .run();
 }

@@ -1,0 +1,41 @@
+// content/cities.ron
+// ═══════════════════════════════════════════════════════════════
+// 城池配置格式说明
+// ═══════════════════════════════════════════════════════════════
+//
+// 数值修改后重启游戏生效，无需重新编译。
+//
+// 字段说明：
+//   level_hp_multiplier:    每级生命值 = level × 此值
+//   base_population_per_level: 基础人口 / 级，实际总人口在此基础上
+//                            加随机浮动（由地图生成器决定）
+//   visual_radius_base:     基础视觉半径（用于触碰检测和渲染）
+//   visual_radius_per_level: 每级额外视觉半径
+//   heal_ratio:             士兵回城时恢复的 HP 比例（0.0 ~ 1.0）
+//   level_up_cost_multiplier: 升级所需经验 = max_health × 此值
+//   level_up_gain_ratio:    回城士兵贡献的经验比例
+//   capture_hp_ratio:       城池被占领后恢复至 max_health × 此值
+//
+//   aura:
+//     base_radius:          光环基础半径（内部单位）
+//     spawn_dir_radius:     产兵方向光环额外半径
+//     base_heal:            基础治疗量 / Tick
+//     per_level_heal:       每级额外治疗量
+// ═══════════════════════════════════════════════════════════════
+
+{
+    "level_hp_multiplier": 100,
+    "base_population_per_level": 12,
+    "visual_radius_base": 15.0,
+    "visual_radius_per_level": 3.0,
+    "heal_ratio": 0.30,
+    "level_up_cost_multiplier": 100.0,
+    "level_up_gain_ratio": 0.30,
+    "capture_hp_ratio": 0.20,
+    "aura": {
+        "base_radius": 180,
+        "spawn_dir_radius": 300,
+        "base_heal": 10,
+        "per_level_heal": 1,
+    },
+}
