@@ -1,5 +1,6 @@
 use bevy::prelude::*;
-use simulation::command::CommandBuffer;
+use simulation::command::{CommandBuffer, GameCommand};
+use simulation::SimulationEvents;
 
 /// Drives the fixed-tick simulation loop.
 #[derive(Resource)]
@@ -20,10 +21,10 @@ impl Default for TickClock {
 #[derive(Resource)]
 pub struct SimulationWorld(pub simulation::World);
 
-/// Tick driver system — runs every Bevy frame, executes simulation ticks as needed.
-pub fn tick_driver(world: &mut World) {
-    // We need split World access: read Bevy time, access simulation world
-    // Use a system that operates on the Bevy World at the schedule level.
+/// Pending events from the last simulation tick, to be consumed by lifecycle systems.
+#[derive(Resource, Default, Clone)]
+pub struct PendingEvents {
+    pub events: Vec<SimulationEvents>,
 }
 
 /// System that runs each frame and drives the simulation.
@@ -32,17 +33,32 @@ pub fn tick_driver_system(
     mut tick_clock: ResMut<TickClock>,
     mut sim_world: NonSendMut<SimulationWorld>,
     mut cmd_buf: ResMut<CommandBuffer>,
+    mut pending: ResMut<PendingEvents>,
 ) {
     tick_clock.accumulator += time.delta_secs();
+    pending.events.clear();
 
     while tick_clock.accumulator >= tick_clock.tick_duration {
         tick_clock.accumulator -= tick_clock.tick_duration;
         tick_clock.current_tick += 1;
 
-        let events = simulation::run_tick(&mut sim_world.0, tick_clock.current_tick);
+        // Copy Bevy-side commands into simulation world before tick
+        let commands_for_tick: Vec<GameCommand> = cmd_buf.0
+            .iter()
+            .filter(|c| c.tick == tick_clock.current_tick)
+            .cloned()
+            .collect();
+        {
+            let mut sim_cmds = sim_world.0.resource_mut::<simulation::command::CommandBuffer>();
+            for cmd in commands_for_tick {
+                sim_cmds.0.push(cmd);
+            }
+        }
 
-        // Store events back for lifecycle systems to consume
-        // (events are already in the simulation world — lifecycle reads them there)
-        let _ = events;
+        // Remove consumed commands from Bevy buffer
+        cmd_buf.0.retain(|c| c.tick > tick_clock.current_tick);
+
+        let events = simulation::run_tick(&mut sim_world.0, tick_clock.current_tick);
+        pending.events.push(events);
     }
 }

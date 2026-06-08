@@ -1,35 +1,58 @@
 use bevy::prelude::*;
 use simulation::events::*;
-use simulation::types::*;
+use simulation::soldier::*;
 use crate::mapper::UnitIdMapper;
+use crate::tick::PendingEvents;
+use crate::binding::LogicEntityRef;
 
-/// Sync spawned units from simulation to Bevy entities.
-pub fn sync_spawn_system(
+/// Sync simulation entities to Bevy entities based on pending tick events.
+pub fn sync_entities_system(
     mut commands: Commands,
     mut mapper: ResMut<UnitIdMapper>,
+    mut pending: ResMut<PendingEvents>,
 ) {
-    // This system is called after tick_driver has run.
-    // Events are in the simulation world — we need a bridge.
-    // For now, placeholder: the actual sync happens in the tick_driver.
+    for events in pending.events.drain(..) {
+        // Spawn new entities
+        for ev in &events.spawned {
+            if mapper.entity_of(ev.unit_id).is_some() { continue; }
+
+            let entity = commands.spawn((
+                LogicEntityRef(ev.unit_id),
+            )).id();
+            mapper.register(ev.unit_id, entity);
+        }
+
+        // Despawn destroyed entities
+        for ev in &events.destroyed {
+            if let Some(entity) = mapper.entity_of(ev.unit_id) {
+                commands.entity(entity).despawn();
+                mapper.unregister(entity);
+            }
+        }
+    }
 }
 
-/// Sync destroyed units.
-pub fn sync_destroy_system(
+/// Backfill: sync any simulation entities that exist but have no Bevy counterpart.
+/// Runs every frame but is cheap after first run (entities already registered).
+pub fn backfill_entities_system(
     mut commands: Commands,
     mut mapper: ResMut<UnitIdMapper>,
+    mut sim_world: bevy::ecs::system::NonSendMut<crate::tick::SimulationWorld>,
+    mut has_run: Local<bool>,
 ) {
-    // Placeholder
-}
+    let world = &mut sim_world.0;
+    let to_spawn: Vec<simulation::types::UnitId> = {
+        let mut query = world.query::<(Entity, &UnitIdComponent)>();
+        query.iter(world)
+            .filter(|(_, id)| mapper.entity_of(id.0).is_none())
+            .map(|(_, id)| id.0)
+            .collect()
+    };
 
-/// Listen for city captured events for HUD updates (placeholder).
-pub fn sync_city_captured_system() {
-    // HUD refresh triggered by Changed<CityComponent> in render_view
-}
+    for unit_id in to_spawn {
+        let entity = commands.spawn((LogicEntityRef(unit_id),)).id();
+        mapper.register(unit_id, entity);
+    }
 
-/// Bevy event mirroring simulation events (for cross-layer communication).
-#[derive(Event, Clone)]
-pub struct CityCapturedEvent {
-    pub city_id: UnitId,
-    pub old_faction: Faction,
-    pub new_faction: Faction,
+    *has_run = true;
 }
