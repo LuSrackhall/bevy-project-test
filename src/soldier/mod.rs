@@ -111,10 +111,18 @@ impl SoldierBundle {
 
 fn soldier_movement_system(
     time: Res<Time>,
-    mut query: Query<(Entity, &mut Transform, &mut Soldier, Option<&SlowDebuff>, Option<&InfantryShield>)>,
-    target_query: Query<&Transform, Without<Soldier>>,
+    mut param_set: ParamSet<(
+        Query<(Entity, &Transform)>,
+        Query<(Entity, &mut Transform, &mut Soldier, Option<&SlowDebuff>, Option<&InfantryShield>)>,
+    )>,
 ) {
-    for (_entity, mut transform, mut soldier, slow, shield) in query.iter_mut() {
+    // Phase 1: collect all target positions (read-only access)
+    let targets: Vec<(Entity, Vec2)> = param_set.p0().iter()
+        .map(|(e, t)| (e, t.translation.xy()))
+        .collect();
+
+    // Phase 2: move soldiers (mutable access, targets already collected)
+    for (_entity, mut transform, mut soldier, slow, shield) in param_set.p1().iter_mut() {
         let mut speed = soldier.speed;
         if let Some(shield) = shield {
             if shield.0 == ShieldState::ShieldUp {
@@ -136,15 +144,18 @@ fn soldier_movement_system(
         };
 
         if let Some(target) = move_target {
-            if let Ok(target_transform) = target_query.get(target) {
-                let target_pos = target_transform.translation.xy();
+            if let Some(&(_, target_pos)) = targets.iter().find(|(e, _)| *e == target) {
                 let my_pos = transform.translation.xy();
                 let dist = my_pos.distance(target_pos);
 
                 if dist < 5.0 {
-                    // Reached destination
+                    // If fighting, don't clear target — just hold position and attack
+                    if soldier.state == SoldierState::Fighting {
+                        continue;
+                    }
+                    // Reached destination (waypoint/city)
                     if soldier.command_target == Some(target) {
-                        soldier.force_move = false; // arrival clears force-move
+                        soldier.force_move = false;
                     }
                     soldier.target = None;
                     soldier.command_target = None;
