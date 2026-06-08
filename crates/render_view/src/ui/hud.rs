@@ -142,11 +142,14 @@ pub fn update_top_bar(
     }
 }
 
-/// Update bottom panel with selected city info
+/// Update bottom panel with selected city info.
+/// Uses ParamSet for conflicting &mut Node queries (HpFill vs BottomPanel).
 pub fn update_bottom_panel(
     mut text_query: Query<&mut Text>,
-    mut hp_query: Query<(&mut Node, &mut BackgroundColor), With<HpFill>>,
-    mut panel_query: Query<&mut Node, With<BottomPanel>>,
+    mut node_params: ParamSet<(
+        Query<(&mut Node, &mut BackgroundColor), With<HpFill>>,
+        Query<&mut Node, With<BottomPanel>>,
+    )>,
     mut panel_visible: Local<bool>,
     hud_text: Res<HudTexts>,
     selected_city: Res<SelectedCity>,
@@ -154,14 +157,14 @@ pub fn update_bottom_panel(
 ) {
     if selected_city.0.is_none() {
         if *panel_visible {
-            for mut node in panel_query.iter_mut() { node.display = Display::None; }
+            for mut node in node_params.p1().iter_mut() { node.display = Display::None; }
             *panel_visible = false;
         }
         return;
     }
 
     if !*panel_visible {
-        for mut node in panel_query.iter_mut() { node.display = Display::Flex; }
+        for mut node in node_params.p1().iter_mut() { node.display = Display::Flex; }
         *panel_visible = true;
     }
 
@@ -179,7 +182,7 @@ pub fn update_bottom_panel(
         if let Ok(mut t) = text_query.get_mut(e) { t.0 = format!("HP {}/{}", city.health_current, city.health_max); }
     }
     if let Some(e) = hud_text.hp_fill {
-        if let Ok((mut node, mut bg)) = hp_query.get_mut(e) {
+        if let Ok((mut node, mut bg)) = node_params.p0().get_mut(e) {
             node.width = Val::Percent(ratio * 100.0);
             bg.0 = if ratio > 0.5 { Color::srgba(0.2, 0.8, 0.2, 1.0) } else { Color::srgba(0.9, 0.2, 0.2, 1.0) };
         }
