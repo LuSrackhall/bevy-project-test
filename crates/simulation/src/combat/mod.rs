@@ -3,7 +3,7 @@ pub mod config;
 use bevy_ecs::world::World;
 use bevy_ecs::entity::Entity;
 use bevy_ecs::component::Component;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use crate::types::*;
 use crate::events::*;
 use crate::soldier::*;
@@ -202,14 +202,19 @@ pub fn melee_attack_system(world: &mut World) {
         if let Some(mut lvl) = world.entity_mut(e).get_mut::<Level>() { lvl.exp += xp; }
     }
 
-    // Process deaths
+    // Process deaths (dedup by entity — same target may be killed by multiple attackers)
+    let mut seen = std::collections::HashSet::new();
     for (te, kid) in pending_deaths {
+        if seen.contains(&te) { continue; }
+        seen.insert(te);
         let uid = find_unit_id(world, te).unwrap_or(UnitId(0));
         world.despawn(te);
         let mut events = world.resource_mut::<SimulationEvents>();
         events.destroyed.push(UnitDestroyed { unit_id: uid, killer_id: kid });
     }
 }
+
+// ══════════ melee_attack (end) ══════════
 
 // ══════════ archer_attack ══════════
 
@@ -362,7 +367,10 @@ pub fn arrow_hit_system(world: &mut World) {
     for (e, x) in xp {
         if let Some(mut l) = world.entity_mut(e).get_mut::<Level>() { l.exp += x; }
     }
+    let mut seen = std::collections::HashSet::new();
     for (te, kid) in deaths {
+        if seen.contains(&te) { continue; }
+        seen.insert(te);
         let uid = find_unit_id(world, te).unwrap_or(UnitId(0));
         world.despawn(te);
         let mut ev = world.resource_mut::<SimulationEvents>();

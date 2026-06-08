@@ -3,7 +3,7 @@ pub mod config;
 use bevy_ecs::world::World;
 use bevy_ecs::entity::Entity;
 use bevy_ecs::component::Component;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use crate::types::*;
 use crate::events::*;
 use crate::command::*;
@@ -376,7 +376,10 @@ pub fn city_interaction_system(world: &mut World) {
         }
     }
 
+    let mut seen = std::collections::HashSet::new();
     for (se, _) in &to_despawn {
+        if seen.contains(se) { continue; }
+        seen.insert(*se);
         world.despawn(*se);
         let mut events = world.resource_mut::<SimulationEvents>();
         events.destroyed.push(UnitDestroyed { unit_id: UnitId(0), killer_id: None });
