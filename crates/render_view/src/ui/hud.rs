@@ -15,6 +15,7 @@ pub struct SelectedCity(pub Option<Entity>);
 pub(crate) struct HudTexts {
     cities_text: Option<Entity>,
     pop_text: Option<Entity>,
+    enemy_text: Option<Entity>,
     time_text: Option<Entity>,
     city_info: Option<Entity>,
     hp_text: Option<Entity>,
@@ -36,27 +37,29 @@ pub fn setup_hud(mut commands: Commands, mut hud_text: ResMut<HudTexts>, asset_s
         HudRoot,
     ))
     .with_children(|parent| {
-        // Top bar
+        // ── Top bar ──
         parent.spawn((Node { width: Val::Percent(100.0), height: Val::Px(36.0),
             flex_direction: FlexDirection::Row, justify_content: JustifyContent::SpaceBetween,
             align_items: AlignItems::Center, padding: UiRect::horizontal(Val::Px(10.0)), ..default() },
             BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.5)),
         ))
         .with_children(|parent| {
-            let c = parent.spawn((Text::new("城 0/0"), TextFont { font: font.clone(), font_size: 14.0, ..default() })).id();
-            let p = parent.spawn((Text::new("兵 0"), TextFont { font: font.clone(), font_size: 14.0, ..default() })).id();
+            let c = parent.spawn((Text::new("城 0"), TextFont { font: font.clone(), font_size: 14.0, ..default() })).id();
+            let p = parent.spawn((Text::new("兵 0/0"), TextFont { font: font.clone(), font_size: 14.0, ..default() })).id();
+            let e = parent.spawn((Text::new("敌 0"), TextFont { font: font.clone(), font_size: 14.0, ..default() })).id();
             let t = parent.spawn((Text::new("T 0:00"), TextFont { font: font.clone(), font_size: 14.0, ..default() })).id();
             hud_text.cities_text = Some(c);
             hud_text.pop_text = Some(p);
+            hud_text.enemy_text = Some(e);
             hud_text.time_text = Some(t);
         });
 
-        // Middle spacer
+        // ── Middle spacer ──
         parent.spawn(Node { flex_grow: 1.0, ..default() });
 
-        // Bottom panel (hidden by default)
-        parent.spawn((Node { width: Val::Percent(100.0), height: Val::Px(140.0),
-            flex_direction: FlexDirection::Column, padding: UiRect::all(Val::Px(8.0)),
+        // ── Bottom panel (hidden until city selected) ──
+        parent.spawn((Node { width: Val::Percent(100.0), height: Val::Px(155.0),
+            flex_direction: FlexDirection::Column, padding: UiRect::all(Val::Px(10.0)),
             display: Display::None, ..default() },
             BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.7)),
             BottomPanel,
@@ -65,20 +68,24 @@ pub fn setup_hud(mut commands: Commands, mut hud_text: ResMut<HudTexts>, asset_s
             let ci = parent.spawn((Text::new("[城池] Lv.?"), TextFont { font: font.clone(), font_size: 16.0, ..default() })).id();
             hud_text.city_info = Some(ci);
 
-            let hp = parent.spawn((Text::new("HP ?/?"), TextFont { font: font.clone(), font_size: 13.0, ..default() })).id();
-            hud_text.hp_text = Some(hp);
-
-            // HP bar
-            parent.spawn((Node { width: Val::Percent(100.0), height: Val::Px(10.0),
-                margin: UiRect::vertical(Val::Px(3.0)), ..default() },
-                BackgroundColor(Color::srgba(0.3, 0.3, 0.3, 1.0)),
-            ))
+            // HP row: text + bar side by side
+            parent.spawn(Node { flex_direction: FlexDirection::Row, align_items: AlignItems::Center, ..default() })
             .with_children(|parent| {
-                let fill = parent.spawn((Node { width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() },
-                    BackgroundColor(Color::srgba(0.2, 0.8, 0.2, 1.0)),
-                    HpFill,
-                )).id();
-                hud_text.hp_fill = Some(fill);
+                let hp = parent.spawn((Text::new("HP ?/?"), TextFont { font: font.clone(), font_size: 13.0, ..default() })).id();
+                hud_text.hp_text = Some(hp);
+
+                // HP bar container
+                parent.spawn((Node { width: Val::Percent(50.0), height: Val::Px(12.0),
+                    margin: UiRect::left(Val::Px(8.0)), ..default() },
+                    BackgroundColor(Color::srgba(0.3, 0.3, 0.3, 1.0)),
+                ))
+                .with_children(|parent| {
+                    let fill = parent.spawn((Node { width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() },
+                        BackgroundColor(Color::srgba(0.2, 0.8, 0.2, 1.0)),
+                        HpFill,
+                    )).id();
+                    hud_text.hp_fill = Some(fill);
+                });
             });
 
             let pd = parent.spawn((Text::new("兵 ?/?"), TextFont { font: font.clone(), font_size: 13.0, ..default() })).id();
@@ -98,7 +105,7 @@ pub fn setup_hud(mut commands: Commands, mut hud_text: ResMut<HudTexts>, asset_s
                 });
         });
 
-        // Bottom toolbar (always visible)
+        // ── Bottom toolbar (always visible) ──
         parent.spawn((Node { width: Val::Percent(100.0), height: Val::Px(40.0),
             flex_direction: FlexDirection::Row, justify_content: JustifyContent::Center,
             align_items: AlignItems::Center, ..default() },
@@ -111,35 +118,60 @@ pub fn setup_hud(mut commands: Commands, mut hud_text: ResMut<HudTexts>, asset_s
             }
         });
     });
-
 }
 
 #[derive(Component)]
-pub struct ToolbarButton(pub u8); // 0=circle, 1=rect, 2=shield, 3=force
+pub struct ToolbarButton(pub u8);
 
-/// Update top bar: cities, population, time
+/// Update top bar: player cities, player pop/total max, enemy count, time
 pub fn update_top_bar(
     mut text_query: Query<&mut Text>,
     hud_text: Res<HudTexts>,
     mut sim_world: bevy::ecs::system::NonSendMut<SimulationWorld>,
-    tick_clock: Res<TickClock>,
     time: Res<Time>,
 ) {
     let world = &mut sim_world.0;
-    let mut city_query = world.query::<(&FactionComponent, &CityComponent)>();
-    let player_cities: Vec<_> = city_query.iter(world).filter(|(f, _)| f.0 == Faction::Player).collect();
-    let total: usize = city_query.iter(world).count();
-    let pop: u32 = player_cities.iter().map(|(_, c)| c.population).sum();
+
+    // Count player cities, population, max population
+    let mut player_cities = 0usize;
+    let mut player_pop = 0u32;
+    let mut player_max = 0u32;
+    // Count enemy soldiers
+    let mut enemy_soldiers = 0u32;
+
+    {
+        let mut city_query = world.query::<(&FactionComponent, &CityComponent)>();
+        for (f, c) in city_query.iter(world) {
+            match f.0 {
+                Faction::Player => {
+                    player_cities += 1;
+                    player_pop += c.population;
+                    player_max += c.max_population;
+                }
+                _ => {}
+            }
+        }
+    }
+
+    {
+        let mut soldier_query = world.query::<(&FactionComponent, &SoldierTypeComponent)>();
+        for (f, _) in soldier_query.iter(world) {
+            if f.0 == Faction::Enemy { enemy_soldiers += 1; }
+        }
+    }
 
     let elapsed = time.elapsed().as_secs();
     let mins = elapsed / 60;
     let secs = elapsed % 60;
 
     if let Some(e) = hud_text.cities_text {
-        if let Ok(mut t) = text_query.get_mut(e) { t.0 = format!("城 {}/{}", player_cities.len(), total); }
+        if let Ok(mut t) = text_query.get_mut(e) { t.0 = format!("城 {}", player_cities); }
     }
     if let Some(e) = hud_text.pop_text {
-        if let Ok(mut t) = text_query.get_mut(e) { t.0 = format!("兵 {}", pop); }
+        if let Ok(mut t) = text_query.get_mut(e) { t.0 = format!("兵 {}/{}", player_pop, player_max); }
+    }
+    if let Some(e) = hud_text.enemy_text {
+        if let Ok(mut t) = text_query.get_mut(e) { t.0 = format!("敌 {}", enemy_soldiers); }
     }
     if let Some(e) = hud_text.time_text {
         if let Ok(mut t) = text_query.get_mut(e) { t.0 = format!("T {}:{:02}", mins, secs); }
@@ -147,7 +179,6 @@ pub fn update_top_bar(
 }
 
 /// Update bottom panel with selected city info.
-/// Uses ParamSet for conflicting &mut Node queries (HpFill vs BottomPanel).
 pub fn update_bottom_panel(
     mut text_query: Query<&mut Text>,
     mut node_params: ParamSet<(
@@ -180,7 +211,7 @@ pub fn update_bottom_panel(
     let ratio = (city.health_current as f32 / city.health_max as f32).clamp(0.0, 1.0);
 
     if let Some(e) = hud_text.city_info {
-        if let Ok(mut t) = text_query.get_mut(e) { t.0 = format!("[城池] Lv.{} (上限{})", city.level, city.max_level); }
+        if let Ok(mut t) = text_query.get_mut(e) { t.0 = format!("[城池] Lv.{} (最高Lv.{})", city.level, city.max_level); }
     }
     if let Some(e) = hud_text.hp_text {
         if let Ok(mut t) = text_query.get_mut(e) { t.0 = format!("HP {}/{}", city.health_current, city.health_max); }
@@ -204,15 +235,6 @@ pub fn update_bottom_panel(
             };
             t.0 = format!("当前: {}", label);
         }
-    }
-}
-
-fn soldier_type_label(st: SoldierType) -> &'static str {
-    match st {
-        SoldierType::Militia => "民兵",
-        SoldierType::Infantry => "步兵",
-        SoldierType::Archer => "弓兵",
-        SoldierType::Cavalry => "骑兵",
     }
 }
 
@@ -252,14 +274,12 @@ pub fn toolbar_button_system(
     }
 }
 
-/// City click detection — selects a city for the HUD bottom panel.
-/// Runs alongside the soldier selection system.
+/// City click detection — only SETS on actual city hit, never clears.
 pub fn city_click_system(
     mouse: Res<ButtonInput<MouseButton>>,
     q_windows: Query<&Window>,
     camera_query: Query<(&Camera, &GlobalTransform), With<crate::camera::MainCamera>>,
     mut selected_city: ResMut<SelectedCity>,
-    mut selection: ResMut<SelectionState>,
     mut sim_world: bevy::ecs::system::NonSendMut<SimulationWorld>,
 ) {
     if !mouse.just_pressed(MouseButton::Left) { return; }
@@ -269,7 +289,6 @@ pub fn city_click_system(
     let Some(world_pos) = camera.viewport_to_world_2d(cam_t, cursor).ok() else { return };
 
     let world = &mut sim_world.0;
-    let mut hit_city = None;
     {
         let mut query = world.query::<(Entity, &LogicalPosition, &CityRadius, &FactionComponent)>();
         for (e, pos, radius, fac) in query.iter(world) {
@@ -277,14 +296,9 @@ pub fn city_click_system(
             let dx = pos.0.x.to_float() - world_pos.x;
             let dy = pos.0.y.to_float() - world_pos.y;
             if (dx * dx + dy * dy) < (radius.0 as f32).powi(2) {
-                hit_city = Some(e); break;
+                selected_city.0 = Some(e);
+                return;
             }
         }
-    }
-
-    // Only SET city selection on actual city hit. Never clear on non-city clicks —
-    // the user might be clicking a HUD button, which would otherwise deselect.
-    if hit_city.is_some() {
-        selected_city.0 = hit_city;
     }
 }
