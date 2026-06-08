@@ -16,6 +16,7 @@ impl Plugin for RenderViewPlugin {
                 crate::debug_shape::draw_debug_shapes_system,
                 crate::camera::camera_drag_system,
                 crate::camera::camera_zoom_system,
+                crate::camera::center_on_player_city,
             ));
     }
 }

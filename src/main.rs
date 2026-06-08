@@ -6,21 +6,14 @@ use bevy_adapter::tick::SimulationWorld;
 use presentation::PresentationPlugin;
 use render_view::RenderViewPlugin;
 
-// Keep old state for now
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, States, Default)]
-pub enum GameState {
-    #[default]
-    MainMenu,
-    Playing,
-    Paused,
-    GameOver,
+/// Initialize the simulation world with map pre-generated.
+fn init_sim_world() -> SimulationWorld {
+    let mut world = simulation::init_simulation_world(42);
+    simulation::map::generate_map(&mut world);
+    SimulationWorld(world)
 }
 
 fn main() {
-    // Initialize simulation world with map
-    let mut sim_world = simulation::init_simulation_world(42);
-    simulation::map::generate_map(&mut sim_world);
-
     App::new()
         .add_plugins((
             DefaultPlugins.set(WindowPlugin {
@@ -32,8 +25,7 @@ fn main() {
                 ..default()
             }),
         ))
-        .init_state::<GameState>()
-        .insert_non_send_resource(SimulationWorld(sim_world))
+        .insert_non_send_resource(init_sim_world())
         .add_plugins(BevyAdapterPlugin)
         .add_plugins(PresentationPlugin)
         .add_plugins(RenderViewPlugin)

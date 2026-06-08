@@ -1,11 +1,36 @@
 use bevy::prelude::*;
 use bevy::input::mouse::AccumulatedMouseScroll;
+use bevy_adapter::tick::SimulationWorld;
+use simulation::soldier::*;
+use simulation::types::Faction;
 
 #[derive(Component)]
 pub struct MainCamera;
 
 pub fn setup_camera(mut commands: Commands) {
     commands.spawn((Camera2d, MainCamera));
+}
+
+/// Center camera on the first player city after map generation.
+/// Runs only on the first frame where a player city exists.
+pub fn center_on_player_city(
+    mut sim_world: bevy::ecs::system::NonSendMut<SimulationWorld>,
+    mut cam_query: Query<&mut Transform, With<MainCamera>>,
+    mut centered: Local<bool>,
+) {
+    if *centered { return; }
+    let world = &mut sim_world.0;
+    let mut query = world.query::<(&LogicalPosition, &FactionComponent)>();
+    for (pos, faction) in query.iter(world) {
+        if faction.0 == Faction::Player {
+            if let Some(mut cam) = cam_query.iter_mut().next() {
+                cam.translation.x = pos.0.x.to_float();
+                cam.translation.y = pos.0.y.to_float();
+                *centered = true;
+            }
+            break;
+        }
+    }
 }
 
 pub fn camera_drag_system(
