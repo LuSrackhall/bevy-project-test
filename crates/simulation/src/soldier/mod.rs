@@ -238,11 +238,12 @@ pub fn city_spawn_system(world: &mut World) {
     }
 }
 
+/// Find the nearest city entity of a given faction. Filters by CityMarker to exclude soldiers.
 fn find_nearest_city_uid(world: &mut World, pos: FixedVec2, faction: Faction) -> UnitId {
-    let mut q = world.query::<(Entity, &UnitIdComponent, &LogicalPosition, &FactionComponent)>();
+    let mut q = world.query::<(Entity, &UnitIdComponent, &LogicalPosition, &FactionComponent, &CityMarker)>();
     let mut best = UnitId(0);
     let mut best_d = i64::MAX;
-    for (_, id, cp, cf) in q.iter(world) {
+    for (_, id, cp, cf, _) in q.iter(world) {
         if cf.0 == faction {
             let d = (cp.0 - pos).length_squared().0;
             if d < best_d { best_d = d; best = id.0; }
