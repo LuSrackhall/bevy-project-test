@@ -28,7 +28,8 @@ pub(crate) struct HudTexts {
 #[derive(Component)] pub(crate) struct HpFill;
 #[derive(Component)] pub struct SoldierTypeButton(pub SoldierType);
 
-pub fn setup_hud(mut commands: Commands, mut hud_text: ResMut<HudTexts>) {
+pub fn setup_hud(mut commands: Commands, mut hud_text: ResMut<HudTexts>, asset_server: Res<AssetServer>) {
+    let font = asset_server.load("fonts/Arial Unicode.ttf");
     commands.spawn((Node { width: Val::Percent(100.0), height: Val::Percent(100.0),
         flex_direction: FlexDirection::Column, justify_content: JustifyContent::SpaceBetween, ..default() },
         HudRoot,
@@ -41,9 +42,9 @@ pub fn setup_hud(mut commands: Commands, mut hud_text: ResMut<HudTexts>) {
             BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.5)),
         ))
         .with_children(|parent| {
-            let c = parent.spawn((Text::new("城 0/0"), TextFont { font_size: 14.0, ..default() })).id();
-            let p = parent.spawn((Text::new("兵 0"), TextFont { font_size: 14.0, ..default() })).id();
-            let t = parent.spawn((Text::new("T 0:00"), TextFont { font_size: 14.0, ..default() })).id();
+            let c = parent.spawn((Text::new("城 0/0"), TextFont { font: font.clone(), font_size: 14.0, ..default() })).id();
+            let p = parent.spawn((Text::new("兵 0"), TextFont { font: font.clone(), font_size: 14.0, ..default() })).id();
+            let t = parent.spawn((Text::new("T 0:00"), TextFont { font: font.clone(), font_size: 14.0, ..default() })).id();
             hud_text.cities_text = Some(c);
             hud_text.pop_text = Some(p);
             hud_text.time_text = Some(t);
@@ -60,10 +61,10 @@ pub fn setup_hud(mut commands: Commands, mut hud_text: ResMut<HudTexts>) {
             BottomPanel,
         ))
         .with_children(|parent| {
-            let ci = parent.spawn((Text::new("[城池] Lv.?"), TextFont { font_size: 16.0, ..default() })).id();
+            let ci = parent.spawn((Text::new("[城池] Lv.?"), TextFont { font: font.clone(), font_size: 16.0, ..default() })).id();
             hud_text.city_info = Some(ci);
 
-            let hp = parent.spawn((Text::new("HP ?/?"), TextFont { font_size: 13.0, ..default() })).id();
+            let hp = parent.spawn((Text::new("HP ?/?"), TextFont { font: font.clone(), font_size: 13.0, ..default() })).id();
             hud_text.hp_text = Some(hp);
 
             // HP bar
@@ -79,8 +80,8 @@ pub fn setup_hud(mut commands: Commands, mut hud_text: ResMut<HudTexts>) {
                 hud_text.hp_fill = Some(fill);
             });
 
-            let pd = parent.spawn((Text::new("兵 ?/?"), TextFont { font_size: 13.0, ..default() })).id();
-            let ex = parent.spawn((Text::new("经验 ?/?"), TextFont { font_size: 13.0, ..default() })).id();
+            let pd = parent.spawn((Text::new("兵 ?/?"), TextFont { font: font.clone(), font_size: 13.0, ..default() })).id();
+            let ex = parent.spawn((Text::new("经验 ?/?"), TextFont { font: font.clone(), font_size: 13.0, ..default() })).id();
             hud_text.pop_detail = Some(pd);
             hud_text.exp_text = Some(ex);
 
@@ -89,7 +90,7 @@ pub fn setup_hud(mut commands: Commands, mut hud_text: ResMut<HudTexts>) {
                 .with_children(|parent| {
                     for (st, label) in [(SoldierType::Militia, "民兵"), (SoldierType::Infantry, "步兵"), (SoldierType::Archer, "弓兵"), (SoldierType::Cavalry, "骑兵")] {
                         parent.spawn((Button, Node { padding: UiRect::all(Val::Px(6.0)), margin: UiRect::all(Val::Px(3.0)), ..default() }, SoldierTypeButton(st)))
-                            .with_child((Text::new(label), TextFont { font_size: 13.0, ..default() }));
+                            .with_child((Text::new(label), TextFont { font: font.clone(), font_size: 13.0, ..default() }));
                     }
                 });
         });
@@ -103,7 +104,7 @@ pub fn setup_hud(mut commands: Commands, mut hud_text: ResMut<HudTexts>) {
         .with_children(|parent| {
             for (label, marker) in [("O框选", 0u8), ("[ ]框选", 1), ("盾", 2), ("[>]优先", 3)] {
                 parent.spawn((Button, Node { padding: UiRect::all(Val::Px(6.0)), margin: UiRect::all(Val::Px(3.0)), ..default() }, ToolbarButton(marker)))
-                    .with_child((Text::new(label), TextFont { font_size: 13.0, ..default() }));
+                    .with_child((Text::new(label), TextFont { font: font.clone(), font_size: 13.0, ..default() }));
             }
         });
     });

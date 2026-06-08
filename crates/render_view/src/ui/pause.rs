@@ -3,17 +3,18 @@ use bevy::prelude::*;
 #[derive(Component)]
 pub struct PauseUI;
 
-pub fn setup_pause(mut commands: Commands) {
+pub fn setup_pause(mut commands: Commands, asset_server: Res<AssetServer>) {
+    let font = asset_server.load("fonts/Arial Unicode.ttf");
     commands.spawn((Node { width: Val::Percent(100.0), height: Val::Percent(100.0),
         flex_direction: FlexDirection::Column, justify_content: JustifyContent::Center,
         align_items: AlignItems::Center, ..default() },
         BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.7)), PauseUI,
     ))
     .with_children(|parent| {
-        parent.spawn((Text::new("游戏暂停"), TextFont { font_size: 36.0, ..default() }));
+        parent.spawn((Text::new("游戏暂停"), TextFont { font: font.clone(), font_size: 36.0, ..default() }));
         for (label, btn) in [("继续", PauseBtn::Resume), ("重新开始", PauseBtn::Restart), ("主菜单", PauseBtn::Menu)] {
             parent.spawn((Button, Node { margin: UiRect::all(Val::Px(10.0)), padding: UiRect::all(Val::Px(20.0)), ..default() }, btn))
-                .with_child((Text::new(label), TextFont { font_size: 24.0, ..default() }));
+                .with_child((Text::new(label), TextFont { font: font.clone(), font_size: 24.0, ..default() }));
         }
     });
 }
