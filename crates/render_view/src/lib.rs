@@ -17,6 +17,13 @@ impl Plugin for RenderViewPlugin {
                 crate::camera::camera_drag_system,
                 crate::camera::camera_zoom_system,
                 crate::camera::center_on_player_city,
+                crate::selection::selection_click_system,
+                crate::selection::drag_select_system,
+                crate::selection::selection_shortcut_system,
+                crate::selection::selection_visual_system,
+                crate::selection::drag_visual_system,
+                crate::selection::command_issue_system,
+                crate::selection::waypoint_cleanup_system,
             ));
     }
 }
