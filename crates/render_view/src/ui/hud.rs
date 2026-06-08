@@ -21,6 +21,7 @@ pub(crate) struct HudTexts {
     hp_fill: Option<Entity>,
     pop_detail: Option<Entity>,
     exp_text: Option<Entity>,
+    spawn_type_text: Option<Entity>,
 }
 
 #[derive(Component)] struct HudRoot;
@@ -82,8 +83,10 @@ pub fn setup_hud(mut commands: Commands, mut hud_text: ResMut<HudTexts>, asset_s
 
             let pd = parent.spawn((Text::new("兵 ?/?"), TextFont { font: font.clone(), font_size: 13.0, ..default() })).id();
             let ex = parent.spawn((Text::new("经验 ?/?"), TextFont { font: font.clone(), font_size: 13.0, ..default() })).id();
+            let st = parent.spawn((Text::new("当前: 民兵"), TextFont { font: font.clone(), font_size: 14.0, ..default() })).id();
             hud_text.pop_detail = Some(pd);
             hud_text.exp_text = Some(ex);
+            hud_text.spawn_type_text = Some(st);
 
             // Soldier type buttons
             parent.spawn(Node { flex_direction: FlexDirection::Row, ..default() })
@@ -191,6 +194,26 @@ pub fn update_bottom_panel(
     if let Some(e) = hud_text.pop_detail {
         if let Ok(mut t) = text_query.get_mut(e) { t.0 = format!("兵 {}/{}", city.population, city.max_population); }
     }
+    if let Some(e) = hud_text.spawn_type_text {
+        if let Ok(mut t) = text_query.get_mut(e) {
+            let label = match city.spawn_type {
+                SoldierType::Militia => "民兵",
+                SoldierType::Infantry => "步兵",
+                SoldierType::Archer => "弓兵",
+                SoldierType::Cavalry => "骑兵",
+            };
+            t.0 = format!("当前: {}", label);
+        }
+    }
+}
+
+fn soldier_type_label(st: SoldierType) -> &'static str {
+    match st {
+        SoldierType::Militia => "民兵",
+        SoldierType::Infantry => "步兵",
+        SoldierType::Archer => "弓兵",
+        SoldierType::Cavalry => "骑兵",
+    }
 }
 
 /// Handle soldier type button clicks
@@ -259,23 +282,9 @@ pub fn city_click_system(
         }
     }
 
+    // Only SET city selection on actual city hit. Never clear on non-city clicks —
+    // the user might be clicking a HUD button, which would otherwise deselect.
     if hit_city.is_some() {
         selected_city.0 = hit_city;
-    } else {
-        // Check if a soldier was clicked (handled by selection system, but we deselect city)
-        let mut soldier_hit = false;
-        {
-            let mut query = world.query::<(&LogicalPosition, &FactionComponent)>();
-            for (pos, fac) in query.iter(world) {
-                if fac.0 == Faction::Player {
-                    let dx = pos.0.x.to_float() - world_pos.x;
-                    let dy = pos.0.y.to_float() - world_pos.y;
-                    if (dx * dx + dy * dy) < 144.0 { soldier_hit = true; break; }
-                }
-            }
-        }
-        if !soldier_hit {
-            selected_city.0 = None;
-        }
     }
 }
