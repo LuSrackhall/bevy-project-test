@@ -251,10 +251,10 @@ pub fn archer_attack_system(world: &mut World) {
         }
     }
 
-    // Collect enemy positions
-    let enemies: Vec<(UnitId, FixedVec2)> = {
-        let mut q = world.query::<(Entity, &UnitIdComponent, &LogicalPosition)>();
-        q.iter(world).map(|(_, id, pos)| (id.0, pos.0)).collect()
+    // Collect enemy soldier positions (filter by SoldierMarker + faction)
+    let all_units: Vec<(UnitId, FixedVec2, Faction)> = {
+        let mut q = world.query::<(Entity, &UnitIdComponent, &LogicalPosition, &FactionComponent, &SoldierMarker)>();
+        q.iter(world).map(|(_, id, pos, fac, _)| (id.0, pos.0, fac.0)).collect()
     };
 
     // Collect archers ready to fire
@@ -276,7 +276,8 @@ pub fn archer_attack_system(world: &mut World) {
         let range_sq = range_fixed * range_fixed;
         let mut nearest: Option<(UnitId, FixedVec2)> = None;
         let mut nearest_d = i64::MAX;
-        for (eid, epos) in &enemies {
+        for (eid, epos, efac) in &all_units {
+            if *efac == ad.faction { continue; } // only target enemies
             let ds = (ad.pos - *epos).length_squared();
             if ds <= range_sq && ds.0 < nearest_d {
                 nearest = Some((*eid, *epos));
@@ -325,10 +326,10 @@ pub fn archer_attack_system(world: &mut World) {
 pub fn arrow_movement_system(world: &mut World) {
     let combat_config = world.resource::<CombatGlobalConfig>().clone();
 
-    // Collect all enemy positions for collision detection
-    let enemies: Vec<(UnitId, FixedVec2, Entity)> = {
-        let mut q = world.query::<(Entity, &UnitIdComponent, &LogicalPosition)>();
-        q.iter(world).map(|(e, id, pos)| (id.0, pos.0, e)).collect()
+    // Collect soldier positions for collision (filter by SoldierMarker)
+    let all_soldiers: Vec<(UnitId, FixedVec2, Entity, Faction)> = {
+        let mut q = world.query::<(Entity, &UnitIdComponent, &LogicalPosition, &FactionComponent, &SoldierMarker)>();
+        q.iter(world).map(|(e, id, pos, fac, _)| (id.0, pos.0, e, fac.0)).collect()
     };
 
     let mut to_despawn: Vec<Entity> = Vec::new();
@@ -350,7 +351,7 @@ pub fn arrow_movement_system(world: &mut World) {
             if arrow.decay_remaining > 0 {
                 arrow.decay_remaining -= 1;
                 if let Some(sid) = arrow.stuck_to {
-                    for (eid, epos, _) in &enemies {
+                    for (eid, epos, _, _) in &all_soldiers {
                         if *eid == sid { arrow_pos.0 = *epos; break; }
                     }
                 }
@@ -365,7 +366,8 @@ pub fn arrow_movement_system(world: &mut World) {
                     arrow_pos.0.y + arrow.direction.y,
                 );
 
-                for (eid, epos, _ee) in &enemies {
+                for (eid, epos, _ee, efac) in &all_soldiers {
+                    if *efac == arrow.from_faction { continue; } // don't hit friendlies
                     if arrow.hit_units.contains(eid) { continue; }
                     if (arrow_pos.0 - *epos).length_squared() <= threshold_sq {
                         arrow.hit_units.push(*eid);
