@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use simulation::types::*;
 use simulation::soldier::*;
+use simulation::city::config::CityGlobalConfig;
 use simulation::command::*;
 use bevy_adapter::tick::{SimulationWorld, TickClock};
 use bevy_adapter::input::ForceMoveNext;
@@ -224,6 +225,11 @@ pub fn update_bottom_panel(
     }
     if let Some(e) = hud_text.pop_detail {
         if let Ok(mut t) = text_query.get_mut(e) { t.0 = format!("兵 {}/{}", city.population, city.max_population); }
+    }
+    if let Some(e) = hud_text.exp_text {
+        let city_config = world.resource::<CityGlobalConfig>();
+        let req = (city.health_max as f32 * city_config.level_up_cost_multiplier) as u64;
+        if let Ok(mut t) = text_query.get_mut(e) { t.0 = format!("经验 {}/{}", city.level_exp, req); }
     }
     if let Some(e) = hud_text.spawn_type_text {
         if let Ok(mut t) = text_query.get_mut(e) {
