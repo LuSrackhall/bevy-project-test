@@ -354,14 +354,20 @@ pub fn city_interaction_system(world: &mut World) {
                         }
                     } else if ci.level < ci.max_level {
                         let eg = (ci.max_hp as f32 * city_config.level_up_gain_ratio) as u64;
-                        let req = (ci.max_hp as f32 * city_config.level_up_cost_multiplier) as u64;
+                        let req = (ci.max_hp as f32 * city_config.level_up_cost_multiplier * ci.level as f32) as u64;
+                        let mut new_radius: Option<u32> = None;
                         if let Some(mut c) = world.entity_mut(ci.entity).get_mut::<CityComponent>() {
                             c.level_exp += eg;
                             if c.level_exp >= req {
                                 c.level_exp -= req; c.level += 1;
                                 c.health_max = c.level * city_config.level_hp_multiplier;
                                 c.health_current = c.health_max;
+                                c.max_population = c.level * city_config.base_population_per_level;
+                                new_radius = Some((city_config.visual_radius_base + c.level as f32 * city_config.visual_radius_per_level) as u32);
                             }
+                        }
+                        if let Some(r) = new_radius {
+                            world.entity_mut(ci.entity).insert(CityRadius(r));
                         }
                     }
                     if let Some(o) = world.entity(si.entity).get::<CityOrigin>() { origin_decrements.push(o.0); }

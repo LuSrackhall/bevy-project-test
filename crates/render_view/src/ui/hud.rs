@@ -228,7 +228,7 @@ pub fn update_bottom_panel(
     }
     if let Some(e) = hud_text.exp_text {
         let city_config = world.resource::<CityGlobalConfig>();
-        let req = (city.health_max as f32 * city_config.level_up_cost_multiplier) as u64;
+        let req = (city.health_max as f32 * city_config.level_up_cost_multiplier * city.level as f32) as u64;
         if let Ok(mut t) = text_query.get_mut(e) { t.0 = format!("经验 {}/{}", city.level_exp, req); }
     }
     if let Some(e) = hud_text.spawn_type_text {
