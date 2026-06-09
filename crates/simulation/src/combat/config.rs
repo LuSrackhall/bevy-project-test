@@ -60,6 +60,7 @@ pub struct FearlessConfig {
 #[derive(Clone, Debug, Deserialize, Resource)]
 pub struct CombatGlobalConfig {
     pub city_damage_per_soldier_ratio: f32,
+    pub arrow_building_damage_ratio: f32,
     pub archer_melee_range: u32,
     pub archer_melee_damage_mult: f32,
     pub shield: ShieldConfig,

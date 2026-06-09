@@ -356,6 +356,14 @@ pub fn arrow_movement_system(world: &mut World) {
         q.iter(world).map(|(e, id, pos, fac, _)| (id.0, pos.0, e, fac.0)).collect()
     };
 
+    // Collect city positions for collision (filter by CityMarker)
+    let all_cities: Vec<(UnitId, FixedVec2, Entity, Faction, u32)> = {
+        let mut q = world.query::<(Entity, &UnitIdComponent, &LogicalPosition, &FactionComponent, &CityMarker, &CityRadius)>();
+        q.iter(world).map(|(e, id, pos, fac, _, r)| (id.0, pos.0, e, fac.0, r.0)).collect()
+    };
+
+    let arrow_building_damage_denom = (1.0_f32 / combat_config.arrow_building_damage_ratio).round() as u32;
+
     let mut to_despawn: Vec<Entity> = Vec::new();
     // Collect pierce decisions before query to avoid borrow conflict
     let pierce_rolls: Vec<f32> = {
@@ -365,6 +373,7 @@ pub fn arrow_movement_system(world: &mut World) {
     let mut pierce_idx = 0usize;
 
     let mut hits: Vec<(Entity, u32, Option<UnitId>, bool, Option<UnitId>)> = Vec::new();
+    let mut city_hits: Vec<(Entity, u32)> = Vec::new(); // (city_entity, arrow_damage)
 
     // Process each arrow
     {
@@ -390,6 +399,7 @@ pub fn arrow_movement_system(world: &mut World) {
                     arrow_pos.0.y + arrow.direction.y,
                 );
 
+                let mut stopped_by_soldier = false;
                 for (eid, epos, _ee, efac) in &all_soldiers {
                     if *efac == arrow.from_faction { continue; } // don't hit friendlies
                     if arrow.hit_units.contains(eid) { continue; }
@@ -403,6 +413,22 @@ pub fn arrow_movement_system(world: &mut World) {
                             arrow.stuck_to = Some(*eid);
                             arrow.decay_remaining = ARROW_DECAY_TICKS;
                             hits.push((ae, arrow.damage, Some(*eid), false, arrow.shooter));
+                            stopped_by_soldier = true;
+                            break;
+                        }
+                    }
+                }
+
+                // City collision — only if not stopped by soldier hit
+                if !stopped_by_soldier {
+                    for (_cid, cpos, ce, cfac, cradius) in &all_cities {
+                        if *cfac == arrow.from_faction { continue; } // friendly city: pass through
+                        let radius = Fixed::from_int(*cradius as i32);
+                        let radius_sq = radius * radius;
+                        if (arrow_pos.0 - *cpos).length_squared() <= radius_sq {
+                            // Hit city: accumulate damage, force decay (no pierce)
+                            city_hits.push((*ce, arrow.damage));
+                            arrow.decay_remaining = ARROW_DECAY_TICKS;
                             break;
                         }
                     }
@@ -452,6 +478,203 @@ pub fn arrow_movement_system(world: &mut World) {
         }
     }
 
+    // Apply city damage from arrow hits (accumulator: arrow_damage_acc / denom)
+    if arrow_building_damage_denom > 0 {
+        for (ce, dmg) in &city_hits {
+            if let Some(mut city) = world.entity_mut(*ce).get_mut::<CityComponent>() {
+                city.arrow_damage_acc += dmg;
+                let integer_damage = city.arrow_damage_acc / arrow_building_damage_denom;
+                if integer_damage > 0 {
+                    city.health_current = city.health_current.saturating_sub(integer_damage);
+                    city.arrow_damage_acc %= arrow_building_damage_denom;
+                }
+            }
+        }
+    }
+
     // Despawn arrows
     for ae in to_despawn { world.despawn(ae); }
+}
+
+// ══════════ Tests: arrow-city collision ══════════
+
+#[cfg(test)]
+mod arrow_city_tests {
+    use super::*;
+    use crate::init_simulation_world;
+    use crate::soldier::{CityMarker, CityComponent, CityRadius, UnitIdComponent, LogicalPosition, FactionComponent, SoldierMarker, Health, SoldierTypeComponent, SoldierStateComponent, Attack, Movement, Level, CityOrigin};
+
+    /// Helper: create a minimal arrow flying toward a position
+    fn spawn_test_arrow(world: &mut World, pos: FixedVec2, dir: FixedVec2, dmg: u32, faction: Faction) -> Entity {
+        let aid = world.resource_mut::<IdGenerator>().next();
+        world.spawn((
+            UnitIdComponent(aid), ArrowMarker, LogicalPosition(pos),
+            Arrow {
+                direction: dir, damage: dmg, from_faction: faction,
+                shooter: None, flight_remaining: 50, decay_remaining: 0,
+                pierce_chance: 0.0, stuck_to: None, hit_units: Vec::new(),
+                start_pos: pos,
+            },
+        )).id()
+    }
+
+    /// Helper: create a city entity at a position
+    fn spawn_test_city(world: &mut World, pos: FixedVec2, faction: Faction, radius: u32, hp: u32) -> Entity {
+        let cid = world.resource_mut::<IdGenerator>().next();
+        world.spawn((
+            UnitIdComponent(cid), CityMarker, LogicalPosition(pos),
+            CityComponent {
+                level: 1, max_level: 5, health_current: hp, health_max: hp,
+                population: 0, max_population: 10, spawn_type: SoldierType::Militia,
+                spawn_cooldown: 0, level_exp: 0, last_attacker_faction: None,
+                arrow_damage_acc: 0,
+            },
+            CityRadius(radius), FactionComponent(faction),
+        )).id()
+    }
+
+    // ── 4.3: Arrow hits city, accumulator increments but no health damage (value insufficient) ──
+
+    #[test]
+    fn test_arrow_hits_city_accumulator_increments_no_health_loss() {
+        let mut world = init_simulation_world(42);
+        let city_pos = FixedVec2::new(Fixed::from_int(100), Fixed::from_int(100));
+        spawn_test_city(&mut world, city_pos, Faction::Enemy, 30, 500);
+
+        // Arrow at city edge (distance 25), flying toward city center
+        let arrow_start = FixedVec2::new(Fixed::from_int(100), Fixed::from_int(95)); // 5 units from center
+        let dir = FixedVec2::new(Fixed::ZERO, Fixed::from_int(20)); // fly upward into city
+        let dmg = 16u32;
+        spawn_test_arrow(&mut world, arrow_start, dir, dmg, Faction::Player);
+
+        arrow_movement_system(&mut world);
+
+        // Find city, check accumulator
+        let mut q = world.query::<(Entity, &CityComponent)>();
+        let (_, city) = q.iter(&world).next().unwrap();
+        assert_eq!(city.arrow_damage_acc, 16, "Accumulator should store 16 damage");
+        assert_eq!(city.health_current, 500, "Health unchanged (16 < 200)");
+    }
+
+    // ── 4.4: Accumulated hits reach 200 → health reduced ──
+
+    #[test]
+    fn test_arrow_accumulation_triggers_health_damage() {
+        let mut world = init_simulation_world(42);
+        let city_pos = FixedVec2::new(Fixed::from_int(100), Fixed::from_int(100));
+        let city_e = spawn_test_city(&mut world, city_pos, Faction::Enemy, 30, 500);
+
+        // Pre-set accumulator close to threshold
+        {
+            let mut em = world.entity_mut(city_e);
+            if let Some(mut c) = em.get_mut::<CityComponent>() {
+                c.arrow_damage_acc = 190;
+            }
+        }
+
+        // Arrow with damage 16 → 190+16=206 → 1 health damage, 6 remainder
+        let arrow_start = FixedVec2::new(Fixed::from_int(100), Fixed::from_int(95));
+        let dir = FixedVec2::new(Fixed::ZERO, Fixed::from_int(20));
+        spawn_test_arrow(&mut world, arrow_start, dir, 16, Faction::Player);
+
+        arrow_movement_system(&mut world);
+
+        let mut q = world.query::<(Entity, &CityComponent)>();
+        let (_, city) = q.iter(&world).next().unwrap();
+        assert_eq!(city.health_current, 499, "Should lose 1 HP (206/200 = 1)");
+        assert_eq!(city.arrow_damage_acc, 6, "Remainder should be 6 (206 % 200)");
+    }
+
+    // ── 4.5: Arrow enters decay after hitting city ──
+
+    #[test]
+    fn test_arrow_enters_decay_after_city_hit() {
+        let mut world = init_simulation_world(42);
+        let city_pos = FixedVec2::new(Fixed::from_int(100), Fixed::from_int(100));
+        spawn_test_city(&mut world, city_pos, Faction::Enemy, 30, 500);
+
+        let arrow_start = FixedVec2::new(Fixed::from_int(100), Fixed::from_int(95));
+        let dir = FixedVec2::new(Fixed::ZERO, Fixed::from_int(20));
+        spawn_test_arrow(&mut world, arrow_start, dir, 16, Faction::Player);
+
+        arrow_movement_system(&mut world);
+
+        let mut q = world.query::<(Entity, &Arrow)>();
+        let (_, arrow) = q.iter(&world).next().unwrap();
+        assert!(arrow.decay_remaining > 0, "Arrow should enter decay after city hit");
+    }
+
+    // ── 4.6: Friendly arrow passes through friendly city ──
+
+    #[test]
+    fn test_friendly_arrow_passes_through_friendly_city() {
+        let mut world = init_simulation_world(42);
+        let city_pos = FixedVec2::new(Fixed::from_int(100), Fixed::from_int(100));
+        spawn_test_city(&mut world, city_pos, Faction::Player, 30, 500);
+
+        let arrow_start = FixedVec2::new(Fixed::from_int(100), Fixed::from_int(95));
+        let dir = FixedVec2::new(Fixed::ZERO, Fixed::from_int(20));
+        spawn_test_arrow(&mut world, arrow_start, dir, 16, Faction::Player);
+
+        arrow_movement_system(&mut world);
+
+        let mut q = world.query::<(Entity, &CityComponent)>();
+        let (_, city) = q.iter(&world).next().unwrap();
+        assert_eq!(city.arrow_damage_acc, 0, "Friendly arrow should not accumulate damage");
+        assert_eq!(city.health_current, 500, "Friendly city health unchanged");
+
+        let mut q = world.query::<(Entity, &Arrow)>();
+        let (_, arrow) = q.iter(&world).next().unwrap();
+        assert_eq!(arrow.decay_remaining, 0, "Arrow should still be in flight (not decay)");
+    }
+
+    // ── 4.7: Pierced soldier → same tick hits city behind ──
+
+    #[test]
+    fn test_pierced_arrow_hits_city_same_tick() {
+        let mut world = init_simulation_world(42);
+
+        // Enemy city at center
+        let city_pos = FixedVec2::new(Fixed::from_int(100), Fixed::from_int(100));
+        spawn_test_city(&mut world, city_pos, Faction::Enemy, 35, 500);
+
+        // Enemy soldier between arrow and city
+        let soldier_pos = FixedVec2::new(Fixed::from_int(100), Fixed::from_int(80));
+        let sid = world.resource_mut::<IdGenerator>().next();
+        world.spawn((
+            UnitIdComponent(sid), SoldierMarker, LogicalPosition(soldier_pos),
+            FactionComponent(Faction::Enemy), Health { current: 100, max: 100 },
+            SoldierTypeComponent(SoldierType::Infantry),
+            SoldierStateComponent(SoldierState::Moving),
+            Attack { damage: 10, range: 30, interval_ticks: 10, cooldown_remaining: 0 },
+            Movement { speed: 50, target: None, command_target: None, waypoint: None, force_move: false },
+            Level { level: 1, exp: 0 }, CityOrigin(UnitId(0)),
+        ));
+
+        // Arrow with 100% pierce chance (will pierce soldier and continue to city)
+        let arrow_start = FixedVec2::new(Fixed::from_int(100), Fixed::from_int(60));
+        let dir = FixedVec2::new(Fixed::ZERO, Fixed::from_int(20));
+        let aid = world.resource_mut::<IdGenerator>().next();
+        world.spawn((
+            UnitIdComponent(aid), ArrowMarker, LogicalPosition(arrow_start),
+            Arrow {
+                direction: dir, damage: 200, from_faction: Faction::Player,
+                shooter: None, flight_remaining: 50, decay_remaining: 0,
+                pierce_chance: 1.0, stuck_to: None, hit_units: Vec::new(),
+                start_pos: arrow_start,
+            },
+        ));
+
+        arrow_movement_system(&mut world);
+
+        // Check city took damage (200 damage → 200/200 = 1 HP)
+        let mut q = world.query::<(Entity, &CityComponent)>();
+        let (_, city) = q.iter(&world).next().unwrap();
+        assert_eq!(city.health_current, 499, "City should lose 1 HP (200/200) on same tick after pierce");
+
+        // Arrow should be in decay (stopped by city)
+        let mut q = world.query::<(Entity, &Arrow)>();
+        let (_, arrow) = q.iter(&world).next().unwrap();
+        assert!(arrow.decay_remaining > 0, "Arrow should enter decay after hitting city");
+    }
 }

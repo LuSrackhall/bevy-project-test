@@ -30,7 +30,7 @@ pub struct UnitIdComponent(pub UnitId);
 #[derive(Component, Clone, Debug)] pub struct SlowDebuff { pub stacks: u32, pub remaining_ticks: u32 }
 #[derive(Component, Clone, Debug)] pub struct FearlessBuff { pub remaining_ticks: u32 }
 #[derive(Component, Clone, Debug)] pub struct SoldierStateComponent(pub SoldierState);
-#[derive(Component, Clone, Debug)] pub struct CityComponent { pub level: u32, pub max_level: u32, pub health_current: u32, pub health_max: u32, pub population: u32, pub max_population: u32, pub spawn_type: SoldierType, pub spawn_cooldown: u32, pub level_exp: u64, pub last_attacker_faction: Option<Faction> }
+#[derive(Component, Clone, Debug)] pub struct CityComponent { pub level: u32, pub max_level: u32, pub health_current: u32, pub health_max: u32, pub population: u32, pub max_population: u32, pub spawn_type: SoldierType, pub spawn_cooldown: u32, pub level_exp: u64, pub last_attacker_faction: Option<Faction>, pub arrow_damage_acc: u32 }
 #[derive(Component, Clone, Debug)] pub struct CityRadius(pub u32);
 #[derive(Component, Clone, Debug)] pub struct AuraHealComponent { pub base_heal: u32, pub per_level_heal: u32 }
 #[derive(Component, Clone, Debug)] pub struct SpawnDirection(pub FixedVec2);
@@ -285,6 +285,7 @@ pub fn city_capture_check_system(world: &mut World) {
                 c.population = 0;
                 c.level_exp = 0;
                 c.last_attacker_faction = None;
+                c.arrow_damage_acc = 0;
                 (nl, nm)
             } else { continue; }
         };

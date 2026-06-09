@@ -109,6 +109,7 @@ pub fn generate_map(world: &mut World) {
                 spawn_cooldown: 0,
                 level_exp: 0,
                 last_attacker_faction: None,
+                arrow_damage_acc: 0,
             },
             CityRadius(visual_radius),
             AuraHealComponent {

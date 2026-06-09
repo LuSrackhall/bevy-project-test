@@ -5,6 +5,7 @@
 // ═══════════════════════════════════════════════════════════════
 (
     city_damage_per_soldier_ratio: 0.5,
+    arrow_building_damage_ratio: 0.005,
     archer_melee_range: 50,
     archer_melee_damage_mult: 0.85,
     shield: (
