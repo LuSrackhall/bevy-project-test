@@ -1,10 +1,4 @@
-# archer-range-scaling
-
-## Purpose
-
-弓箭手攻击距离随等级从 380 增长到 600 内部单位，超射距离同步增长。箭速通过配置定义，飞行 Tick 在游戏启动时预计算。
-
-## Requirements
+## ADDED Requirements
 
 ### Requirement: 攻击距离随等级成长
 
@@ -46,7 +40,7 @@
 #### Scenario: 默认箭速
 
 - **WHEN** 加载 `content/units.ron`
-- **THEN** archer 的 `arrow_speed` = 20（默认值）
+- **THEN** archer 的 `arrow_speed` = 40（默认值）
 
 ### Requirement: 飞行 Tick 预计算
 
@@ -55,7 +49,7 @@
 #### Scenario: Tick 预计算
 
 - **WHEN** `init_simulation_world(seed)` 执行
-- **THEN** 计算出 `max_flight_ticks = (600 + 80) / 20 = 34`，存储为全局常量供 archer_attack_system 使用
+- **THEN** 计算出 `max_flight_ticks = (600 + 80) / 40 ≈ 17`，存储为全局常量供 archer_attack_system 使用
 
 ### Requirement: 攻击范围配置字段定义
 
