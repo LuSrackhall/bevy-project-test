@@ -257,6 +257,12 @@ pub fn archer_attack_system(world: &mut World) {
         q.iter(world).map(|(_, id, pos, fac, _)| (id.0, pos.0, fac.0)).collect()
     };
 
+    // Collect enemy city positions (filter by CityMarker + faction)
+    let all_cities: Vec<(UnitId, FixedVec2, Faction)> = {
+        let mut q = world.query::<(Entity, &UnitIdComponent, &LogicalPosition, &FactionComponent, &CityMarker)>();
+        q.iter(world).map(|(_, id, pos, fac, _)| (id.0, pos.0, fac.0)).collect()
+    };
+
     // Collect archers ready to fire
     struct ArcData { entity: Entity, pos: FixedVec2, faction: Faction, dmg: u32, range: u32, interval: u32, level: u32, cfg: crate::soldier::config::SoldierUnitConfig }
     let archers: Vec<ArcData> = {
@@ -285,8 +291,21 @@ pub fn archer_attack_system(world: &mut World) {
             }
         }
 
-        let Some((target_id, target_pos)) = nearest else {
-            // No enemy in range — restore Moving state
+        // Fallback: if no soldiers in range, search nearest enemy city
+        let Some((target_id, target_pos)) = nearest.or_else(|| {
+            let mut best: Option<(UnitId, FixedVec2)> = None;
+            let mut best_d = i64::MAX;
+            for (cid, cpos, cfac) in &all_cities {
+                if *cfac == ad.faction { continue; }
+                let ds = (ad.pos - *cpos).length_squared();
+                if ds <= range_sq && ds.0 < best_d {
+                    best = Some((*cid, *cpos));
+                    best_d = ds.0;
+                }
+            }
+            best
+        }) else {
+            // No enemy soldier or city in range — restore Moving state
             world.entity_mut(ad.entity).insert(SoldierStateComponent(SoldierState::Moving));
             continue;
         };
