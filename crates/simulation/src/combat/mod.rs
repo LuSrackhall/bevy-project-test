@@ -291,14 +291,33 @@ pub fn archer_attack_system(world: &mut World) {
             continue;
         };
 
-        // Compute flight direction and ticks
+        // Compute flight direction with spread (65% dead-on, 35% ±0.1°–10°)
         let delta = target_pos - ad.pos;
         let dist_internal = integer_sqrt(delta.length_squared().0 * FIXED_ONE);
         if dist_internal <= 0 { continue; }
         let dist = Fixed(dist_internal);
         let dir_unit = FixedVec2::new(delta.x / dist, delta.y / dist);
+
+        // Spread: 10° max in radians ≈ 0.1745 → Fixed(44) with 8-bit precision
+        let max_spread = Fixed(44);
+        let spread_angle = {
+            let mut rng = world.resource_mut::<DeterministicRng>();
+            if rng.gen_probability() < 0.65 {
+                Fixed::ZERO // 65% perfect aim
+            } else {
+                let angle = Fixed(1 + (rng.next_u64() % 44) as i64); // 0.1°–10°
+                if rng.gen_probability() < 0.5 { Fixed(-angle.0) } else { angle }
+            }
+        };
+
+        // Apply rotation via small-angle approx: sin(θ)≈θ, cos(θ)≈1
+        let sin_a = spread_angle;
+        let cos_a = Fixed::ONE; // cos(small) ≈ 1
+        let rotated_x = dir_unit.x * cos_a - dir_unit.y * sin_a;
+        let rotated_y = dir_unit.x * sin_a + dir_unit.y * cos_a;
+
         let speed = Fixed::from_int(ad.cfg.arrow_speed as i32);
-        let direction = FixedVec2::new(dir_unit.x * speed, dir_unit.y * speed);
+        let direction = FixedVec2::new(rotated_x * speed, rotated_y * speed);
 
         let flight_ticks = ad.cfg.compute_flight_ticks(ad.level);
         let pierce_chance = ad.cfg.compute_pierce_chance(ad.level);
