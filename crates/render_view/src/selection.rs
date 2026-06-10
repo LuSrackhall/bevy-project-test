@@ -14,6 +14,7 @@ use crate::camera::MainCamera;
 #[derive(Resource)]
 pub struct SelectionState {
     pub selected_unit_ids: Vec<UnitId>,
+    pub selected_city: Option<UnitId>,
     pub drag_start: Option<Vec2>,
     pub drag_current: Option<Vec2>,
     pub is_dragging: bool,
@@ -24,6 +25,7 @@ impl Default for SelectionState {
     fn default() -> Self {
         Self {
             selected_unit_ids: Vec::new(),
+            selected_city: None,
             drag_start: None,
             drag_current: None,
             is_dragging: false,
@@ -67,22 +69,40 @@ pub fn selection_click_system(
     let Ok((camera, cam_t)) = camera_query.single() else { return };
     let Some(world_pos) = screen_to_world(cursor, window, camera, cam_t) else { return };
 
-    // Find a player soldier near click
-    let mut hit: Option<UnitId> = None;
     let world = &mut sim_world.0;
-    let mut query = world.query::<(&LogicalPosition, &FactionComponent, &UnitIdComponent)>();
-    for (pos, fac, id) in query.iter(world) {
-        if fac.0 == Faction::Player {
+
+    // Priority 1: click a friendly city
+    let mut hit_city: Option<UnitId> = None;
+    {
+        let mut q = world.query::<(&LogicalPosition, &FactionComponent, &UnitIdComponent, &CityRadius, &CityMarker)>();
+        for (pos, fac, id, radius, _) in q.iter(world) {
+            if fac.0 != Faction::Player { continue; }
             let dx = pos.0.x.to_float() - world_pos.x;
             let dy = pos.0.y.to_float() - world_pos.y;
-            if (dx * dx + dy * dy) < 144.0 { // 12^2
-                hit = Some(id.0);
-                break;
-            }
+            if (dx*dx+dy*dy) < (radius.0 as f32).powi(2) { hit_city = Some(id.0); break; }
         }
     }
+    if let Some(cid) = hit_city {
+        selection.selected_city = Some(cid);
+        selection.selected_unit_ids.clear();
+        selection.drag_start = None;
+        selection.is_dragging = false;
+        return;
+    }
 
+    // Priority 2: click a friendly soldier
+    let mut hit: Option<UnitId> = None;
+    {
+        let mut q = world.query::<(&LogicalPosition, &FactionComponent, &UnitIdComponent, &SoldierMarker)>();
+        for (pos, fac, id, _) in q.iter(world) {
+            if fac.0 != Faction::Player { continue; }
+            let dx = pos.0.x.to_float() - world_pos.x;
+            let dy = pos.0.y.to_float() - world_pos.y;
+            if (dx*dx+dy*dy) < 144.0 { hit = Some(id.0); break; }
+        }
+    }
     if let Some(uid) = hit {
+        selection.selected_city = None;
         let ctrl = keyboard.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight])
             || keyboard.any_pressed([KeyCode::SuperLeft, KeyCode::SuperRight]);
         if ctrl {
@@ -94,6 +114,7 @@ pub fn selection_click_system(
         }
         selection.drag_start = Some(world_pos);
     } else {
+        selection.selected_city = None;
         selection.selected_unit_ids.clear();
         selection.drag_start = None;
         selection.is_dragging = false;
@@ -129,9 +150,10 @@ pub fn drag_select_system(
     if mouse.just_released(MouseButton::Left) && selection.is_dragging {
         if let (Some(start), Some(end)) = (selection.drag_start, selection.drag_current) {
             let world = &mut sim_world.0;
-            let mut query = world.query::<(&LogicalPosition, &FactionComponent, &UnitIdComponent)>();
+            selection.selected_city = None;
+            let mut query = world.query::<(&LogicalPosition, &FactionComponent, &UnitIdComponent, &SoldierMarker)>();
             let new_sel: Vec<UnitId> = query.iter(world)
-                .filter(|(pos, fac, _)| {
+                .filter(|(pos, fac, _, _)| {
                     if fac.0 != Faction::Player { return false; }
                     let p = Vec2::new(pos.0.x.to_float(), pos.0.y.to_float());
                     match selection.selection_mode {
@@ -147,7 +169,7 @@ pub fn drag_select_system(
                         }
                     }
                 })
-                .map(|(_, _, id)| id.0)
+                .map(|(_, _, id, _)| id.0)
                 .collect();
             selection.selected_unit_ids = new_sel;
         }
@@ -169,10 +191,11 @@ pub fn selection_shortcut_system(
             || keyboard.any_pressed([KeyCode::SuperLeft, KeyCode::SuperRight]))
     {
         let world = &mut sim_world.0;
-        let mut query = world.query::<(&FactionComponent, &UnitIdComponent)>();
+        let mut query = world.query::<(&FactionComponent, &UnitIdComponent, &SoldierMarker)>();
+        selection.selected_city = None;
         selection.selected_unit_ids = query.iter(world)
-            .filter(|(fac, _)| fac.0 == Faction::Player)
-            .map(|(_, id)| id.0)
+            .filter(|(fac, _, _)| fac.0 == Faction::Player)
+            .map(|(_, id, _)| id.0)
             .collect();
     }
 

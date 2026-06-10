@@ -11,8 +11,6 @@ use std::collections::HashMap;
 
 // ══════════ Resources ══════════
 
-#[derive(Resource, Default)] pub struct SelectedCity(pub Option<Entity>);
-
 #[derive(Resource, Default)]
 pub(crate) struct HudTexts {
     // top bar
@@ -210,11 +208,16 @@ pub fn update_bottom_panel(
         Query<&mut Node, With<CityPanelRoot>>,
     )>,
     spawn_btns: Query<(&SpawnTypeBtn, &Interaction), Changed<Interaction>>,
-    ht: Res<HudTexts>, sel_city: Res<SelectedCity>, selection: Res<SelectionState>,
+    ht: Res<HudTexts>, selection: Res<SelectionState>,
     mut sim: bevy::ecs::system::NonSendMut<SimulationWorld>,
 ) {
     let w = &mut sim.0;
-    let has_city = sel_city.0.is_some();
+    // Resolve city entity from UnitId
+    let city_entity: Option<Entity> = selection.selected_city.and_then(|cid| {
+        let mut q = w.query::<(Entity, &UnitIdComponent, &CityMarker)>();
+        q.iter(w).find(|(_, id, _)| id.0 == cid).map(|(e, _, _)| e)
+    });
+    let has_city = city_entity.is_some();
     let has_soldiers = !selection.selected_unit_ids.is_empty();
 
     // City panel visibility
@@ -225,9 +228,8 @@ pub fn update_bottom_panel(
     }
 
     // ── Update city panel ──
-    if has_city {
-        if let Some(ce) = sel_city.0 {
-            if let Some(city) = w.entity(ce).get::<CityComponent>() {
+    if let Some(ce) = city_entity {
+        if let Some(city) = w.entity(ce).get::<CityComponent>() {
                 let r = city.health_current as f32 / city.health_max.max(1) as f32;
                 set_text(&mut tq, ht.c_info, &format!("[城池] Lv.{} (最高Lv.{})", city.level, city.max_level));
                 set_text(&mut tq, ht.c_hp_text, &format!("HP {}/{}", city.health_current, city.health_max));
@@ -241,7 +243,6 @@ pub fn update_bottom_panel(
                     n.width=Val::Percent(r*100.0); bg.0=if r>0.5{Color::srgba(0.2,0.8,0.2,1.0)}else{Color::srgba(0.9,0.2,0.2,1.0)}; } }
             }
         }
-    }
 
     // ── Update soldier panel ──
     if has_soldiers && !has_city {
@@ -353,11 +354,15 @@ fn clear_compendium(tq: &mut Query<&mut Text>, ht: &HudTexts) {
 // ══════════ Button Systems ══════════
 
 pub fn soldier_type_button_system(mut q: Query<(&SpawnTypeBtn, &Interaction), Changed<Interaction>>,
-    sel: Res<SelectedCity>, mut sim: bevy::ecs::system::NonSendMut<SimulationWorld>) {
+    selection: Res<SelectionState>, mut sim: bevy::ecs::system::NonSendMut<SimulationWorld>) {
+    let w = &mut sim.0;
     for (btn,interaction) in q.iter_mut() {
         if *interaction != Interaction::Pressed { continue; }
-        if let Some(ce) = sel.0 {
-            if let Some(mut c) = sim.0.entity_mut(ce).get_mut::<CityComponent>() { c.spawn_type = btn.0; }
+        if let Some(cid) = selection.selected_city {
+            let ce = w.query::<(Entity, &UnitIdComponent, &CityMarker)>().iter(w).find(|(_,id,_)| id.0==cid).map(|(e,_,_)| e);
+            if let Some(ce) = ce {
+                if let Some(mut c) = w.entity_mut(ce).get_mut::<CityComponent>() { c.spawn_type = btn.0; }
+            }
         }
     }
 }
@@ -367,22 +372,5 @@ pub fn toolbar_button_system(mut q: Query<(&ToolbarButton, &Interaction), Change
     for (btn,interaction) in q.iter_mut() {
         if *interaction != Interaction::Pressed { continue; }
         match btn.0 { 0=>sel.selection_mode=crate::selection::SelectionMode::Circle,1=>sel.selection_mode=crate::selection::SelectionMode::Rect,2=>{},3=>force.active=true, _=>{} }
-    }
-}
-
-pub fn city_click_system(mouse: Res<ButtonInput<MouseButton>>, qw: Query<&Window>,
-    cam_q: Query<(&Camera, &GlobalTransform), With<crate::camera::MainCamera>>,
-    mut sel_city: ResMut<SelectedCity>, mut sim: bevy::ecs::system::NonSendMut<SimulationWorld>) {
-    if !mouse.just_pressed(MouseButton::Left) { return; }
-    let Ok(w) = qw.single() else { return };
-    let Some(c) = w.cursor_position() else { return };
-    let Ok((cam,ct)) = cam_q.single() else { return };
-    let Some(wp) = cam.viewport_to_world_2d(ct,c).ok() else { return };
-    let world = &mut sim.0;
-    let mut q = world.query::<(Entity,&LogicalPosition,&CityRadius,&FactionComponent)>();
-    for (e,pos,radius,fac) in q.iter(world) {
-        if fac.0 != Faction::Player { continue; }
-        let dx = pos.0.x.to_float()-wp.x; let dy = pos.0.y.to_float()-wp.y;
-        if (dx*dx+dy*dy) < (radius.0 as f32).powi(2) { sel_city.0 = Some(e); return; }
     }
 }

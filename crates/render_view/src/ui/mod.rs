@@ -10,7 +10,6 @@ pub struct UiPlugin;
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
         app
-            .init_resource::<hud::SelectedCity>()
             .init_resource::<hud::HudTexts>()
             .add_systems(OnEnter(crate::GameState::MainMenu), menu::setup_main_menu)
             .add_systems(OnExit(crate::GameState::MainMenu), menu::cleanup_main_menu)
@@ -21,7 +20,6 @@ impl Plugin for UiPlugin {
                 hud::update_bottom_panel,
                 hud::soldier_type_button_system,
                 hud::toolbar_button_system,
-                hud::city_click_system,
             ).run_if(in_state(crate::GameState::Playing)))
             .add_systems(OnEnter(crate::GameState::Paused), pause::setup_pause)
             .add_systems(OnExit(crate::GameState::Paused), pause::cleanup_pause)
@@ -38,12 +36,11 @@ fn handle_pause_input(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut next: ResMut<NextState<crate::GameState>>,
     mut selection: ResMut<crate::selection::SelectionState>,
-    mut selected_city: ResMut<crate::ui::hud::SelectedCity>,
 ) {
     if keyboard.just_pressed(KeyCode::Escape) {
-        if !selection.selected_unit_ids.is_empty() || selected_city.0.is_some() {
+        if !selection.selected_unit_ids.is_empty() || selection.selected_city.is_some() {
             selection.selected_unit_ids.clear();
-            selected_city.0 = None;
+            selection.selected_city = None;
         } else {
             next.set(crate::GameState::Paused);
         }
