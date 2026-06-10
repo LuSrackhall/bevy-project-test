@@ -44,7 +44,6 @@
         lifesteal_bonus: 0.15,
     ),
     overlap_resolution: (
-        min_separation: 8,
         max_iterations: 3,
     ),
 )

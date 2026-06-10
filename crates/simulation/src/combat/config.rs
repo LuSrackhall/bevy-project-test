@@ -59,7 +59,6 @@ pub struct FearlessConfig {
 /// Post-tick overlap resolution — guarantees no soldiers overlap after each tick.
 #[derive(Clone, Debug, Deserialize)]
 pub struct OverlapResolutionConfig {
-    pub min_separation: u32,
     pub max_iterations: u32,
 }
 

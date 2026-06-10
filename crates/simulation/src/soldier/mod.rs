@@ -189,37 +189,44 @@ pub fn soldier_movement_system(world: &mut World) {
 
 pub fn overlap_resolution_system(world: &mut World) {
     let config = world.resource::<CombatGlobalConfig>().clone();
-    let oc = &config.overlap_resolution;
-    let min_sep = Fixed::from_int(oc.min_separation as i32);
-    let cell_size = Fixed::from_int(oc.min_separation as i32 * 2);
-    let max_iter = oc.max_iterations;
+    let soldier_config = world.resource::<SoldierConfig>().clone();
+    let max_iter = config.overlap_resolution.max_iterations;
+
+    // Determine cell size from the max possible collision radius (cavalry=10)
+    let max_radius = 10u32;
+    let cell_size = Fixed::from_int(max_radius as i32 * 4);
 
     for _iter in 0..max_iter {
-        // Build spatial hash from current positions
+        // Build spatial hash from current positions + per-unit collision radii
         let mut hash = SpatialHash::new(cell_size);
         {
-            let mut q = world.query::<(Entity, &LogicalPosition, &SoldierMarker)>();
-            for (_, pos, _) in q.iter(world) { hash.insert(pos.0); }
+            let mut q = world.query::<(Entity, &LogicalPosition, &SoldierTypeComponent, &SoldierMarker)>();
+            for (_, pos, st, _) in q.iter(world) {
+                let cfg = soldier_config.get(st.0);
+                hash.insert(pos.0, cfg.collision_radius);
+            }
         }
 
-        // Collect displacements
+        // Collect displacements using per-unit radii
         let mut displacements: Vec<(Entity, FixedVec2)> = Vec::new();
         {
-            let mut q = world.query::<(Entity, &LogicalPosition, &SoldierMarker)>();
-            for (e, pos, _) in q.iter(world) {
-                let neighbors = hash.query_nearby(pos.0, min_sep);
+            let mut q = world.query::<(Entity, &LogicalPosition, &SoldierTypeComponent, &SoldierMarker)>();
+            for (e, pos, st, _) in q.iter(world) {
+                let my_radius = soldier_config.get(st.0).collision_radius;
+                let neighbors = hash.query_nearby(pos.0);
                 let mut total_push = FixedVec2::ZERO;
-                for npos in &neighbors {
+                for (npos, nradius) in &neighbors {
+                    if *npos == pos.0 { continue; } // skip self
                     let diff = pos.0 - *npos;
                     let dist_sq = diff.length_squared();
                     let dist = Fixed(integer_sqrt(dist_sq.0 * FIXED_ONE));
-                    if dist.0 > 0 {
-                        let overlap = min_sep.0 - dist.0;
-                        if overlap > 0 {
-                            let push = Fixed(overlap / 2);
-                            total_push.x = total_push.x + (diff.x / dist) * push;
-                            total_push.y = total_push.y + (diff.y / dist) * push;
-                        }
+                    if dist.0 == 0 { continue; }
+                    let min_dist = (my_radius + nradius) as i64 * FIXED_ONE;
+                    let overlap = min_dist - dist.0;
+                    if overlap > 0 {
+                        let push = Fixed(overlap / 2);
+                        total_push.x = total_push.x + (diff.x / dist) * push;
+                        total_push.y = total_push.y + (diff.y / dist) * push;
                     }
                 }
                 if total_push.x.0 != 0 || total_push.y.0 != 0 {

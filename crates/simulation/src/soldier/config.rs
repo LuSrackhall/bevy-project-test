@@ -34,6 +34,8 @@ pub struct SoldierUnitConfig {
     pub pierce_per_level: f32,
     #[serde(default = "default_pierce_unlock")]
     pub pierce_unlock_level: u32,
+    #[serde(default = "default_collision_radius")]
+    pub collision_radius: u32,
 }
 
 fn default_arrow_speed() -> u32 { 20 }
@@ -45,6 +47,7 @@ fn default_overshoot_per_level() -> u32 { 20 }
 fn default_pierce_base() -> f32 { 0.05 }
 fn default_pierce_per_level() -> f32 { 0.02 }
 fn default_pierce_unlock() -> u32 { 2 }
+fn default_collision_radius() -> u32 { 6 }
 
 impl SoldierUnitConfig {
     /// Compute attack range for archers based on level.
