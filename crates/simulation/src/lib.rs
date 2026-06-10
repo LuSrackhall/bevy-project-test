@@ -68,6 +68,9 @@ pub fn run_tick(world: &mut World, tick_number: u32) -> SimulationEvents {
     // Phase 4: City spawn
     soldier::city_spawn_system(world);
 
+    // Phase 4.5: Overlap resolution (post-tick collision resolve)
+    soldier::overlap_resolution_system(world);
+
     // Phase 5: City capture check
     soldier::city_capture_check_system(world);
 

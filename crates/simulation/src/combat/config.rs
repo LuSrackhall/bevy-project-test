@@ -56,11 +56,11 @@ pub struct FearlessConfig {
     pub lifesteal_bonus: f32,
 }
 
-/// Unit separation (collision avoidance) configuration.
+/// Post-tick overlap resolution — guarantees no soldiers overlap after each tick.
 #[derive(Clone, Debug, Deserialize)]
-pub struct UnitSeparationConfig {
-    pub separation_radius: u32,
-    pub separation_weight: f32,
+pub struct OverlapResolutionConfig {
+    pub min_separation: u32,
+    pub max_iterations: u32,
 }
 
 /// Top-level combat configuration.
@@ -76,7 +76,7 @@ pub struct CombatGlobalConfig {
     pub slow_debuff: SlowDebuffConfig,
     pub level_up: LevelUpConfig,
     pub fearless: FearlessConfig,
-    pub unit_separation: UnitSeparationConfig,
+    pub overlap_resolution: OverlapResolutionConfig,
 }
 
 impl CombatGlobalConfig {

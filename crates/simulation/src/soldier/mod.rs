@@ -119,17 +119,7 @@ fn get_speed(world: &World, entity: Entity) -> u32 {
     } else { 80 }
 }
 
-/// Deterministic personal offset for formation spreading.
-/// Uses a 32×32 grid with configurable spacing, indexed by UnitId.
-fn personal_offset(unit_id: UnitId, spacing: i32) -> (i32, i32) {
-    let n = (unit_id.0 % 1024) as i32;
-    let grid = 32;
-    let x = (n % grid - grid / 2) * spacing;
-    let y = (n / grid - grid / 2) * spacing;
-    (x, y)
-}
-
-// ══════════ System: soldier_movement ══════════
+// ══════════ System: soldier_movement (pure movement, single-pass) ══════════
 
 pub fn soldier_movement_system(world: &mut World) {
     let combat_config = world.resource::<CombatGlobalConfig>().clone();
@@ -140,26 +130,12 @@ pub fn soldier_movement_system(world: &mut World) {
         q.iter(world).map(|(_, id, pos)| (id.0, pos.0)).collect()
     };
 
-    // Build set of city UnitIds (for offset target detection)
-    let city_ids: HashSet<UnitId> = {
-        let mut q = world.query::<(Entity, &UnitIdComponent, &CityMarker)>();
-        q.iter(world).map(|(_, id, _)| id.0).collect()
-    };
-
-    // Separation config
-    let sep_config = &combat_config.unit_separation;
-    let cell_size = Fixed::from_int(sep_config.separation_radius as i32 * 2);
-    let sep_radius = Fixed::from_int(sep_config.separation_radius as i32);
-    let sep_weight = Fixed::from_float(sep_config.separation_weight);
-
-    // ── Pass 1: compute raw target positions ──
-    struct MoveData { entity: Entity, raw_pos: FixedVec2, speed: u32 }
+    let mut soldier_updates: Vec<(Entity, FixedVec2)> = Vec::new();
     let mut arrivals: Vec<(Entity, u32)> = Vec::new();
-    let mut raw_moves: Vec<MoveData> = Vec::new();
 
     {
-        let mut q = world.query::<(Entity, &UnitIdComponent, &LogicalPosition, &Movement, &SoldierTypeComponent, &SoldierStateComponent, Option<&SlowDebuff>, Option<&ShieldComponent>)>();
-        for (e, uid, pos, mov, st, sst, slow, shield) in q.iter(world) {
+        let mut q = world.query::<(Entity, &LogicalPosition, &Movement, &SoldierTypeComponent, &SoldierStateComponent, Option<&SlowDebuff>, Option<&ShieldComponent>)>();
+        for (e, pos, mov, st, sst, slow, shield) in q.iter(world) {
             if st.0 == SoldierType::Archer && sst.0 == SoldierState::Fighting { continue; }
             let mut speed = mov.speed as f32;
             if let Some(sl) = slow {
@@ -182,18 +158,7 @@ pub fn soldier_movement_system(world: &mut World) {
 
             let Some(target_pos) = target_pos else { continue };
 
-            // Formation offset: waypoint/city targets get personal offset to prevent stacking
-            let is_formation_target = mov.waypoint.is_some()
-                || mov.target.map(|tid| city_ids.contains(&tid)).unwrap_or(false);
-            let effective_target = if is_formation_target {
-                let (ox, oy) = personal_offset(uid.0, 8);
-                FixedVec2::new(target_pos.x + Fixed::from_int(ox),
-                                target_pos.y + Fixed::from_int(oy))
-            } else {
-                target_pos
-            };
-
-            let delta = effective_target - pos.0;
+            let delta = target_pos - pos.0;
             let dist_sq = delta.length_squared();
             let threshold = Fixed::from_int(5);
             if dist_sq < threshold * threshold {
@@ -206,45 +171,69 @@ pub fn soldier_movement_system(world: &mut World) {
             let distance = Fixed(dist_internal);
             let move_amount = speed_fixed * TICK_DURATION;
             let ratio = if distance > Fixed::ZERO { move_amount / distance } else { Fixed::ZERO };
-            let raw_pos = FixedVec2::new(pos.0.x + delta.x * ratio, pos.0.y + delta.y * ratio);
-            raw_moves.push(MoveData { entity: e, raw_pos, speed: mov.speed });
+            let new_pos = FixedVec2::new(pos.0.x + delta.x * ratio, pos.0.y + delta.y * ratio);
+            soldier_updates.push((e, new_pos));
         }
     }
 
-    // ── Build spatial hash from raw_pos (all soldiers see each other's destinations) ──
-    let mut spatial_hash = SpatialHash::new(cell_size);
-    for md in &raw_moves {
-        spatial_hash.insert(md.raw_pos);
-    }
-
-    // ── Pass 2: apply separation force using raw_pos-based hash ──
-    let mut soldier_updates: Vec<(Entity, FixedVec2)> = Vec::new();
-    for md in &raw_moves {
-        let neighbors = spatial_hash.query_nearby(md.raw_pos, sep_radius);
-        let mut sep_force = FixedVec2::ZERO;
-        for npos in &neighbors {
-            let diff = md.raw_pos - *npos;
-            let dist_sq = diff.length_squared();
-            let dist = Fixed(integer_sqrt(dist_sq.0 * FIXED_ONE));
-            if dist.0 > 0 {
-                sep_force.x = sep_force.x + diff.x / dist;
-                sep_force.y = sep_force.y + diff.y / dist;
-            }
-        }
-        let new_pos = FixedVec2::new(
-            md.raw_pos.x + sep_force.x * sep_weight,
-            md.raw_pos.y + sep_force.y * sep_weight,
-        );
-        soldier_updates.push((md.entity, new_pos));
-    }
-
-    // ── Apply updates ──
     for (e, new_pos) in soldier_updates {
         world.entity_mut(e).insert(LogicalPosition(new_pos));
     }
     for (e, speed) in arrivals {
         world.entity_mut(e).insert(Movement { speed, target: None, command_target: None, waypoint: None, force_move: false });
         world.entity_mut(e).insert(SoldierStateComponent(SoldierState::Moving));
+    }
+}
+
+// ══════════ System: overlap_resolution (post-tick collision resolve) ══════════
+
+pub fn overlap_resolution_system(world: &mut World) {
+    let config = world.resource::<CombatGlobalConfig>().clone();
+    let oc = &config.overlap_resolution;
+    let min_sep = Fixed::from_int(oc.min_separation as i32);
+    let cell_size = Fixed::from_int(oc.min_separation as i32 * 2);
+    let max_iter = oc.max_iterations;
+
+    for _iter in 0..max_iter {
+        // Build spatial hash from current positions
+        let mut hash = SpatialHash::new(cell_size);
+        {
+            let mut q = world.query::<(Entity, &LogicalPosition, &SoldierMarker)>();
+            for (_, pos, _) in q.iter(world) { hash.insert(pos.0); }
+        }
+
+        // Collect displacements
+        let mut displacements: Vec<(Entity, FixedVec2)> = Vec::new();
+        {
+            let mut q = world.query::<(Entity, &LogicalPosition, &SoldierMarker)>();
+            for (e, pos, _) in q.iter(world) {
+                let neighbors = hash.query_nearby(pos.0, min_sep);
+                let mut total_push = FixedVec2::ZERO;
+                for npos in &neighbors {
+                    let diff = pos.0 - *npos;
+                    let dist_sq = diff.length_squared();
+                    let dist = Fixed(integer_sqrt(dist_sq.0 * FIXED_ONE));
+                    if dist.0 > 0 {
+                        let overlap = min_sep.0 - dist.0;
+                        if overlap > 0 {
+                            let push = Fixed(overlap / 2);
+                            total_push.x = total_push.x + (diff.x / dist) * push;
+                            total_push.y = total_push.y + (diff.y / dist) * push;
+                        }
+                    }
+                }
+                if total_push.x.0 != 0 || total_push.y.0 != 0 {
+                    let new_pos = FixedVec2::new(pos.0.x + total_push.x, pos.0.y + total_push.y);
+                    displacements.push((e, new_pos));
+                }
+            }
+        }
+
+        if displacements.is_empty() { break; }
+
+        for (e, new_pos) in displacements {
+            world.entity_mut(e).insert(LogicalPosition(new_pos));
+        }
     }
 }
 

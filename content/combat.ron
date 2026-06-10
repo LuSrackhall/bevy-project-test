@@ -43,8 +43,8 @@
         attack_bonus: 10,
         lifesteal_bonus: 0.15,
     ),
-    unit_separation: (
-        separation_radius: 8,
-        separation_weight: 0.60,
+    overlap_resolution: (
+        min_separation: 8,
+        max_iterations: 3,
     ),
 )
