@@ -16,6 +16,8 @@
 //   aggression_range:   主动索敌距离 (内部单位)
 //   attack_interval_ticks: 攻击冷却间隔 (Tick 数, 20Hz下10=0.5秒)
 //   spawn_speed_mult:   城池产兵速度倍率 (0.1 ~ 10.0)
+//   collision_radius:   碰撞体积半径 (内部单位, 1 ~ 50)
+//                      用于重叠解算和视觉渲染，骑兵>步兵>弓兵
 //
 // 新增兵种：
 //   1. 复制一个现有条目，修改 key 名
