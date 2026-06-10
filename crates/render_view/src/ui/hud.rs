@@ -203,10 +203,12 @@ pub fn update_top_bar(mut tq: Query<&mut Text>, ht: Res<HudTexts>,
 
 pub fn update_bottom_panel(
     mut tq: Query<&mut Text>,
-    mut hp_s: Query<(&mut Node, &mut BackgroundColor), With<HpFillS>>,
-    mut exp_s: Query<(&mut Node, &mut BackgroundColor), With<ExpFillS>>,
-    mut hp_c: Query<(&mut Node, &mut BackgroundColor), With<HpFillC>>,
-    mut city_root_q: Query<&mut Node, With<CityPanelRoot>>,
+    mut node_params: ParamSet<(
+        Query<(&mut Node, &mut BackgroundColor), With<HpFillS>>,
+        Query<(&mut Node, &mut BackgroundColor), With<ExpFillS>>,
+        Query<(&mut Node, &mut BackgroundColor), With<HpFillC>>,
+        Query<&mut Node, With<CityPanelRoot>>,
+    )>,
     spawn_btns: Query<(&SpawnTypeBtn, &Interaction), Changed<Interaction>>,
     ht: Res<HudTexts>, sel_city: Res<SelectedCity>, selection: Res<SelectionState>,
     mut sim: bevy::ecs::system::NonSendMut<SimulationWorld>,
@@ -217,7 +219,7 @@ pub fn update_bottom_panel(
 
     // City panel visibility
     if let Some(root_e) = ht.c_root {
-        if let Ok(mut n) = city_root_q.get_mut(root_e) {
+        if let Ok(mut n) = node_params.p3().get_mut(root_e) {
             n.display = if has_city { Display::Flex } else { Display::None };
         }
     }
@@ -235,7 +237,7 @@ pub fn update_bottom_panel(
                 set_text(&mut tq, ht.c_exp, &format!("经验 {}/{}", city.level_exp, req));
                 set_text(&mut tq, ht.c_spawn, &format!("当前: {}", match city.spawn_type {
                     SoldierType::Militia=>"民兵",SoldierType::Infantry=>"步兵",SoldierType::Archer=>"弓兵",SoldierType::Cavalry=>"骑兵" }));
-                if let Some(f) = ht.c_hp_fill { if let Ok((mut n,mut bg))=hp_c.get_mut(f) {
+                if let Some(f) = ht.c_hp_fill { if let Ok((mut n,mut bg))=node_params.p2().get_mut(f) {
                     n.width=Val::Percent(r*100.0); bg.0=if r>0.5{Color::srgba(0.2,0.8,0.2,1.0)}else{Color::srgba(0.9,0.2,0.2,1.0)}; } }
             }
         }
@@ -267,10 +269,10 @@ pub fn update_bottom_panel(
             set_text(&mut tq, ht.s_effect, &format!("特殊: {}", effect));
             set_text(&mut tq, ht.s_exp_text, &format!("EXP {}/{}", s.exp, 100u32));
             set_text(&mut tq, ht.s_origin, "");
-            if let Some(f) = ht.s_hp_fill { if let Ok((mut n,mut bg))=hp_s.get_mut(f) {
+            if let Some(f) = ht.s_hp_fill { if let Ok((mut n,mut bg))=node_params.p0().get_mut(f) {
                 let r = s.hp as f32/s.mhp.max(1) as f32;
                 n.width=Val::Percent(r*100.0); bg.0=if r>0.5{Color::srgba(0.2,0.8,0.2,1.0)}else{Color::srgba(0.9,0.2,0.2,1.0)}; } }
-            if let Some(f) = ht.s_exp_fill { if let Ok((mut n,_))=exp_s.get_mut(f) { n.width=Val::Percent((s.exp as f32/100.0*100.0).min(100.0)); } }
+            if let Some(f) = ht.s_exp_fill { if let Ok((mut n,_))=node_params.p1().get_mut(f) { n.width=Val::Percent((s.exp as f32/100.0*100.0).min(100.0)); } }
         } else if !soldiers.is_empty() {
             let mut counts: HashMap<SoldierType,u32> = HashMap::new();
             let (mut thp,mut tmax,mut tatk) = (0u32,0u32,0u32);
@@ -281,16 +283,16 @@ pub fn update_bottom_panel(
             set_text(&mut tq, ht.s_atk, &format!("均ATK {}", tatk/soldiers.len().max(1) as u32));
             set_text(&mut tq, ht.s_spd, &parts.join("  "));
             for e in [ht.s_exp_text,ht.s_effect,ht.s_origin] { if let Some(id)=e { if let Ok(mut t)=tq.get_mut(id) { t.0.clear(); } } }
-            if let Some(f)=ht.s_exp_fill { if let Ok((mut n,_))=exp_s.get_mut(f) { n.width=Val::Percent(0.0); } }
+            if let Some(f)=ht.s_exp_fill { if let Ok((mut n,_))=node_params.p1().get_mut(f) { n.width=Val::Percent(0.0); } }
             let r = thp as f32/tmax.max(1) as f32;
-            if let Some(f)=ht.s_hp_fill { if let Ok((mut n,mut bg))=hp_s.get_mut(f) { n.width=Val::Percent(r*100.0); bg.0=if r>0.5{Color::srgba(0.2,0.8,0.2,1.0)}else{Color::srgba(0.9,0.2,0.2,1.0)}; } }
+            if let Some(f)=ht.s_hp_fill { if let Ok((mut n,mut bg))=node_params.p0().get_mut(f) { n.width=Val::Percent(r*100.0); bg.0=if r>0.5{Color::srgba(0.2,0.8,0.2,1.0)}else{Color::srgba(0.9,0.2,0.2,1.0)}; } }
         }
     } else {
         // No selection: show placeholder in soldier panel
         set_text(&mut tq, ht.s_header, "点击单位以查看详情");
         for e in [ht.s_hp_text,ht.s_atk,ht.s_spd,ht.s_exp_text,ht.s_effect,ht.s_origin] { if let Some(id)=e { if let Ok(mut t)=tq.get_mut(id) { t.0.clear(); } } }
-        if let Some(f)=ht.s_hp_fill { if let Ok((mut n,_))=hp_s.get_mut(f) { n.width=Val::Percent(0.0); } }
-        if let Some(f)=ht.s_exp_fill { if let Ok((mut n,_))=exp_s.get_mut(f) { n.width=Val::Percent(0.0); } }
+        if let Some(f)=ht.s_hp_fill { if let Ok((mut n,_))=node_params.p0().get_mut(f) { n.width=Val::Percent(0.0); } }
+        if let Some(f)=ht.s_exp_fill { if let Ok((mut n,_))=node_params.p1().get_mut(f) { n.width=Val::Percent(0.0); } }
     }
 
     // ── Command card summary ──
