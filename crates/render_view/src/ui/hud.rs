@@ -16,7 +16,7 @@ pub(crate) struct HudTexts {
     // top bar
     cities: Option<Entity>, pop: Option<Entity>, enemy: Option<Entity>, time: Option<Entity>,
     // soldier panel
-    s_header: Option<Entity>, s_hp_text: Option<Entity>, s_hp_fill: Option<Entity>,
+    s_root: Option<Entity>, s_header: Option<Entity>, s_hp_text: Option<Entity>, s_hp_fill: Option<Entity>,
     s_atk: Option<Entity>, s_spd: Option<Entity>, s_exp_text: Option<Entity>, s_exp_fill: Option<Entity>,
     s_effect: Option<Entity>, s_origin: Option<Entity>,
     // city panel
@@ -38,6 +38,7 @@ pub(crate) struct HudTexts {
 #[derive(Component)] pub(crate) struct ExpFillS;
 #[derive(Component)] pub(crate) struct HpFillC;
 #[derive(Component)] pub(crate) struct CityPanelRoot;
+#[derive(Component)] pub(crate) struct SoldierPanelRoot;
 #[derive(Component, Clone, Copy)] pub(crate) struct SpawnTypeBtn(pub SoldierType);
 #[derive(Component)] pub struct ToolbarButton(pub u8);
 
@@ -62,113 +63,96 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
 
         root.spawn(Node { flex_grow: 1.0, ..default() }); // spacer
 
-        // ── Bottom zone 180px ──
+        // ── Bottom zone 180px: Left 30% info + Right 70% command+compendium ──
         root.spawn((Node { width: Val::Percent(100.0), height: Val::Px(180.0),
             flex_direction: FlexDirection::Row, ..default() }, BottomZone))
         .with_children(|bz| {
-            // ▲ Left 30%: soldier panel
-            {
-                let ht = &mut *ht;
-                let font = &font;
-                bz.spawn(Node { width: Val::Percent(30.0), height: Val::Percent(100.0), ..default() })
-                  .with_children(|p| {
-                    p.spawn((Node { width: Val::Percent(100.0), flex_direction: FlexDirection::Column,
-                        padding: UiRect::all(Val::Px(8.0)), row_gap: Val::Px(3.0), ..default() },
-                        BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.6)),
-                    )).with_children(|p| {
-                        ht.s_header = Some(p.spawn((Text::new("点击单位以查看详情"), TextFont { font: font.clone(), font_size: 14.0, ..default() })).id());
-                        p.spawn(Node { flex_direction: FlexDirection::Row, align_items: AlignItems::Center, ..default() }).with_children(|p| {
-                            ht.s_hp_text = Some(p.spawn((Text::new(""), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id());
-                            p.spawn((Node { width: Val::Percent(60.0), height: Val::Px(10.0), margin: UiRect::left(Val::Px(6.0)), ..default() },
-                                BackgroundColor(Color::srgba(0.2, 0.2, 0.2, 1.0)),
-                            )).with_children(|p| {
-                                ht.s_hp_fill = Some(p.spawn((Node { width: Val::Percent(0.0), height: Val::Percent(100.0), ..default() },
-                                    BackgroundColor(Color::srgba(0.2, 0.8, 0.2, 1.0)), HpFillS)).id());
-                            });
+            bz.spawn(Node { width: Val::Percent(30.0), height: Val::Percent(100.0), ..default() })
+              .with_children(|p| {
+                // Soldier panel
+                ht.s_root = Some(p.spawn((Node { width: Val::Percent(100.0), flex_direction: FlexDirection::Column,
+                    padding: UiRect::all(Val::Px(8.0)), row_gap: Val::Px(3.0), ..default() },
+                    BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.6)), SoldierPanelRoot,
+                )).with_children(|p| {
+                    ht.s_header = Some(p.spawn((Text::new("点击单位以查看详情"), TextFont { font: font.clone(), font_size: 14.0, ..default() })).id());
+                    p.spawn(Node { flex_direction: FlexDirection::Row, align_items: AlignItems::Center, ..default() }).with_children(|p| {
+                        ht.s_hp_text = Some(p.spawn((Text::new(""), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id());
+                        p.spawn((Node { width: Val::Percent(60.0), height: Val::Px(10.0), margin: UiRect::left(Val::Px(6.0)), ..default() },
+                            BackgroundColor(Color::srgba(0.2, 0.2, 0.2, 1.0)),
+                        )).with_children(|p| {
+                            ht.s_hp_fill = Some(p.spawn((Node { width: Val::Percent(0.0), height: Val::Percent(100.0), ..default() },
+                                BackgroundColor(Color::srgba(0.2, 0.8, 0.2, 1.0)), HpFillS)).id());
                         });
-                        ht.s_atk = Some(p.spawn((Text::new(""), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id());
-                        ht.s_spd = Some(p.spawn((Text::new(""), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id());
-                        p.spawn(Node { flex_direction: FlexDirection::Row, align_items: AlignItems::Center, ..default() }).with_children(|p| {
-                            ht.s_exp_text = Some(p.spawn((Text::new(""), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id());
-                            p.spawn((Node { width: Val::Percent(50.0), height: Val::Px(8.0), margin: UiRect::left(Val::Px(6.0)), ..default() },
-                                BackgroundColor(Color::srgba(0.1, 0.1, 0.3, 1.0)),
-                            )).with_children(|p| {
-                                ht.s_exp_fill = Some(p.spawn((Node { width: Val::Percent(0.0), height: Val::Percent(100.0), ..default() },
-                                    BackgroundColor(Color::srgba(0.4, 0.5, 1.0, 1.0)), ExpFillS)).id());
-                            });
-                        });
-                        ht.s_effect = Some(p.spawn((Text::new(""), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id());
-                        ht.s_origin = Some(p.spawn((Text::new(""), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id());
                     });
-                  });
-            }
-            // ▲ Center 40%: city panel + command card
-            {
-                let ht = &mut *ht;
-                let font = &font;
-                bz.spawn(Node { width: Val::Percent(40.0), height: Val::Percent(100.0), flex_direction: FlexDirection::Column, ..default() })
-                  .with_children(|p| {
-                    // City panel (hidden)
-                    ht.c_root = Some(p.spawn((Node { width: Val::Percent(100.0), flex_direction: FlexDirection::Column,
-                        padding: UiRect::all(Val::Px(8.0)), row_gap: Val::Px(3.0), display: Display::None, ..default() },
-                        BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.6)), CityPanelRoot,
-                    )).with_children(|p| {
-                        ht.c_info = Some(p.spawn((Text::new("[城池] Lv.?"), TextFont { font: font.clone(), font_size: 14.0, ..default() })).id());
-                        p.spawn(Node { flex_direction: FlexDirection::Row, align_items: AlignItems::Center, ..default() }).with_children(|p| {
-                            ht.c_hp_text = Some(p.spawn((Text::new("HP ?/?"), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id());
-                            p.spawn((Node { width: Val::Percent(50.0), height: Val::Px(10.0), margin: UiRect::left(Val::Px(6.0)), ..default() },
-                                BackgroundColor(Color::srgba(0.2, 0.2, 0.2, 1.0)),
-                            )).with_children(|p| {
-                                ht.c_hp_fill = Some(p.spawn((Node { width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() },
-                                    BackgroundColor(Color::srgba(0.2, 0.8, 0.2, 1.0)), HpFillC)).id());
-                            });
+                    ht.s_atk = Some(p.spawn((Text::new(""), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id());
+                    ht.s_spd = Some(p.spawn((Text::new(""), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id());
+                    p.spawn(Node { flex_direction: FlexDirection::Row, align_items: AlignItems::Center, ..default() }).with_children(|p| {
+                        ht.s_exp_text = Some(p.spawn((Text::new(""), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id());
+                        p.spawn((Node { width: Val::Percent(50.0), height: Val::Px(8.0), margin: UiRect::left(Val::Px(6.0)), ..default() },
+                            BackgroundColor(Color::srgba(0.1, 0.1, 0.3, 1.0)),
+                        )).with_children(|p| {
+                            ht.s_exp_fill = Some(p.spawn((Node { width: Val::Percent(0.0), height: Val::Percent(100.0), ..default() },
+                                BackgroundColor(Color::srgba(0.4, 0.5, 1.0, 1.0)), ExpFillS)).id());
                         });
-                        ht.c_pop = Some(p.spawn((Text::new("兵 ?/?"), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id());
-                        ht.c_exp = Some(p.spawn((Text::new("经验 ?/?"), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id());
-                        ht.c_spawn = Some(p.spawn((Text::new("当前: 民兵"), TextFont { font: font.clone(), font_size: 13.0, ..default() })).id());
-                        p.spawn(Node { flex_direction: FlexDirection::Row, ..default() }).with_children(|p| {
-                            for (st, label) in [(SoldierType::Militia,"民兵"),(SoldierType::Infantry,"步兵"),(SoldierType::Archer,"弓兵"),(SoldierType::Cavalry,"骑兵")] {
-                                p.spawn((Button, Node { padding: UiRect::all(Val::Px(6.0)), margin: UiRect::all(Val::Px(3.0)), ..default() }, SpawnTypeBtn(st)))
-                                    .with_child((Text::new(label), TextFont { font: font.clone(), font_size: 12.0, ..default() }));
-                            }
-                        });
-                    }).id());
-                    // Command card
-                    p.spawn((Node { width: Val::Percent(100.0), flex_direction: FlexDirection::Column,
-                        padding: UiRect::all(Val::Px(8.0)), row_gap: Val::Px(4.0), ..default() },
-                        BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.6)),
-                    )).with_children(|p| {
-                        p.spawn(Node { flex_direction: FlexDirection::Row, column_gap: Val::Px(6.0), ..default() }).with_children(|p| {
-                            for label in ["移动","攻击","停止","驻守"] {
-                                p.spawn((Button, Node { padding: UiRect::all(Val::Px(8.0)), ..default() }))
-                                    .with_child((Text::new(label), TextFont { font: font.clone(), font_size: 14.0, ..default() }));
-                            }
-                        });
-                        ht.cmd_info = Some(p.spawn((Text::new("无可用命令 — 请先选择单位"), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id());
                     });
-                  });
-            }
-            // ▲ Right 30%: minimap + compendium
-            {
-                let ht = &mut *ht;
-                let font = &font;
-                bz.spawn(Node { width: Val::Percent(30.0), height: Val::Percent(100.0), flex_direction: FlexDirection::Column, ..default() })
-                  .with_children(|p| {
-                    p.spawn((Node { width: Val::Percent(100.0), height: Val::Percent(55.0),
-                        justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() },
-                        BackgroundColor(Color::srgba(0.05, 0.05, 0.05, 0.6)),
-                    )).with_child((Text::new("小地图"), TextFont { font: font.clone(), font_size: 12.0, ..default() }));
-                    p.spawn((Node { width: Val::Percent(100.0), flex_direction: FlexDirection::Column,
-                        padding: UiRect::all(Val::Px(8.0)), row_gap: Val::Px(3.0), ..default() },
-                        BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.6)),
-                    )).with_children(|p| {
-                        ht.comp_header = Some(p.spawn((Text::new("悬停兵种按钮查看详情"), TextFont { font: font.clone(), font_size: 13.0, ..default() })).id());
-                        for e in [&mut ht.comp_hp, &mut ht.comp_atk, &mut ht.comp_spd, &mut ht.comp_rng, &mut ht.comp_rad, &mut ht.comp_effect, &mut ht.comp_desc] {
-                            *e = Some(p.spawn((Text::new(""), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id());
+                    ht.s_effect = Some(p.spawn((Text::new(""), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id());
+                    ht.s_origin = Some(p.spawn((Text::new(""), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id());
+                }).id());
+                // City panel (hidden)
+                ht.c_root = Some(p.spawn((Node { width: Val::Percent(100.0), flex_direction: FlexDirection::Column,
+                    padding: UiRect::all(Val::Px(8.0)), row_gap: Val::Px(3.0), display: Display::None, ..default() },
+                    BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.6)),
+                )).with_children(|p| {
+                    ht.c_info = Some(p.spawn((Text::new("[城池] Lv.?"), TextFont { font: font.clone(), font_size: 14.0, ..default() })).id());
+                    p.spawn(Node { flex_direction: FlexDirection::Row, align_items: AlignItems::Center, ..default() }).with_children(|p| {
+                        ht.c_hp_text = Some(p.spawn((Text::new("HP ?/?"), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id());
+                        p.spawn((Node { width: Val::Percent(50.0), height: Val::Px(10.0), margin: UiRect::left(Val::Px(6.0)), ..default() },
+                            BackgroundColor(Color::srgba(0.2, 0.2, 0.2, 1.0)),
+                        )).with_children(|p| {
+                            ht.c_hp_fill = Some(p.spawn((Node { width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() },
+                                BackgroundColor(Color::srgba(0.2, 0.8, 0.2, 1.0)), HpFillC)).id());
+                        });
+                    });
+                    ht.c_pop = Some(p.spawn((Text::new("兵 ?/?"), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id());
+                    ht.c_exp = Some(p.spawn((Text::new("经验 ?/?"), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id());
+                    ht.c_spawn = Some(p.spawn((Text::new("当前: 民兵"), TextFont { font: font.clone(), font_size: 13.0, ..default() })).id());
+                    p.spawn(Node { flex_direction: FlexDirection::Row, ..default() }).with_children(|p| {
+                        for (st, label) in [(SoldierType::Militia,"民兵"),(SoldierType::Infantry,"步兵"),(SoldierType::Archer,"弓兵"),(SoldierType::Cavalry,"骑兵")] {
+                            p.spawn((Button, Node { padding: UiRect::all(Val::Px(6.0)), margin: UiRect::all(Val::Px(3.0)), ..default() }, SpawnTypeBtn(st)))
+                                .with_child((Text::new(label), TextFont { font: font.clone(), font_size: 12.0, ..default() }));
                         }
                     });
-                  });
-            }
+                }).id());
+              });
+            // Right 70%: command card + compendium
+            bz.spawn(Node { width: Val::Percent(70.0), height: Val::Percent(100.0), flex_direction: FlexDirection::Column, ..default() })
+              .with_children(|p| {
+                p.spawn((Node { width: Val::Percent(100.0), flex_direction: FlexDirection::Column,
+                    padding: UiRect::all(Val::Px(8.0)), row_gap: Val::Px(4.0), ..default() },
+                    BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.6)),
+                )).with_children(|p| {
+                    ht.cmd_info = Some(p.spawn((Text::new("无可用命令 — 请先选择单位"), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id());
+                    p.spawn(Node { flex_direction: FlexDirection::Row, column_gap: Val::Px(6.0), ..default() }).with_children(|p| {
+                        for label in ["移动","攻击","停止","驻守"] {
+                            p.spawn((Button, Node { padding: UiRect::all(Val::Px(8.0)), ..default() }))
+                                .with_child((Text::new(label), TextFont { font: font.clone(), font_size: 14.0, ..default() }));
+                        }
+                    });
+                });
+                p.spawn((Node { width: Val::Percent(100.0), flex_direction: FlexDirection::Column,
+                    padding: UiRect::all(Val::Px(8.0)), row_gap: Val::Px(3.0), ..default() },
+                    BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.6)),
+                )).with_children(|p| {
+                    ht.comp_header = Some(p.spawn((Text::new("悬停兵种按钮查看详情"), TextFont { font: font.clone(), font_size: 13.0, ..default() })).id());
+                    ht.comp_hp = Some(p.spawn((Text::new(""), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id());
+                    ht.comp_atk = Some(p.spawn((Text::new(""), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id());
+                    ht.comp_spd = Some(p.spawn((Text::new(""), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id());
+                    ht.comp_rng = Some(p.spawn((Text::new(""), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id());
+                    ht.comp_rad = Some(p.spawn((Text::new(""), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id());
+                    ht.comp_effect = Some(p.spawn((Text::new(""), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id());
+                    ht.comp_desc = Some(p.spawn((Text::new(""), TextFont { font: font.clone(), font_size: 11.0, ..default() })).id());
+                });
+              });
         });
 
         // ── Toolbar ──
@@ -205,6 +189,7 @@ pub fn update_bottom_panel(
         Query<(&mut Node, &mut BackgroundColor), With<HpFillS>>,
         Query<(&mut Node, &mut BackgroundColor), With<ExpFillS>>,
         Query<(&mut Node, &mut BackgroundColor), With<HpFillC>>,
+        Query<&mut Node, With<SoldierPanelRoot>>,
         Query<&mut Node, With<CityPanelRoot>>,
     )>,
     spawn_btns: Query<(&SpawnTypeBtn, &Interaction), Changed<Interaction>>,
@@ -220,12 +205,9 @@ pub fn update_bottom_panel(
     let has_city = city_entity.is_some();
     let has_soldiers = !selection.selected_unit_ids.is_empty();
 
-    // City panel visibility
-    if let Some(root_e) = ht.c_root {
-        if let Ok(mut n) = node_params.p3().get_mut(root_e) {
-            n.display = if has_city { Display::Flex } else { Display::None };
-        }
-    }
+    // Toggle panel visibility: city and soldier share the same spot
+    if let Some(e) = ht.s_root { if let Ok(mut n) = node_params.p3().get_mut(e) { n.display = if has_soldiers && !has_city { Display::Flex } else { Display::None }; } }
+    if let Some(e) = ht.c_root { if let Ok(mut n) = node_params.p4().get_mut(e) { n.display = if has_city { Display::Flex } else { Display::None }; } }
 
     // ── Update city panel ──
     if let Some(ce) = city_entity {
