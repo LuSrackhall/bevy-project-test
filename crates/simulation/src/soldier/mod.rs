@@ -130,27 +130,20 @@ pub fn soldier_movement_system(world: &mut World) {
         q.iter(world).map(|(_, id, pos)| (id.0, pos.0)).collect()
     };
 
-    // Build spatial hash grid for separation (all soldiers)
+    // Separation config
     let sep_config = &combat_config.unit_separation;
     let cell_size = Fixed::from_int(sep_config.separation_radius as i32 * 2);
     let sep_radius = Fixed::from_int(sep_config.separation_radius as i32);
     let sep_weight = Fixed::from_float(sep_config.separation_weight);
-    let mut spatial_hash = SpatialHash::new(cell_size);
-    {
-        let mut q = world.query::<(Entity, &LogicalPosition, &SoldierMarker)>();
-        for (_, pos, _) in q.iter(world) {
-            spatial_hash.insert(pos.0);
-        }
-    }
 
-    // Collect soldier data as owned values (avoid borrow issues)
-    let mut soldier_updates: Vec<(Entity, FixedVec2)> = Vec::new();
+    // ── Pass 1: compute raw target positions ──
+    struct MoveData { entity: Entity, raw_pos: FixedVec2, speed: u32 }
     let mut arrivals: Vec<(Entity, u32)> = Vec::new();
+    let mut raw_moves: Vec<MoveData> = Vec::new();
 
     {
         let mut q = world.query::<(Entity, &LogicalPosition, &Movement, &SoldierTypeComponent, &SoldierStateComponent, Option<&SlowDebuff>, Option<&ShieldComponent>)>();
         for (e, pos, mov, st, sst, slow, shield) in q.iter(world) {
-            // Archers stop moving while shooting; melee units still charge toward targets
             if st.0 == SoldierType::Archer && sst.0 == SoldierState::Fighting { continue; }
             let mut speed = mov.speed as f32;
             if let Some(sl) = slow {
@@ -187,27 +180,38 @@ pub fn soldier_movement_system(world: &mut World) {
             let move_amount = speed_fixed * TICK_DURATION;
             let ratio = if distance > Fixed::ZERO { move_amount / distance } else { Fixed::ZERO };
             let raw_pos = FixedVec2::new(pos.0.x + delta.x * ratio, pos.0.y + delta.y * ratio);
-
-            // Separation force: push away from nearby soldiers
-            let neighbors = spatial_hash.query_nearby(raw_pos, sep_radius);
-            let mut sep_force = FixedVec2::ZERO;
-            for npos in &neighbors {
-                let diff = raw_pos - *npos;
-                let dist_sq = diff.length_squared();
-                let dist = Fixed(integer_sqrt(dist_sq.0 * FIXED_ONE));
-                if dist.0 > 0 {
-                    sep_force.x = sep_force.x + diff.x / dist;
-                    sep_force.y = sep_force.y + diff.y / dist;
-                }
-            }
-            let new_pos = FixedVec2::new(
-                raw_pos.x + sep_force.x * sep_weight,
-                raw_pos.y + sep_force.y * sep_weight,
-            );
-            soldier_updates.push((e, new_pos));
+            raw_moves.push(MoveData { entity: e, raw_pos, speed: mov.speed });
         }
     }
 
+    // ── Build spatial hash from raw_pos (all soldiers see each other's destinations) ──
+    let mut spatial_hash = SpatialHash::new(cell_size);
+    for md in &raw_moves {
+        spatial_hash.insert(md.raw_pos);
+    }
+
+    // ── Pass 2: apply separation force using raw_pos-based hash ──
+    let mut soldier_updates: Vec<(Entity, FixedVec2)> = Vec::new();
+    for md in &raw_moves {
+        let neighbors = spatial_hash.query_nearby(md.raw_pos, sep_radius);
+        let mut sep_force = FixedVec2::ZERO;
+        for npos in &neighbors {
+            let diff = md.raw_pos - *npos;
+            let dist_sq = diff.length_squared();
+            let dist = Fixed(integer_sqrt(dist_sq.0 * FIXED_ONE));
+            if dist.0 > 0 {
+                sep_force.x = sep_force.x + diff.x / dist;
+                sep_force.y = sep_force.y + diff.y / dist;
+            }
+        }
+        let new_pos = FixedVec2::new(
+            md.raw_pos.x + sep_force.x * sep_weight,
+            md.raw_pos.y + sep_force.y * sep_weight,
+        );
+        soldier_updates.push((md.entity, new_pos));
+    }
+
+    // ── Apply updates ──
     for (e, new_pos) in soldier_updates {
         world.entity_mut(e).insert(LogicalPosition(new_pos));
     }
@@ -236,7 +240,9 @@ pub fn city_spawn_system(world: &mut World) {
     for (entity, pos, faction, spawn_type, _cooldown, can_spawn) in cities {
         if can_spawn {
             let new_id = { world.resource_mut::<IdGenerator>().next() };
-            let spawn_pos = FixedVec2::new(pos.x + Fixed::from_int(30), pos.y);
+            let jx = (new_id.0 % 16) as i32 - 8;
+            let jy = ((new_id.0 >> 4) % 16) as i32 - 8;
+            let spawn_pos = FixedVec2::new(pos.x + Fixed::from_int(30 + jx), pos.y + Fixed::from_int(jy));
 
             // Update city population + cooldown
             {

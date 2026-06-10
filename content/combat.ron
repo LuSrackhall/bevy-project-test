@@ -45,6 +45,6 @@
     ),
     unit_separation: (
         separation_radius: 8,
-        separation_weight: 0.40,
+        separation_weight: 0.60,
     ),
 )
