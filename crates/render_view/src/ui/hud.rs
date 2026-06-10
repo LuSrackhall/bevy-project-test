@@ -101,7 +101,7 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
                 // City panel (hidden)
                 ht.c_root = Some(p.spawn((Node { width: Val::Percent(100.0), flex_direction: FlexDirection::Column,
                     padding: UiRect::all(Val::Px(8.0)), row_gap: Val::Px(3.0), display: Display::None, ..default() },
-                    BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.6)),
+                    BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.6)), CityPanelRoot,
                 )).with_children(|p| {
                     ht.c_info = Some(p.spawn((Text::new("[城池] Lv.?"), TextFont { font: font.clone(), font_size: 14.0, ..default() })).id());
                     p.spawn(Node { flex_direction: FlexDirection::Row, align_items: AlignItems::Center, ..default() }).with_children(|p| {
@@ -206,7 +206,9 @@ pub fn update_bottom_panel(
     let has_soldiers = !selection.selected_unit_ids.is_empty();
 
     // Toggle panel visibility: city and soldier share the same spot
-    if let Some(e) = ht.s_root { if let Ok(mut n) = node_params.p3().get_mut(e) { n.display = if has_soldiers && !has_city { Display::Flex } else { Display::None }; } }
+    // Soldier panel: visible when no city is selected (shows placeholder or soldier info)
+    if let Some(e) = ht.s_root { if let Ok(mut n) = node_params.p3().get_mut(e) { n.display = if !has_city { Display::Flex } else { Display::None }; } }
+    // City panel: visible only when a city is selected
     if let Some(e) = ht.c_root { if let Ok(mut n) = node_params.p4().get_mut(e) { n.display = if has_city { Display::Flex } else { Display::None }; } }
 
     // ── Update city panel ──
