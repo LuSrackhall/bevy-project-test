@@ -119,6 +119,16 @@ fn get_speed(world: &World, entity: Entity) -> u32 {
     } else { 80 }
 }
 
+/// Deterministic personal offset for formation spreading.
+/// Uses a 32×32 grid with configurable spacing, indexed by UnitId.
+fn personal_offset(unit_id: UnitId, spacing: i32) -> (i32, i32) {
+    let n = (unit_id.0 % 1024) as i32;
+    let grid = 32;
+    let x = (n % grid - grid / 2) * spacing;
+    let y = (n / grid - grid / 2) * spacing;
+    (x, y)
+}
+
 // ══════════ System: soldier_movement ══════════
 
 pub fn soldier_movement_system(world: &mut World) {
@@ -128,6 +138,12 @@ pub fn soldier_movement_system(world: &mut World) {
     let positions: HashMap<UnitId, FixedVec2> = {
         let mut q = world.query::<(Entity, &UnitIdComponent, &LogicalPosition)>();
         q.iter(world).map(|(_, id, pos)| (id.0, pos.0)).collect()
+    };
+
+    // Build set of city UnitIds (for offset target detection)
+    let city_ids: HashSet<UnitId> = {
+        let mut q = world.query::<(Entity, &UnitIdComponent, &CityMarker)>();
+        q.iter(world).map(|(_, id, _)| id.0).collect()
     };
 
     // Separation config
@@ -142,8 +158,8 @@ pub fn soldier_movement_system(world: &mut World) {
     let mut raw_moves: Vec<MoveData> = Vec::new();
 
     {
-        let mut q = world.query::<(Entity, &LogicalPosition, &Movement, &SoldierTypeComponent, &SoldierStateComponent, Option<&SlowDebuff>, Option<&ShieldComponent>)>();
-        for (e, pos, mov, st, sst, slow, shield) in q.iter(world) {
+        let mut q = world.query::<(Entity, &UnitIdComponent, &LogicalPosition, &Movement, &SoldierTypeComponent, &SoldierStateComponent, Option<&SlowDebuff>, Option<&ShieldComponent>)>();
+        for (e, uid, pos, mov, st, sst, slow, shield) in q.iter(world) {
             if st.0 == SoldierType::Archer && sst.0 == SoldierState::Fighting { continue; }
             let mut speed = mov.speed as f32;
             if let Some(sl) = slow {
@@ -166,7 +182,18 @@ pub fn soldier_movement_system(world: &mut World) {
 
             let Some(target_pos) = target_pos else { continue };
 
-            let delta = target_pos - pos.0;
+            // Formation offset: waypoint/city targets get personal offset to prevent stacking
+            let is_formation_target = mov.waypoint.is_some()
+                || mov.target.map(|tid| city_ids.contains(&tid)).unwrap_or(false);
+            let effective_target = if is_formation_target {
+                let (ox, oy) = personal_offset(uid.0, 8);
+                FixedVec2::new(target_pos.x + Fixed::from_int(ox),
+                                target_pos.y + Fixed::from_int(oy))
+            } else {
+                target_pos
+            };
+
+            let delta = effective_target - pos.0;
             let dist_sq = delta.length_squared();
             let threshold = Fixed::from_int(5);
             if dist_sq < threshold * threshold {
