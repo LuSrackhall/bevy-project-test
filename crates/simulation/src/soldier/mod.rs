@@ -1,4 +1,5 @@
 pub mod config;
+pub mod spatial_hash;
 
 use bevy_ecs::world::World;
 use bevy_ecs::entity::Entity;
@@ -10,6 +11,7 @@ use crate::command::*;
 use crate::soldier::config::SoldierConfig;
 use crate::city::config::CityGlobalConfig;
 use crate::combat::config::CombatGlobalConfig;
+use crate::soldier::spatial_hash::SpatialHash;
 
 // ══════════ Components ══════════
 
@@ -128,6 +130,19 @@ pub fn soldier_movement_system(world: &mut World) {
         q.iter(world).map(|(_, id, pos)| (id.0, pos.0)).collect()
     };
 
+    // Build spatial hash grid for separation (all soldiers)
+    let sep_config = &combat_config.unit_separation;
+    let cell_size = Fixed::from_int(sep_config.separation_radius as i32 * 2);
+    let sep_radius = Fixed::from_int(sep_config.separation_radius as i32);
+    let sep_weight = Fixed::from_float(sep_config.separation_weight);
+    let mut spatial_hash = SpatialHash::new(cell_size);
+    {
+        let mut q = world.query::<(Entity, &LogicalPosition, &SoldierMarker)>();
+        for (_, pos, _) in q.iter(world) {
+            spatial_hash.insert(pos.0);
+        }
+    }
+
     // Collect soldier data as owned values (avoid borrow issues)
     let mut soldier_updates: Vec<(Entity, FixedVec2)> = Vec::new();
     let mut arrivals: Vec<(Entity, u32)> = Vec::new();
@@ -171,7 +186,24 @@ pub fn soldier_movement_system(world: &mut World) {
             let distance = Fixed(dist_internal);
             let move_amount = speed_fixed * TICK_DURATION;
             let ratio = if distance > Fixed::ZERO { move_amount / distance } else { Fixed::ZERO };
-            let new_pos = FixedVec2::new(pos.0.x + delta.x * ratio, pos.0.y + delta.y * ratio);
+            let raw_pos = FixedVec2::new(pos.0.x + delta.x * ratio, pos.0.y + delta.y * ratio);
+
+            // Separation force: push away from nearby soldiers
+            let neighbors = spatial_hash.query_nearby(raw_pos, sep_radius);
+            let mut sep_force = FixedVec2::ZERO;
+            for npos in &neighbors {
+                let diff = raw_pos - *npos;
+                let dist_sq = diff.length_squared();
+                let dist = Fixed(integer_sqrt(dist_sq.0 * FIXED_ONE));
+                if dist.0 > 0 {
+                    sep_force.x = sep_force.x + diff.x / dist;
+                    sep_force.y = sep_force.y + diff.y / dist;
+                }
+            }
+            let new_pos = FixedVec2::new(
+                raw_pos.x + sep_force.x * sep_weight,
+                raw_pos.y + sep_force.y * sep_weight,
+            );
             soldier_updates.push((e, new_pos));
         }
     }

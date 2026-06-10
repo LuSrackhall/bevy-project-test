@@ -56,6 +56,13 @@ pub struct FearlessConfig {
     pub lifesteal_bonus: f32,
 }
 
+/// Unit separation (collision avoidance) configuration.
+#[derive(Clone, Debug, Deserialize)]
+pub struct UnitSeparationConfig {
+    pub separation_radius: u32,
+    pub separation_weight: f32,
+}
+
 /// Top-level combat configuration.
 #[derive(Clone, Debug, Deserialize, Resource)]
 pub struct CombatGlobalConfig {
@@ -69,6 +76,7 @@ pub struct CombatGlobalConfig {
     pub slow_debuff: SlowDebuffConfig,
     pub level_up: LevelUpConfig,
     pub fearless: FearlessConfig,
+    pub unit_separation: UnitSeparationConfig,
 }
 
 impl CombatGlobalConfig {
