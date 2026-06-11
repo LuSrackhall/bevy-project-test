@@ -2,6 +2,7 @@ pub mod debug_shape;
 pub mod camera;
 pub mod selection;
 pub mod ui;
+pub mod unit_info_bar;
 
 use bevy::prelude::*;
 
@@ -24,8 +25,11 @@ impl Plugin for RenderViewPlugin {
             .init_resource::<crate::selection::SelectionState>()
             .add_plugins(crate::ui::UiPlugin)
             .add_systems(Startup, crate::camera::setup_camera)
+            .init_resource::<crate::unit_info_bar::UnitInfoBarSettings>()
             .add_systems(Update, (
                 crate::debug_shape::draw_debug_shapes_system,
+                crate::unit_info_bar::unit_info_bar_system,
+                crate::unit_info_bar::info_bar_mode_toggle_system,
                 crate::camera::camera_drag_system,
                 crate::camera::camera_zoom_system,
                 crate::camera::center_on_player_city,

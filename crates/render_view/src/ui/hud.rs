@@ -214,31 +214,28 @@ pub fn update_bottom_panel(
     // ── Update city panel ──
     if let Some(ce) = city_entity {
         if let Some(city) = w.entity(ce).get::<CityComponent>() {
-                let r = city.health_current as f32 / city.health_max.max(1) as f32;
-                set_text(&mut tq, ht.c_info, &format!("[城池] Lv.{} (最高Lv.{})", city.level, city.max_level));
-                set_text(&mut tq, ht.c_hp_text, &format!("HP {}/{}", city.health_current, city.health_max));
+                set_text(&mut tq, ht.c_info, "[城池]");
                 set_text(&mut tq, ht.c_pop, &format!("兵 {}/{}", city.population, city.max_population));
-                let cc = w.resource::<CityGlobalConfig>();
-                let req = (city.health_max as f32 * cc.level_up_cost_multiplier * city.level as f32) as u64;
-                set_text(&mut tq, ht.c_exp, &format!("经验 {}/{}", city.level_exp, req));
                 set_text(&mut tq, ht.c_spawn, &format!("当前: {}", match city.spawn_type {
                     SoldierType::Militia=>"民兵",SoldierType::Infantry=>"步兵",SoldierType::Archer=>"弓兵",SoldierType::Cavalry=>"骑兵" }));
-                if let Some(f) = ht.c_hp_fill { if let Ok((mut n,mut bg))=node_params.p2().get_mut(f) {
-                    n.width=Val::Percent(r*100.0); bg.0=if r>0.5{Color::srgba(0.2,0.8,0.2,1.0)}else{Color::srgba(0.9,0.2,0.2,1.0)}; } }
+                // HP/level/exp removed — now shown on overhead info bar
+                if let Some(f) = ht.c_hp_fill { if let Ok((mut n,_))=node_params.p2().get_mut(f) { n.width=Val::Percent(0.0); } }
+                set_text(&mut tq, ht.c_hp_text, "");
+                set_text(&mut tq, ht.c_exp, "");
             }
         }
 
     // ── Update soldier panel ──
     if has_soldiers && !has_city {
         let ids = &selection.selected_unit_ids;
-        // Collect soldier info
+        // Collect soldier info — HP/EXP removed (now on overhead bar)
         let sc = w.resource::<SoldierConfig>().clone();
-        struct SI { st:SoldierType, hp:u32, mhp:u32, atk:u32, spd:u32, rng:u32, rad:u32, lv:u32, exp:u32 }
+        struct SI { st:SoldierType, atk:u32, spd:u32, rng:u32, rad:u32 }
         let soldiers: Vec<SI> = {
-            let mut q = w.query::<(Entity,&UnitIdComponent,&Health,&Attack,&Movement,&SoldierTypeComponent,&Level)>();
-            ids.iter().filter_map(|uid| q.iter(w).find(|(_,id,_,_,_,_,_)| id.0==*uid).map(|(_,_,hp,atk,mov,st,lvl)| {
+            let mut q = w.query::<(Entity,&UnitIdComponent,&Attack,&Movement,&SoldierTypeComponent)>();
+            ids.iter().filter_map(|uid| q.iter(w).find(|(_,id,_,_,_)| id.0==*uid).map(|(_,_,atk,mov,st)| {
                 let c = sc.get(st.0);
-                SI{st:st.0,hp:hp.current,mhp:hp.max,atk:atk.damage,spd:mov.speed,rng:atk.range,rad:c.collision_radius,lv:lvl.level,exp:lvl.exp}
+                SI{st:st.0,atk:atk.damage,spd:mov.speed,rng:atk.range,rad:c.collision_radius}
             })).collect()
         };
         if soldiers.len() == 1 {
@@ -247,30 +244,27 @@ pub fn update_bottom_panel(
                 SoldierType::Militia=>("民兵","无"), SoldierType::Infantry=>("步兵","举盾: 可举盾大幅减伤"),
                 SoldierType::Archer=>("弓兵","远程+穿透: 箭矢可穿透"), SoldierType::Cavalry=>("骑兵","闪避+无畏: 受伤时可闪避")
             };
-            set_text(&mut tq, ht.s_header, &format!("{} Lv.{}", label, s.lv));
-            set_text(&mut tq, ht.s_hp_text, &format!("HP {}/{}", s.hp, s.mhp));
+            set_text(&mut tq, ht.s_header, &format!("{} (HP/经验见头顶)", label));
+            set_text(&mut tq, ht.s_hp_text, "");
             set_text(&mut tq, ht.s_atk, &format!("ATK {}  SPD {}", s.atk, s.spd));
             set_text(&mut tq, ht.s_spd, &format!("RNG {}  RAD {}", s.rng, s.rad));
             set_text(&mut tq, ht.s_effect, &format!("特殊: {}", effect));
-            set_text(&mut tq, ht.s_exp_text, &format!("EXP {}/{}", s.exp, 100u32));
+            set_text(&mut tq, ht.s_exp_text, "");
             set_text(&mut tq, ht.s_origin, "");
-            if let Some(f) = ht.s_hp_fill { if let Ok((mut n,mut bg))=node_params.p0().get_mut(f) {
-                let r = s.hp as f32/s.mhp.max(1) as f32;
-                n.width=Val::Percent(r*100.0); bg.0=if r>0.5{Color::srgba(0.2,0.8,0.2,1.0)}else{Color::srgba(0.9,0.2,0.2,1.0)}; } }
-            if let Some(f) = ht.s_exp_fill { if let Ok((mut n,_))=node_params.p1().get_mut(f) { n.width=Val::Percent((s.exp as f32/100.0*100.0).min(100.0)); } }
+            if let Some(f) = ht.s_hp_fill { if let Ok((mut n,_))=node_params.p0().get_mut(f) { n.width=Val::Percent(0.0); } }
+            if let Some(f) = ht.s_exp_fill { if let Ok((mut n,_))=node_params.p1().get_mut(f) { n.width=Val::Percent(0.0); } }
         } else if !soldiers.is_empty() {
             let mut counts: HashMap<SoldierType,u32> = HashMap::new();
-            let (mut thp,mut tmax,mut tatk) = (0u32,0u32,0u32);
-            for s in &soldiers { *counts.entry(s.st).or_default()+=1; thp+=s.hp; tmax+=s.mhp; tatk+=s.atk; }
+            let mut tatk = 0u32;
+            for s in &soldiers { *counts.entry(s.st).or_default()+=1; tatk+=s.atk; }
             let parts: Vec<String> = counts.iter().map(|(st,c)| format!("{}{}",c,match st{SoldierType::Militia=>"民",SoldierType::Infantry=>"步",SoldierType::Archer=>"弓",SoldierType::Cavalry=>"骑"})).collect();
-            set_text(&mut tq, ht.s_header, &format!("选中 {} 单位", soldiers.len()));
-            set_text(&mut tq, ht.s_hp_text, &format!("HP {}/{}", thp, tmax));
+            set_text(&mut tq, ht.s_header, &format!("选中 {} 单位 (HP/经验见头顶)", soldiers.len()));
+            set_text(&mut tq, ht.s_hp_text, "");
             set_text(&mut tq, ht.s_atk, &format!("均ATK {}", tatk/soldiers.len().max(1) as u32));
             set_text(&mut tq, ht.s_spd, &parts.join("  "));
             for e in [ht.s_exp_text,ht.s_effect,ht.s_origin] { if let Some(id)=e { if let Ok(mut t)=tq.get_mut(id) { t.0.clear(); } } }
             if let Some(f)=ht.s_exp_fill { if let Ok((mut n,_))=node_params.p1().get_mut(f) { n.width=Val::Percent(0.0); } }
-            let r = thp as f32/tmax.max(1) as f32;
-            if let Some(f)=ht.s_hp_fill { if let Ok((mut n,mut bg))=node_params.p0().get_mut(f) { n.width=Val::Percent(r*100.0); bg.0=if r>0.5{Color::srgba(0.2,0.8,0.2,1.0)}else{Color::srgba(0.9,0.2,0.2,1.0)}; } }
+            if let Some(f)=ht.s_hp_fill { if let Ok((mut n,_))=node_params.p0().get_mut(f) { n.width=Val::Percent(0.0); } }
         }
     } else {
         // No selection: show placeholder in soldier panel
