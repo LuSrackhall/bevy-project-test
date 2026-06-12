@@ -4,6 +4,7 @@ use bevy_prototype_lyon::shapes;
 use bevy_adapter::tick::SimulationWorld;
 use simulation::soldier::*;
 use crate::selection::SelectionState;
+use crate::camera::MainCamera;
 use std::collections::HashMap;
 
 // ══════════ Components ══════════
@@ -36,6 +37,7 @@ pub enum InfoBarMode {
     Always,
     Selected,
     Smart,
+    Classic,
 }
 
 impl InfoBarMode {
@@ -43,7 +45,8 @@ impl InfoBarMode {
         match self {
             InfoBarMode::Always => InfoBarMode::Selected,
             InfoBarMode::Selected => InfoBarMode::Smart,
-            InfoBarMode::Smart => InfoBarMode::Always,
+            InfoBarMode::Smart => InfoBarMode::Classic,
+            InfoBarMode::Classic => InfoBarMode::Always,
         }
     }
 }
@@ -57,7 +60,7 @@ pub struct UnitInfoBarSettings {
 
 impl Default for UnitInfoBarSettings {
     fn default() -> Self {
-        Self { mode: InfoBarMode::Smart }
+        Self { mode: InfoBarMode::Classic }
     }
 }
 
@@ -112,6 +115,8 @@ pub(crate) fn unit_info_bar_system(
     mut text_q: Query<&mut Text2d>,
     mut hp_fill_q: Query<(&mut Sprite, &mut Transform), (With<HpFill>, Without<ExpFill>)>,
     mut exp_fill_q: Query<(&mut Sprite, &mut Transform), (With<ExpFill>, Without<HpFill>)>,
+    q_windows: Query<&Window>,
+    q_camera: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
 ) {
     if font_cache.is_none() {
         *font_cache = Some(asset_server.load("fonts/Arial Unicode.ttf"));
@@ -156,6 +161,36 @@ pub(crate) fn unit_info_bar_system(
         selection.selected_unit_ids.iter().copied().collect();
     let sel_city = selection.selected_city;
 
+    // ── Hover detection ──
+    let mut hovered_ids: std::collections::HashSet<simulation::types::UnitId> =
+        std::collections::HashSet::new();
+    if settings.mode == InfoBarMode::Classic || settings.mode == InfoBarMode::Selected {
+        if let (Ok(window), Ok((camera, cam_t))) = (q_windows.single(), q_camera.single()) {
+            if let Some(cursor) = window.cursor_position() {
+                if let Some(world_pos) = camera.viewport_to_world_2d(cam_t, cursor).ok() {
+                    // Collect city radii for hover threshold
+                    let city_radii: std::collections::HashMap<simulation::types::UnitId, f32> = {
+                        let mut q = world.query::<(&UnitIdComponent, &CityRadius)>();
+                        q.iter(world).map(|(id, r)| (id.0, r.0 as f32)).collect()
+                    };
+
+                    for info in &units {
+                        let dx = info.world_pos.x - world_pos.x;
+                        let dy = info.world_pos.y - world_pos.y;
+                        let dist_sq = dx * dx + dy * dy;
+                        let threshold = city_radii
+                            .get(&info.unit_id)
+                            .map(|r| r * r)
+                            .unwrap_or(144.0); // 12px radius for soldiers
+                        if dist_sq < threshold {
+                            hovered_ids.insert(info.unit_id);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     let live_ids: std::collections::HashSet<simulation::types::UnitId> =
         units.iter().map(|u| u.unit_id).collect();
 
@@ -174,10 +209,12 @@ pub(crate) fn unit_info_bar_system(
     // ── Process each unit ──
     for info in &units {
         let is_selected = selected.contains(&info.unit_id) || sel_city == Some(info.unit_id);
+        let is_hovered = hovered_ids.contains(&info.unit_id);
         let should_show = match settings.mode {
             InfoBarMode::Always => true,
-            InfoBarMode::Selected => is_selected,
+            InfoBarMode::Selected => is_selected || is_hovered,
             InfoBarMode::Smart => is_selected || info.hp_cur < info.hp_max || info.exp > 0,
+            InfoBarMode::Classic => is_selected || is_hovered,
         };
 
         if let Some(parts) = bar_parts.get_mut(&info.unit_id) {
