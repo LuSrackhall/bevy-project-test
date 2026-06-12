@@ -201,7 +201,7 @@ fn create_bar(
     visible: bool,
     font: &Handle<Font>,
 ) -> BarParts {
-    let vis = if visible { Visibility::Inherited } else { Visibility::Hidden };
+    let root_vis = if visible { Visibility::Inherited } else { Visibility::Hidden };
     let bar_pos = info.world_pos + Vec2::new(0.0, BAR_OFFSET_Y);
     let hp_ratio = info.hp_cur as f32 / info.hp_max.max(1) as f32;
     let exp_ratio = (info.exp as f32 / EXP_MAX as f32).min(1.0);
@@ -215,7 +215,7 @@ fn create_bar(
     let root = commands
         .spawn((
             Transform::from_xyz(bar_pos.x, bar_pos.y, 10.0),
-            vis,
+            root_vis,
             UnitInfoBar(info.unit_id),
             BarRoot,
         ))
@@ -226,7 +226,7 @@ fn create_bar(
                 TextFont { font: font.clone(), font_size: 10.0, ..default() },
                 TextColor(Color::WHITE),
                 Transform::from_xyz(-20.0, 6.0, 0.02),
-                vis,
+                Visibility::Inherited,
                 LvlText,
             )).id();
 
@@ -238,7 +238,7 @@ fn create_bar(
                     radii: None,
                 }).fill(HP_BG).build(),
                 Transform::from_xyz(0.0, 2.0, 0.0),
-                vis,
+                Visibility::Inherited,
             ));
 
             // HP fill (Sprite for reliable rendering)
@@ -250,7 +250,7 @@ fn create_bar(
                     ..default()
                 },
                 Transform::from_xyz(-HP_BAR_W / 2.0 + hp_w / 2.0, 2.0, 0.01),
-                vis,
+                Visibility::Inherited,
                 HpFill,
             )).id();
 
@@ -262,7 +262,7 @@ fn create_bar(
                     radii: None,
                 }).fill(EXP_BG).build(),
                 Transform::from_xyz(0.0, -3.0, 0.0),
-                vis,
+                Visibility::Inherited,
             ));
 
             // EXP fill (Sprite for reliable rendering)
@@ -274,7 +274,7 @@ fn create_bar(
                     ..default()
                 },
                 Transform::from_xyz(-EXP_BAR_W / 2.0 + exp_w / 2.0, -3.0, 0.01),
-                vis,
+                Visibility::Inherited,
                 ExpFill,
             )).id();
 
@@ -284,7 +284,7 @@ fn create_bar(
                 TextFont { font: font.clone(), font_size: 8.0, ..default() },
                 TextColor(Color::WHITE),
                 Transform::from_xyz(22.0, 2.0, 0.02),
-                vis,
+                Visibility::Inherited,
                 HpNumText,
             )).id();
 
@@ -294,7 +294,7 @@ fn create_bar(
                 TextFont { font: font.clone(), font_size: 8.0, ..default() },
                 TextColor(Color::WHITE),
                 Transform::from_xyz(22.0, -3.0, 0.02),
-                vis,
+                Visibility::Inherited,
                 ExpNumText,
             )).id();
         })
