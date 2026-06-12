@@ -243,10 +243,10 @@ fn create_bar(
             hp_fill_e = parent.spawn((
                 ShapeBuilder::with(&shapes::Rectangle {
                     extents: Vec2::new(hp_w, HP_BAR_H),
-                    origin: shapes::RectangleOrigin::CustomCenter(Vec2::new(-HP_BAR_W / 2.0 + hp_w / 2.0, 0.0)),
+                    origin: shapes::RectangleOrigin::Center,
                     radii: None,
                 }).fill(HP_FILL).build(),
-                Transform::from_xyz(0.0, 2.0, 0.01),
+                Transform::from_xyz(-HP_BAR_W / 2.0 + hp_w / 2.0, 2.0, 0.01),
                 vis,
                 HpFill,
             )).id();
@@ -267,10 +267,10 @@ fn create_bar(
             exp_fill_e = parent.spawn((
                 ShapeBuilder::with(&shapes::Rectangle {
                     extents: Vec2::new(exp_w, EXP_BAR_H),
-                    origin: shapes::RectangleOrigin::CustomCenter(Vec2::new(-EXP_BAR_W / 2.0 + exp_w / 2.0, 0.0)),
+                    origin: shapes::RectangleOrigin::Center,
                     radii: None,
                 }).fill(EXP_FILL).build(),
-                Transform::from_xyz(0.0, -3.0, 0.01),
+                Transform::from_xyz(-EXP_BAR_W / 2.0 + exp_w / 2.0, -3.0, 0.01),
                 vis,
                 ExpFill,
             )).id();
@@ -353,10 +353,10 @@ fn update_bar(
     parts.hp_fill = commands.spawn((
         ShapeBuilder::with(&shapes::Rectangle {
             extents: Vec2::new(hp_w, HP_BAR_H),
-            origin: shapes::RectangleOrigin::CustomCenter(Vec2::new(-HP_BAR_W / 2.0 + hp_w / 2.0, 0.0)),
+            origin: shapes::RectangleOrigin::Center,
             radii: None,
         }).fill(HP_FILL).build(),
-        Transform::from_xyz(0.0, 2.0, 0.01),
+        Transform::from_xyz(-HP_BAR_W / 2.0 + hp_w / 2.0, 2.0, 0.01),
         Visibility::Inherited,
         HpFill,
     )).set_parent_in_place(root).id();
@@ -367,10 +367,10 @@ fn update_bar(
     parts.exp_fill = commands.spawn((
         ShapeBuilder::with(&shapes::Rectangle {
             extents: Vec2::new(exp_w, EXP_BAR_H),
-            origin: shapes::RectangleOrigin::CustomCenter(Vec2::new(-EXP_BAR_W / 2.0 + exp_w / 2.0, 0.0)),
+            origin: shapes::RectangleOrigin::Center,
             radii: None,
         }).fill(EXP_FILL).build(),
-        Transform::from_xyz(0.0, -3.0, 0.01),
+        Transform::from_xyz(-EXP_BAR_W / 2.0 + exp_w / 2.0, -3.0, 0.01),
         Visibility::Inherited,
         ExpFill,
     )).set_parent_in_place(root).id();
