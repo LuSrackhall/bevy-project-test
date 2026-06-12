@@ -170,8 +170,15 @@ pub fn soldier_movement_system(world: &mut World) {
             if dist_internal <= 0 { continue; }
             let distance = Fixed(dist_internal);
             let move_amount = speed_fixed * TICK_DURATION;
-            let ratio = if distance > Fixed::ZERO { move_amount / distance } else { Fixed::ZERO };
-            let new_pos = FixedVec2::new(pos.0.x + delta.x * ratio, pos.0.y + delta.y * ratio);
+            // Use i128 to compute (delta * move_amount) / distance without truncation.
+            // Fixed-point division would truncate to 0 when distance > move_amount
+            // (e.g. clicking far away), causing the unit to stand still.
+            let dx = (delta.x.0 as i128 * move_amount.0 as i128) / distance.0 as i128;
+            let dy = (delta.y.0 as i128 * move_amount.0 as i128) / distance.0 as i128;
+            let new_pos = FixedVec2::new(
+                Fixed(pos.0.x.0 + dx as i64),
+                Fixed(pos.0.y.0 + dy as i64),
+            );
             soldier_updates.push((e, new_pos));
         }
     }
