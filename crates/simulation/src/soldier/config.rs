@@ -12,7 +12,6 @@ pub struct SoldierUnitConfig {
     pub attack: u32,
     pub speed: u32,
     pub attack_range: u32,
-    pub aggression_range: u32,
     pub attack_interval_ticks: u32,
     pub spawn_speed_mult: f32,
     // Archer-specific fields (serde default for non-archer types)

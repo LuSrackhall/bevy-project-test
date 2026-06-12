@@ -7,6 +7,27 @@ use bevy_ecs::prelude::Resource;
 use crate::types::{FixedVec2, ShieldState, SoldierType, UnitId};
 
 // ═══════════════════════════════════════════════════════════════
+// SeekScope + SeekDirective
+// ═══════════════════════════════════════════════════════════════
+
+/// Scope of a seek-stance command.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SeekScope {
+    /// Apply to all friendly units.
+    All,
+    /// Apply to a specific soldier type.
+    ByType(SoldierType),
+}
+
+/// A seek directive recorded in the global directive resource.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SeekDirective {
+    pub scope: SeekScope,
+    pub seek_range: u32,
+    pub issue_tick: u32,
+}
+
+// ═══════════════════════════════════════════════════════════════
 // Action: ECS-style fine-grained commands
 // ═══════════════════════════════════════════════════════════════
 
@@ -31,9 +52,27 @@ pub enum Action {
     /// Change spawn type for a city.
     SetSpawnType { city: UnitId, soldier_type: SoldierType },
 
+    /// Set seek stance: enable/disable auto-engagement with configurable range.
+    /// - scope + seek_range: for All / ByType global directives
+    /// - unit_ids: for per-selection commands (overrides per-unit SeekStance)
+    SetSeekStance {
+        scope: SeekScope,
+        seek_range: u32,
+        unit_ids: Vec<UnitId>,
+    },
+
     /// No operation — placeholder for missing commands in a tick.
     NoOp,
 }
+
+// ═══════════════════════════════════════════════════════════════
+// GlobalSeekDirective
+// ═══════════════════════════════════════════════════════════════
+
+/// Records the most recent global seek directives issued by the player.
+/// Newly spawned units consult this resource to inherit seek stance.
+#[derive(Clone, Debug, Default, Resource)]
+pub struct GlobalSeekDirective(pub Vec<SeekDirective>);
 
 // ═══════════════════════════════════════════════════════════════
 // GameCommand + CommandBuffer

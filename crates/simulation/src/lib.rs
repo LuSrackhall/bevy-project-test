@@ -43,6 +43,7 @@ pub fn init_simulation_world(seed: u64) -> World {
     world.insert_resource(DeterministicRng::new(seed));
     world.insert_resource(IdGenerator::new());
     world.insert_resource(CommandBuffer::default());
+    world.insert_resource(GlobalSeekDirective::default());
     world.insert_resource(SimulationEvents::new());
 
     world

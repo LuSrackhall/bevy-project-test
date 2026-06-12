@@ -13,7 +13,7 @@
 //   attack:             基础攻击力 (1 ~ 10000)
 //   speed:              移动速度 (内部单位/Tick, 1 ~ 500)
 //   attack_range:       攻击距离 (内部单位, 1 ~ 2000)
-//   aggression_range:   主动索敌距离 (内部单位)
+//   （主动索敌已改为 SeekStance 命令控制，见 GameCommand::SetSeekStance）
 //   attack_interval_ticks: 攻击冷却间隔 (Tick 数, 20Hz下10=0.5秒)
 //   spawn_speed_mult:   城池产兵速度倍率 (0.1 ~ 10.0)
 //   collision_radius:   碰撞体积半径 (内部单位, 1 ~ 50)
@@ -32,7 +32,6 @@
         attack: 16,
         speed: 80,
         attack_range: 30,
-        aggression_range: 150,
         attack_interval_ticks: 10,
         spawn_speed_mult: 1.0,
         collision_radius: 6,
@@ -42,7 +41,6 @@
         attack: 20,
         speed: 80,
         attack_range: 30,
-        aggression_range: 150,
         attack_interval_ticks: 10,
         spawn_speed_mult: 0.5,
         collision_radius: 7,
@@ -52,7 +50,6 @@
         attack: 20,
         speed: 80,
         attack_range: 600,
-        aggression_range: 600,
         attack_interval_ticks: 10,
         spawn_speed_mult: 0.5,
         arrow_speed: 20,
@@ -71,7 +68,6 @@
         attack: 20,
         speed: 200,
         attack_range: 30,
-        aggression_range: 200,
         attack_interval_ticks: 10,
         spawn_speed_mult: 0.3,
         collision_radius: 10,

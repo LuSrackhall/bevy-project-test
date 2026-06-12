@@ -22,6 +22,7 @@ pub struct UnitIdComponent(pub UnitId);
 #[derive(Component, Clone, Debug)] pub struct WaypointMarker;
 #[derive(Component, Clone, Debug)] pub struct LogicalPosition(pub FixedVec2);
 #[derive(Component, Clone, Debug)] pub struct Movement { pub speed: u32, pub target: Option<UnitId>, pub command_target: Option<UnitId>, pub waypoint: Option<FixedVec2>, pub force_move: bool }
+#[derive(Component, Clone, Debug)] pub struct SeekStance { pub active: bool, pub seek_range: u32 }
 #[derive(Component, Clone, Debug)] pub struct Health { pub current: u32, pub max: u32 }
 #[derive(Component, Clone, Debug)] pub struct Attack { pub damage: u32, pub range: u32, pub interval_ticks: u32, pub cooldown_remaining: u32 }
 #[derive(Component, Clone, Debug)] pub struct FactionComponent(pub Faction);
@@ -100,6 +101,9 @@ pub fn consume_commands_system(world: &mut World, tick: u32) {
                     }
                 }
             }
+            Action::SetSeekStance { scope, seek_range, unit_ids } => {
+                apply_seek_stance(world, cmd.tick, scope, seek_range, unit_ids);
+            }
             Action::NoOp => {}
         }
     }
@@ -117,6 +121,49 @@ fn get_speed(world: &World, entity: Entity) -> u32 {
     if let Some(st) = world.entity(entity).get::<SoldierTypeComponent>() {
         world.resource::<SoldierConfig>().get(st.0).speed
     } else { 80 }
+}
+
+/// Apply a SetSeekStance command.
+/// - If `unit_ids` is non-empty: update only those units (selection mode).
+/// - If `unit_ids` is empty: update GlobalSeekDirective and all matching soldiers.
+fn apply_seek_stance(world: &mut World, tick: u32, scope: SeekScope, seek_range: u32, unit_ids: Vec<UnitId>) {
+    let active = seek_range > 0;
+    let new_stance = SeekStance { active, seek_range };
+
+    if !unit_ids.is_empty() {
+        // Selection mode: update only specified units, don't touch GlobalSeekDirective
+        for uid in unit_ids {
+            if let Some(e) = find_entity_by_unit_id(world, uid) {
+                world.entity_mut(e).insert(new_stance.clone());
+            }
+        }
+    } else {
+        // Global mode: update GlobalSeekDirective and all matching Player soldiers
+        {
+            let mut directives = world.resource_mut::<GlobalSeekDirective>();
+            directives.0.push(SeekDirective {
+                scope: scope.clone(),
+                seek_range,
+                issue_tick: tick,
+            });
+        }
+
+        // Collect matching Player-faction soldiers and update their SeekStance
+        let matches: Vec<Entity> = {
+            let mut q = world.query::<(Entity, &FactionComponent, &SoldierTypeComponent, &SoldierMarker)>();
+            q.iter(world)
+                .filter(|(_, fac, _, _)| fac.0 == Faction::Player)
+                .filter(|(_, _, st, _)| match &scope {
+                    SeekScope::All => true,
+                    SeekScope::ByType(t) => st.0 == *t,
+                })
+                .map(|(e, _, _, _)| e)
+                .collect()
+        };
+        for e in matches {
+            world.entity_mut(e).insert(new_stance.clone());
+        }
+    }
 }
 
 // ══════════ System: soldier_movement (pure movement, single-pass) ══════════
@@ -255,6 +302,7 @@ pub fn overlap_resolution_system(world: &mut World) {
 
 pub fn city_spawn_system(world: &mut World) {
     let soldier_config = world.resource::<SoldierConfig>().clone();
+    let seek_directives = world.resource::<GlobalSeekDirective>().clone();
 
     // Collect city entities and check spawn conditions
     let cities: Vec<(Entity, FixedVec2, Faction, SoldierType, u32, bool)> = {
@@ -284,12 +332,27 @@ pub fn city_spawn_system(world: &mut World) {
                 }
             }
 
+            // Determine SeekStance from global directives (latest matching by issue_tick)
+            let mut seek_stance = SeekStance { active: false, seek_range: 0 };
+            let mut best_tick: u32 = 0;
+            for d in &seek_directives.0 {
+                let matches = match &d.scope {
+                    SeekScope::All => true,
+                    SeekScope::ByType(t) => *t == spawn_type,
+                };
+                if matches && d.issue_tick >= best_tick {
+                    seek_stance = SeekStance { active: d.seek_range > 0, seek_range: d.seek_range };
+                    best_tick = d.issue_tick;
+                }
+            }
+
             // Create soldier
             let cfg = soldier_config.get(spawn_type);
             let origin = find_nearest_city_uid(world, spawn_pos, faction);
             world.spawn((
                 UnitIdComponent(new_id), SoldierMarker, LogicalPosition(spawn_pos),
                 Movement { speed: cfg.speed, target: None, command_target: None, waypoint: None, force_move: false },
+                seek_stance,
                 Health { current: cfg.health, max: cfg.health },
                 Attack { damage: cfg.attack, range: cfg.attack_range, interval_ticks: cfg.attack_interval_ticks, cooldown_remaining: cfg.attack_interval_ticks },
                 FactionComponent(faction), SoldierTypeComponent(spawn_type),
@@ -536,5 +599,335 @@ pub fn soldier_level_up_system(world: &mut World) {
         if let Some(mut atk) = em.get_mut::<Attack>() { atk.damage += lu.attack_gain; }
         let mut events = world.resource_mut::<SimulationEvents>();
         events.leveled_up.push(SoldierLeveledUp { unit_id: uid, new_level: nl });
+    }
+}
+
+// ══════════ Tests: SeekStance ══════════
+
+#[cfg(test)]
+mod seek_stance_tests {
+    use super::*;
+    use crate::init_simulation_world;
+    use crate::map;
+    use crate::combat::combat_engagement_system;
+
+    /// Spawn a player soldier at a position with a given type.
+    fn spawn_player_soldier(world: &mut World, pos: FixedVec2, stype: SoldierType) -> UnitId {
+        let uid = world.resource_mut::<IdGenerator>().next();
+        let cfg = world.resource::<SoldierConfig>().get(stype).clone();
+        world.spawn((
+            UnitIdComponent(uid), SoldierMarker, LogicalPosition(pos),
+            Movement { speed: cfg.speed, target: None, command_target: None, waypoint: None, force_move: false },
+            SeekStance { active: false, seek_range: 0 },
+            Health { current: cfg.health, max: cfg.health },
+            Attack { damage: cfg.attack, range: cfg.attack_range, interval_ticks: cfg.attack_interval_ticks, cooldown_remaining: 0 },
+            FactionComponent(Faction::Player), SoldierTypeComponent(stype),
+            Level { level: 1, exp: 0 }, ShieldComponent(ShieldState::Normal),
+            CityOrigin(UnitId(0)), SoldierStateComponent(SoldierState::Moving),
+        ));
+        uid
+    }
+
+    /// Spawn an enemy soldier at a position.
+    fn spawn_enemy_soldier(world: &mut World, pos: FixedVec2) -> UnitId {
+        let uid = world.resource_mut::<IdGenerator>().next();
+        world.spawn((
+            UnitIdComponent(uid), SoldierMarker, LogicalPosition(pos),
+            Movement { speed: 80, target: None, command_target: None, waypoint: None, force_move: false },
+            SeekStance { active: false, seek_range: 0 },
+            Health { current: 100, max: 100 },
+            Attack { damage: 10, range: 30, interval_ticks: 10, cooldown_remaining: 0 },
+            FactionComponent(Faction::Enemy), SoldierTypeComponent(SoldierType::Militia),
+            Level { level: 1, exp: 0 }, ShieldComponent(ShieldState::Normal),
+            CityOrigin(UnitId(0)), SoldierStateComponent(SoldierState::Moving),
+        ));
+        uid
+    }
+
+    // ── 4.1: SeekStance default values ──
+
+    #[test]
+    fn test_seek_stance_default_values() {
+        let stance = SeekStance { active: false, seek_range: 0 };
+        assert!(!stance.active);
+        assert_eq!(stance.seek_range, 0);
+    }
+
+    #[test]
+    fn test_seek_stance_active_values() {
+        let stance = SeekStance { active: true, seek_range: 150 };
+        assert!(stance.active);
+        assert_eq!(stance.seek_range, 150);
+    }
+
+    // ── 4.2: GlobalSeekDirective inheritance ──
+
+    #[test]
+    fn test_spawn_inherits_global_seek_all() {
+        let mut world = init_simulation_world(42);
+        map::generate_map(&mut world);
+
+        // Issue a global All directive
+        world.resource_mut::<GlobalSeekDirective>().0.push(SeekDirective {
+            scope: SeekScope::All,
+            seek_range: 10,
+            issue_tick: 1,
+        });
+
+        // Run city spawn
+        city_spawn_system(&mut world);
+
+        // Find a newly spawned player soldier
+        let mut q = world.query::<(&FactionComponent, &SoldierTypeComponent, &SeekStance)>();
+        let found = q.iter(&world)
+            .filter(|(fac, _, _)| fac.0 == Faction::Player)
+            .any(|(_, _, stance)| stance.active && stance.seek_range == 10);
+        assert!(found, "Newly spawned soldier should inherit All seek directive");
+    }
+
+    #[test]
+    fn test_spawn_ignores_non_matching_bytype() {
+        let mut world = init_simulation_world(42);
+        map::generate_map(&mut world);
+
+        // Issue a ByType(Archer) directive only
+        world.resource_mut::<GlobalSeekDirective>().0.push(SeekDirective {
+            scope: SeekScope::ByType(SoldierType::Archer),
+            seek_range: 50,
+            issue_tick: 1,
+        });
+
+        // Run city spawn (cities default to Militia)
+        city_spawn_system(&mut world);
+
+        // Newly spawned militia should NOT inherit Archer directive
+        let mut q = world.query::<(&FactionComponent, &SoldierTypeComponent, &SeekStance)>();
+        let militia_with_seek = q.iter(&world)
+            .filter(|(fac, st, _)| fac.0 == Faction::Player && st.0 == SoldierType::Militia)
+            .any(|(_, _, stance)| stance.active);
+        assert!(!militia_with_seek, "Militia should not inherit Archer-only directive");
+    }
+
+    #[test]
+    fn test_spawn_latest_matching_directive_wins() {
+        let mut world = init_simulation_world(42);
+        map::generate_map(&mut world);
+
+        // Push All(10) at tick 5, then ByType(Militia, 30) at tick 8
+        {
+            let mut gd = world.resource_mut::<GlobalSeekDirective>();
+            gd.0.push(SeekDirective { scope: SeekScope::All, seek_range: 10, issue_tick: 5 });
+            gd.0.push(SeekDirective { scope: SeekScope::ByType(SoldierType::Militia), seek_range: 30, issue_tick: 8 });
+        }
+
+        city_spawn_system(&mut world);
+
+        let mut q = world.query::<(&FactionComponent, &SoldierTypeComponent, &SeekStance)>();
+        let found = q.iter(&world)
+            .filter(|(fac, st, _)| fac.0 == Faction::Player && st.0 == SoldierType::Militia)
+            .any(|(_, _, stance)| stance.active && stance.seek_range == 30);
+        assert!(found, "Militia should use latest matching directive (tick 8, range 30)");
+    }
+
+    // ── 4.3: consume_commands_system — SetSeekStance ──
+
+    #[test]
+    fn test_consume_seek_stance_global_all() {
+        let mut world = init_simulation_world(42);
+        let p1 = spawn_player_soldier(&mut world, FixedVec2::new(Fixed::from_int(0), Fixed::from_int(0)), SoldierType::Militia);
+        let p2 = spawn_player_soldier(&mut world, FixedVec2::new(Fixed::from_int(50), Fixed::from_int(0)), SoldierType::Archer);
+        spawn_enemy_soldier(&mut world, FixedVec2::new(Fixed::from_int(100), Fixed::from_int(0)));
+
+        // Push global All(range=15) command
+        world.resource_mut::<CommandBuffer>().push(GameCommand {
+            tick: 1, player_id: 0,
+            action: Action::SetSeekStance { scope: SeekScope::All, seek_range: 15, unit_ids: vec![] },
+        });
+
+        consume_commands_system(&mut world, 1);
+
+        // Verify GlobalSeekDirective updated
+        let gd = world.resource::<GlobalSeekDirective>();
+        assert_eq!(gd.0.len(), 1);
+        assert_eq!(gd.0[0].seek_range, 15);
+
+        // Verify both soldiers have SeekStance updated
+        let e1 = find_entity_by_unit_id(&mut world, p1).unwrap();
+        let s1 = world.entity(e1).get::<SeekStance>().unwrap();
+        assert!(s1.active && s1.seek_range == 15, "Militia should have active seek range 15");
+
+        let e2 = find_entity_by_unit_id(&mut world, p2).unwrap();
+        let s2 = world.entity(e2).get::<SeekStance>().unwrap();
+        assert!(s2.active && s2.seek_range == 15, "Archer should have active seek range 15");
+    }
+
+    #[test]
+    fn test_consume_seek_stance_by_type() {
+        let mut world = init_simulation_world(42);
+        let p_inf = spawn_player_soldier(&mut world, FixedVec2::new(Fixed::from_int(0), Fixed::from_int(0)), SoldierType::Infantry);
+        let p_arch = spawn_player_soldier(&mut world, FixedVec2::new(Fixed::from_int(50), Fixed::from_int(0)), SoldierType::Archer);
+        spawn_enemy_soldier(&mut world, FixedVec2::new(Fixed::from_int(100), Fixed::from_int(0)));
+
+        // Push ByType(Infantry, range=20)
+        world.resource_mut::<CommandBuffer>().push(GameCommand {
+            tick: 1, player_id: 0,
+            action: Action::SetSeekStance { scope: SeekScope::ByType(SoldierType::Infantry), seek_range: 20, unit_ids: vec![] },
+        });
+
+        consume_commands_system(&mut world, 1);
+
+        // Infantry gets updated
+        let e_inf = find_entity_by_unit_id(&mut world, p_inf).unwrap();
+        let s_inf = world.entity(e_inf).get::<SeekStance>().unwrap();
+        assert!(s_inf.active && s_inf.seek_range == 20, "Infantry should have active seek range 20");
+
+        // Archer stays default
+        let e_arch = find_entity_by_unit_id(&mut world, p_arch).unwrap();
+        let s_arch = world.entity(e_arch).get::<SeekStance>().unwrap();
+        assert!(!s_arch.active && s_arch.seek_range == 0, "Archer should remain default (not Infantry type)");
+    }
+
+    #[test]
+    fn test_consume_seek_stance_selection() {
+        let mut world = init_simulation_world(42);
+        let p1 = spawn_player_soldier(&mut world, FixedVec2::new(Fixed::from_int(0), Fixed::from_int(0)), SoldierType::Cavalry);
+        let p2 = spawn_player_soldier(&mut world, FixedVec2::new(Fixed::from_int(50), Fixed::from_int(0)), SoldierType::Cavalry);
+        spawn_enemy_soldier(&mut world, FixedVec2::new(Fixed::from_int(100), Fixed::from_int(0)));
+
+        // Push selection command for p1 only
+        world.resource_mut::<CommandBuffer>().push(GameCommand {
+            tick: 1, player_id: 0,
+            action: Action::SetSeekStance { scope: SeekScope::All, seek_range: 60, unit_ids: vec![p1] },
+        });
+
+        consume_commands_system(&mut world, 1);
+
+        // p1 gets updated
+        let e1 = find_entity_by_unit_id(&mut world, p1).unwrap();
+        let s1 = world.entity(e1).get::<SeekStance>().unwrap();
+        assert!(s1.active && s1.seek_range == 60, "Selected cavalry should have active seek range 60");
+
+        // p2 stays default
+        let e2 = find_entity_by_unit_id(&mut world, p2).unwrap();
+        let s2 = world.entity(e2).get::<SeekStance>().unwrap();
+        assert!(!s2.active && s2.seek_range == 0, "Unselected cavalry should remain default");
+
+        // GlobalSeekDirective NOT modified for selection commands
+        let gd = world.resource::<GlobalSeekDirective>();
+        assert!(gd.0.is_empty(), "Selection command should not modify GlobalSeekDirective");
+    }
+
+    #[test]
+    fn test_consume_seek_stance_range_zero_disables() {
+        let mut world = init_simulation_world(42);
+        let p1 = spawn_player_soldier(&mut world, FixedVec2::new(Fixed::from_int(0), Fixed::from_int(0)), SoldierType::Militia);
+        spawn_enemy_soldier(&mut world, FixedVec2::new(Fixed::from_int(100), Fixed::from_int(0)));
+
+        // First enable
+        world.resource_mut::<CommandBuffer>().push(GameCommand {
+            tick: 1, player_id: 0,
+            action: Action::SetSeekStance { scope: SeekScope::All, seek_range: 10, unit_ids: vec![] },
+        });
+        consume_commands_system(&mut world, 1);
+
+        // Then disable with range=0
+        world.resource_mut::<CommandBuffer>().push(GameCommand {
+            tick: 2, player_id: 0,
+            action: Action::SetSeekStance { scope: SeekScope::All, seek_range: 0, unit_ids: vec![] },
+        });
+        consume_commands_system(&mut world, 2);
+
+        let e1 = find_entity_by_unit_id(&mut world, p1).unwrap();
+        let s1 = world.entity(e1).get::<SeekStance>().unwrap();
+        assert!(!s1.active && s1.seek_range == 0, "range=0 should disable seek");
+    }
+
+    // ── 4.4: combat_engagement_system — SeekStance behavior ──
+
+    #[test]
+    fn test_engagement_inactive_seek_no_target() {
+        let mut world = init_simulation_world(42);
+        let p1 = spawn_player_soldier(&mut world, FixedVec2::new(Fixed::from_int(0), Fixed::from_int(0)), SoldierType::Infantry);
+        let e1 = find_entity_by_unit_id(&mut world, p1).unwrap();
+        world.entity_mut(e1).insert(SeekStance { active: false, seek_range: 0 });
+
+        // Enemy at distance 100 (within old default aggression range but seek is off)
+        spawn_enemy_soldier(&mut world, FixedVec2::new(Fixed::from_int(100), Fixed::from_int(0)));
+
+        combat_engagement_system(&mut world);
+
+        let mov = world.entity(e1).get::<Movement>().unwrap();
+        assert!(mov.target.is_none(), "Inactive seek should not set target");
+    }
+
+    #[test]
+    fn test_engagement_active_seek_in_range() {
+        let mut world = init_simulation_world(42);
+        let p1 = spawn_player_soldier(&mut world, FixedVec2::new(Fixed::from_int(0), Fixed::from_int(0)), SoldierType::Infantry);
+        let e1 = find_entity_by_unit_id(&mut world, p1).unwrap();
+        world.entity_mut(e1).insert(SeekStance { active: true, seek_range: 150 });
+
+        let enemy_uid = spawn_enemy_soldier(&mut world, FixedVec2::new(Fixed::from_int(100), Fixed::from_int(0)));
+
+        combat_engagement_system(&mut world);
+
+        let mov = world.entity(e1).get::<Movement>().unwrap();
+        assert_eq!(mov.target, Some(enemy_uid), "Active seek in range should target enemy");
+        let state = world.entity(e1).get::<SoldierStateComponent>().unwrap();
+        assert_eq!(state.0, SoldierState::Fighting, "Should be Fighting after seeking");
+    }
+
+    #[test]
+    fn test_engagement_active_seek_out_of_range() {
+        let mut world = init_simulation_world(42);
+        let p1 = spawn_player_soldier(&mut world, FixedVec2::new(Fixed::from_int(0), Fixed::from_int(0)), SoldierType::Infantry);
+        let e1 = find_entity_by_unit_id(&mut world, p1).unwrap();
+        world.entity_mut(e1).insert(SeekStance { active: true, seek_range: 50 });
+
+        // Enemy at distance 200 (beyond seek_range 50)
+        spawn_enemy_soldier(&mut world, FixedVec2::new(Fixed::from_int(200), Fixed::from_int(0)));
+
+        combat_engagement_system(&mut world);
+
+        let mov = world.entity(e1).get::<Movement>().unwrap();
+        assert!(mov.target.is_none(), "Out-of-range enemy should not be targeted");
+    }
+
+    #[test]
+    fn test_engagement_force_move_skips_seek() {
+        let mut world = init_simulation_world(42);
+        let p1 = spawn_player_soldier(&mut world, FixedVec2::new(Fixed::from_int(0), Fixed::from_int(0)), SoldierType::Infantry);
+        let e1 = find_entity_by_unit_id(&mut world, p1).unwrap();
+        world.entity_mut(e1).insert(SeekStance { active: true, seek_range: 150 });
+        world.entity_mut(e1).insert(Movement { speed: 80, target: None, command_target: None, waypoint: Some(FixedVec2::new(Fixed::from_int(500), Fixed::from_int(0))), force_move: true });
+
+        spawn_enemy_soldier(&mut world, FixedVec2::new(Fixed::from_int(50), Fixed::from_int(0)));
+
+        combat_engagement_system(&mut world);
+
+        let mov = world.entity(e1).get::<Movement>().unwrap();
+        assert!(mov.target.is_none(), "force_move should skip auto-engagement");
+    }
+
+    // ── 4.5: Backward compatibility — aggression_range removed ──
+
+    #[test]
+    fn test_units_ron_loads_without_aggression_range() {
+        // This test verifies that content/units.ron loads successfully
+        // after aggression_range was removed (missing field uses serde default).
+        let world = init_simulation_world(42);
+        let config = world.resource::<SoldierConfig>();
+
+        // All 4 types should be loaded
+        assert!(config.units.contains_key(&SoldierType::Militia));
+        assert!(config.units.contains_key(&SoldierType::Infantry));
+        assert!(config.units.contains_key(&SoldierType::Archer));
+        assert!(config.units.contains_key(&SoldierType::Cavalry));
+
+        // Verify basic values are still correct
+        let militia = config.get(SoldierType::Militia);
+        assert_eq!(militia.health, 100);
+        assert_eq!(militia.attack, 16);
+        assert_eq!(militia.speed, 80);
     }
 }

@@ -20,6 +20,8 @@ impl Plugin for UiPlugin {
                 hud::update_bottom_panel,
                 hud::soldier_type_button_system,
                 hud::toolbar_button_system,
+                hud::seek_button_system,
+                hud::update_seek_status,
             ).run_if(in_state(crate::GameState::Playing)))
             .add_systems(OnEnter(crate::GameState::Paused), pause::setup_pause)
             .add_systems(OnExit(crate::GameState::Paused), pause::cleanup_pause)

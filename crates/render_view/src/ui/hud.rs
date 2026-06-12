@@ -28,6 +28,8 @@ pub(crate) struct HudTexts {
     comp_header: Option<Entity>, comp_hp: Option<Entity>, comp_atk: Option<Entity>,
     comp_spd: Option<Entity>, comp_rng: Option<Entity>, comp_rad: Option<Entity>,
     comp_effect: Option<Entity>, comp_desc: Option<Entity>,
+    // seek status
+    pub(crate) seek_status: Option<Entity>,
 }
 
 // ══════════ Marker Components ══════════
@@ -41,6 +43,8 @@ pub(crate) struct HudTexts {
 #[derive(Component)] pub(crate) struct SoldierPanelRoot;
 #[derive(Component, Clone, Copy)] pub(crate) struct SpawnTypeBtn(pub SoldierType);
 #[derive(Component)] pub struct ToolbarButton(pub u8);
+#[derive(Component)] pub(crate) struct SeekBtn(pub &'static str); // label for seek buttons
+#[derive(Component)] pub(crate) struct SeekStatusText;
 
 // ══════════ Setup ══════════
 
@@ -157,12 +161,20 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
 
         // ── Toolbar ──
         root.spawn((Node { width: Val::Percent(100.0), height: Val::Px(40.0), flex_direction: FlexDirection::Row,
-            justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() },
+            justify_content: JustifyContent::Center, align_items: AlignItems::Center, column_gap: Val::Px(8.0), ..default() },
             BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.5)),
         )).with_children(|p| {
             for (label, marker) in [("O框选",0u8),("[ ]框选",1),("盾",2),("[>]优先",3)] {
                 p.spawn((Button, Node { padding: UiRect::all(Val::Px(6.0)), margin: UiRect::all(Val::Px(3.0)), ..default() }, ToolbarButton(marker)))
                     .with_child((Text::new(label), TextFont { font: font.clone(), font_size: 13.0, ..default() }));
+            }
+            // Seek stance controls
+            p.spawn(Node { width: Val::Px(1.0), height: Val::Percent(80.0), ..default() },
+            ); // separator
+            ht.seek_status = Some(p.spawn((Text::new("索敌:关"), TextFont { font: font.clone(), font_size: 13.0, ..default() }, SeekStatusText)).id());
+            for (label, key) in [("全体开","seek_all"),("步兵开","seek_inf"),("弓兵开","seek_arch"),("骑兵开","seek_cav"),("全关","seek_off")] {
+                p.spawn((Button, Node { padding: UiRect::all(Val::Px(6.0)), ..default() }, SeekBtn(key)))
+                    .with_child((Text::new(label), TextFont { font: font.clone(), font_size: 12.0, ..default() }));
             }
         });
     });
@@ -356,4 +368,71 @@ pub fn toolbar_button_system(mut q: Query<(&ToolbarButton, &Interaction), Change
         if *interaction != Interaction::Pressed { continue; }
         match btn.0 { 0=>sel.selection_mode=crate::selection::SelectionMode::Circle,1=>sel.selection_mode=crate::selection::SelectionMode::Rect,2=>{},3=>force.active=true, _=>{} }
     }
+}
+
+// ══════════ Seek Button System ══════════
+
+pub fn seek_button_system(
+    btns: Query<(&SeekBtn, &Interaction), Changed<Interaction>>,
+    mut cmd_buf: ResMut<CommandBuffer>,
+    tick_clock: Res<TickClock>,
+) {
+    for (btn, interaction) in btns.iter() {
+        if *interaction != Interaction::Pressed { continue; }
+        let next_tick = tick_clock.current_tick + 1;
+        let action = match btn.0 {
+            "seek_all" => Action::SetSeekStance { scope: SeekScope::All, seek_range: 10, unit_ids: vec![] },
+            "seek_inf" => Action::SetSeekStance { scope: SeekScope::ByType(SoldierType::Infantry), seek_range: 10, unit_ids: vec![] },
+            "seek_arch" => Action::SetSeekStance { scope: SeekScope::ByType(SoldierType::Archer), seek_range: 10, unit_ids: vec![] },
+            "seek_cav" => Action::SetSeekStance { scope: SeekScope::ByType(SoldierType::Cavalry), seek_range: 10, unit_ids: vec![] },
+            "seek_off" => Action::SetSeekStance { scope: SeekScope::All, seek_range: 0, unit_ids: vec![] },
+            _ => continue,
+        };
+        cmd_buf.push(GameCommand { tick: next_tick, player_id: 0, action });
+    }
+}
+
+/// Update the seek status text in the toolbar based on GlobalSeekDirective.
+pub fn update_seek_status(
+    mut tq: Query<&mut Text>,
+    ht: Res<HudTexts>,
+    sim_world: bevy::ecs::system::NonSendMut<SimulationWorld>,
+) {
+    let Some(id) = ht.seek_status else { return };
+    let Ok(mut text) = tq.get_mut(id) else { return };
+
+    let directives = &sim_world.0.resource::<GlobalSeekDirective>().0;
+    if directives.is_empty() {
+        text.0 = "索敌:关".into();
+        return;
+    }
+
+    // Find the latest All directive
+    let latest_all = directives.iter()
+        .filter(|d| matches!(d.scope, SeekScope::All))
+        .max_by_key(|d| d.issue_tick);
+    // Find by-type directives
+    let by_type: Vec<&SeekDirective> = directives.iter()
+        .filter(|d| matches!(d.scope, SeekScope::ByType(_)))
+        .collect();
+
+    let mut parts: Vec<String> = Vec::new();
+    if let Some(all) = latest_all {
+        if all.seek_range > 0 {
+            parts.push(format!("全体{}", all.seek_range));
+        }
+    }
+    for d in &by_type {
+        if let SeekScope::ByType(st) = d.scope {
+            let name = match st {
+                SoldierType::Militia => "民兵",
+                SoldierType::Infantry => "步兵",
+                SoldierType::Archer => "弓兵",
+                SoldierType::Cavalry => "骑兵",
+            };
+            parts.push(format!("{}{}", name, d.seek_range));
+        }
+    }
+
+    text.0 = if parts.is_empty() { "索敌:关".into() } else { format!("索敌: {}", parts.join(" ")) };
 }

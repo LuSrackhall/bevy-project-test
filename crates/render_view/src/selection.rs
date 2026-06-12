@@ -409,3 +409,33 @@ pub fn waypoint_cleanup_system(
         }
     }
 }
+
+// ══════════ Seek stance shortcut (S key) ══════════
+
+pub fn seek_stance_shortcut_system(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    selection: Res<SelectionState>,
+    mut cmd_buf: ResMut<CommandBuffer>,
+    tick_clock: Res<bevy_adapter::tick::TickClock>,
+    sim_world: bevy::ecs::system::NonSendMut<SimulationWorld>,
+) {
+    if !keyboard.just_pressed(KeyCode::KeyS) { return; }
+    if selection.selected_unit_ids.is_empty() { return; }
+    // Don't trigger when Ctrl/Cmd is held (that would be Ctrl+S etc.)
+    if keyboard.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight])
+        || keyboard.any_pressed([KeyCode::SuperLeft, KeyCode::SuperRight]) { return; }
+
+    let world = &sim_world.0;
+    let next_tick = tick_clock.current_tick + 1;
+    let seek_range: u32 = 30; // default selection seek range per design D4
+
+    cmd_buf.push(GameCommand {
+        tick: next_tick,
+        player_id: 0,
+        action: Action::SetSeekStance {
+            scope: SeekScope::All, // scope is irrelevant when unit_ids is set
+            seek_range,
+            unit_ids: selection.selected_unit_ids.clone(),
+        },
+    });
+}

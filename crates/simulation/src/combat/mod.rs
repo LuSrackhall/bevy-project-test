@@ -59,23 +59,35 @@ pub fn combat_engagement_system(world: &mut World) {
     };
 
     // Collect soldiers to process
-    struct EngData { entity: Entity, uid: UnitId, pos: FixedVec2, faction: Faction, stype: SoldierType, state: SoldierState, force_move: bool, cmd_target: Option<UnitId>, target: Option<UnitId>, speed: u32 }
+    struct EngData { entity: Entity, uid: UnitId, pos: FixedVec2, faction: Faction, stype: SoldierType, state: SoldierState, force_move: bool, cmd_target: Option<UnitId>, target: Option<UnitId>, speed: u32, seek_active: bool, seek_range: u32 }
     let soldiers: Vec<EngData> = {
-        let mut q = world.query::<(Entity, &UnitIdComponent, &LogicalPosition, &FactionComponent, &SoldierTypeComponent, &SoldierStateComponent, &Movement)>();
+        let mut q = world.query::<(Entity, &UnitIdComponent, &LogicalPosition, &FactionComponent, &SoldierTypeComponent, &SoldierStateComponent, &Movement, Option<&SeekStance>)>();
         q.iter(world)
-            .filter(|(_, _, _, _, st, _, _)| st.0 != SoldierType::Archer)
-            .map(|(e, id, pos, fac, st, sst, mov)| EngData {
+            .filter(|(_, _, _, _, st, _, _, _)| st.0 != SoldierType::Archer)
+            .map(|(e, id, pos, fac, st, sst, mov, seek)| EngData {
                 entity: e, uid: id.0, pos: pos.0, faction: fac.0, stype: st.0,
                 state: sst.0, force_move: mov.force_move,
                 cmd_target: mov.command_target, target: mov.target, speed: mov.speed,
+                seek_active: seek.map_or(false, |s| s.active),
+                seek_range: seek.map_or(0, |s| s.seek_range),
             }).collect()
     };
 
     for sd in soldiers {
         if sd.force_move { continue; }
 
-        let unit_cfg = soldier_config.get(sd.stype);
-        let aggro = Fixed::from_int(unit_cfg.aggression_range as i32);
+        // Only auto-seek if SeekStance is active and seek_range > 0
+        if !sd.seek_active || sd.seek_range == 0 {
+            // No active seek stance: transition from Fighting back to Moving if not commanded
+            if sd.state == SoldierState::Fighting && sd.cmd_target.is_none() {
+                let mut em = world.entity_mut(sd.entity);
+                em.insert(Movement { speed: sd.speed, target: sd.cmd_target, command_target: None, waypoint: None, force_move: false });
+                em.insert(SoldierStateComponent(SoldierState::Moving));
+            }
+            continue;
+        }
+
+        let aggro = Fixed::from_int(sd.seek_range as i32);
         let aggro_sq = aggro * aggro;
 
         // Find nearest enemy

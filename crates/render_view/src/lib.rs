@@ -39,6 +39,7 @@ impl Plugin for RenderViewPlugin {
                 crate::selection::selection_visual_system,
                 crate::selection::drag_visual_system,
                 crate::selection::command_issue_system,
+                crate::selection::seek_stance_shortcut_system,
                 crate::selection::waypoint_cleanup_system,
                 check_victory_system,
             ).run_if(in_state(GameState::Playing)));
