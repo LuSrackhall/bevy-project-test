@@ -4,6 +4,7 @@ use bevy_prototype_lyon::shapes;
 use bevy_adapter::tick::SimulationWorld;
 use simulation::soldier::*;
 use crate::selection::SelectionState;
+use std::collections::HashMap;
 
 // ══════════ Components ══════════
 
@@ -14,19 +15,19 @@ pub struct UnitInfoBar(pub simulation::types::UnitId);
 pub(crate) struct BarRoot;
 
 #[derive(Component)]
-pub(crate) struct HpFill;
+struct HpFill;
 
 #[derive(Component)]
-pub(crate) struct ExpFill;
+struct ExpFill;
 
 #[derive(Component)]
-pub(crate) struct LvlText;
+struct LvlText;
 
 #[derive(Component)]
-pub(crate) struct HpNumText;
+struct HpNumText;
 
 #[derive(Component)]
-pub(crate) struct ExpNumText;
+struct ExpNumText;
 
 // ══════════ Display Mode ══════════
 
@@ -85,24 +86,30 @@ struct UnitBarInfo {
     exp: u32,
 }
 
+// ══════════ Tracked bar child entity references ══════════
+
+#[derive(Clone)]
+pub(crate) struct BarParts {
+    root: Entity,
+    lvl_text: Entity,
+    hp_fill: Entity,
+    exp_fill: Entity,
+    hp_num: Entity,
+    exp_num: Entity,
+}
+
 // ══════════ Main System ══════════
 
-pub fn unit_info_bar_system(
+pub(crate) fn unit_info_bar_system(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     mut font_cache: Local<Option<Handle<Font>>>,
     settings: Res<UnitInfoBarSettings>,
     selection: Res<SelectionState>,
     mut sim_world: bevy::ecs::system::NonSendMut<SimulationWorld>,
-    bar_query: Query<(Entity, &UnitInfoBar)>,
-    hp_fill_query: Query<Entity, With<HpFill>>,
-    exp_fill_query: Query<Entity, With<ExpFill>>,
-    mut lvl_text_q: Query<(&mut Text2d, Entity), With<LvlText>>,
-    mut hp_num_q: Query<(&mut Text2d, Entity), With<HpNumText>>,
-    mut exp_num_q: Query<(&mut Text2d, Entity), With<ExpNumText>>,
-    children_query: Query<&Children>,
-    mut root_transforms: Query<&mut Transform, With<BarRoot>>,
-    mut vis_query: Query<&mut Visibility, With<BarRoot>>,
+    mut bar_parts: Local<HashMap<simulation::types::UnitId, BarParts>>,
+    mut root_xform_vis: Query<(&mut Transform, &mut Visibility), With<BarRoot>>,
+    mut text_q: Query<&mut Text2d>,
 ) {
     if font_cache.is_none() {
         *font_cache = Some(asset_server.load("fonts/Arial Unicode.ttf"));
@@ -111,9 +118,9 @@ pub fn unit_info_bar_system(
 
     let world = &mut sim_world.0;
 
+    // ── Collect all units ──
     let mut units: Vec<UnitBarInfo> = Vec::new();
 
-    // Soldiers
     {
         let mut q = world.query::<(&UnitIdComponent, &LogicalPosition, &Health, &Level)>();
         for (id, pos, hp, lvl) in q.iter(world) {
@@ -128,7 +135,6 @@ pub fn unit_info_bar_system(
         }
     }
 
-    // Cities
     {
         let mut q = world.query::<(&UnitIdComponent, &LogicalPosition, &CityComponent)>();
         for (id, pos, city) in q.iter(world) {
@@ -143,6 +149,7 @@ pub fn unit_info_bar_system(
         }
     }
 
+    // ── Selection set ──
     let selected: std::collections::HashSet<simulation::types::UnitId> =
         selection.selected_unit_ids.iter().copied().collect();
     let sel_city = selection.selected_city;
@@ -150,12 +157,19 @@ pub fn unit_info_bar_system(
     let live_ids: std::collections::HashSet<simulation::types::UnitId> =
         units.iter().map(|u| u.unit_id).collect();
 
-    let mut existing: std::collections::HashMap<simulation::types::UnitId, Entity> =
-        std::collections::HashMap::new();
-    for (e, bar) in bar_query.iter() {
-        existing.insert(bar.0, e);
+    // ── Clean up bars for destroyed units ──
+    let dead_ids: Vec<simulation::types::UnitId> = bar_parts
+        .keys()
+        .filter(|uid| !live_ids.contains(uid))
+        .copied()
+        .collect();
+    for uid in dead_ids {
+        if let Some(parts) = bar_parts.remove(&uid) {
+            commands.entity(parts.root).despawn();
+        }
     }
 
+    // ── Process each unit ──
     for info in &units {
         let is_selected = selected.contains(&info.unit_id) || sel_city == Some(info.unit_id);
         let should_show = match settings.mode {
@@ -164,35 +178,38 @@ pub fn unit_info_bar_system(
             InfoBarMode::Smart => is_selected || info.hp_cur < info.hp_max || info.exp > 0,
         };
 
-        if let Some(&bar_entity) = existing.get(&info.unit_id) {
+        if let Some(parts) = bar_parts.get_mut(&info.unit_id) {
             update_bar(
-                &mut commands, bar_entity, info, should_show,
-                &hp_fill_query, &exp_fill_query,
-                &mut lvl_text_q, &mut hp_num_q, &mut exp_num_q,
-                &children_query, &mut root_transforms, &mut vis_query,
+                &mut commands, parts, info, should_show,
+                &mut root_xform_vis, &mut text_q,
             );
         } else {
-            create_bar(&mut commands, info, should_show, &font);
-        }
-    }
-
-    // Clean up bars for destroyed units
-    for (unit_id, entity) in &existing {
-        if !live_ids.contains(unit_id) {
-            commands.entity(*entity).despawn();
+            let parts = create_bar(&mut commands, info, should_show, &font);
+            bar_parts.insert(info.unit_id, parts);
         }
     }
 }
 
 // ══════════ Create ══════════
 
-fn create_bar(commands: &mut Commands, info: &UnitBarInfo, visible: bool, font: &Handle<Font>) {
+fn create_bar(
+    commands: &mut Commands,
+    info: &UnitBarInfo,
+    visible: bool,
+    font: &Handle<Font>,
+) -> BarParts {
     let vis = if visible { Visibility::Inherited } else { Visibility::Hidden };
     let bar_pos = info.world_pos + Vec2::new(0.0, BAR_OFFSET_Y);
     let hp_ratio = info.hp_cur as f32 / info.hp_max.max(1) as f32;
     let exp_ratio = (info.exp as f32 / EXP_MAX as f32).min(1.0);
 
-    commands
+    let mut lvl_text_e = Entity::PLACEHOLDER;
+    let mut hp_fill_e = Entity::PLACEHOLDER;
+    let mut exp_fill_e = Entity::PLACEHOLDER;
+    let mut hp_num_e = Entity::PLACEHOLDER;
+    let mut exp_num_e = Entity::PLACEHOLDER;
+
+    let root = commands
         .spawn((
             Transform::from_xyz(bar_pos.x, bar_pos.y, 10.0),
             vis,
@@ -201,14 +218,14 @@ fn create_bar(commands: &mut Commands, info: &UnitBarInfo, visible: bool, font: 
         ))
         .with_children(|parent| {
             // Level text
-            parent.spawn((
+            lvl_text_e = parent.spawn((
                 Text2d::new(format!("Lv.{}", info.level)),
                 TextFont { font: font.clone(), font_size: 10.0, ..default() },
                 TextColor(Color::WHITE),
                 Transform::from_xyz(-20.0, 6.0, 0.02),
                 vis,
                 LvlText,
-            ));
+            )).id();
 
             // HP bg
             parent.spawn((
@@ -223,7 +240,7 @@ fn create_bar(commands: &mut Commands, info: &UnitBarInfo, visible: bool, font: 
 
             // HP fill
             let hp_w = HP_BAR_W * hp_ratio;
-            parent.spawn((
+            hp_fill_e = parent.spawn((
                 ShapeBuilder::with(&shapes::Rectangle {
                     extents: Vec2::new(hp_w, HP_BAR_H),
                     origin: shapes::RectangleOrigin::CustomCenter(Vec2::new(-HP_BAR_W / 2.0 + hp_w / 2.0, 0.0)),
@@ -232,7 +249,7 @@ fn create_bar(commands: &mut Commands, info: &UnitBarInfo, visible: bool, font: 
                 Transform::from_xyz(0.0, 2.0, 0.01),
                 vis,
                 HpFill,
-            ));
+            )).id();
 
             // EXP bg
             parent.spawn((
@@ -247,7 +264,7 @@ fn create_bar(commands: &mut Commands, info: &UnitBarInfo, visible: bool, font: 
 
             // EXP fill
             let exp_w = EXP_BAR_W * exp_ratio;
-            parent.spawn((
+            exp_fill_e = parent.spawn((
                 ShapeBuilder::with(&shapes::Rectangle {
                     extents: Vec2::new(exp_w, EXP_BAR_H),
                     origin: shapes::RectangleOrigin::CustomCenter(Vec2::new(-EXP_BAR_W / 2.0 + exp_w / 2.0, 0.0)),
@@ -256,28 +273,38 @@ fn create_bar(commands: &mut Commands, info: &UnitBarInfo, visible: bool, font: 
                 Transform::from_xyz(0.0, -3.0, 0.01),
                 vis,
                 ExpFill,
-            ));
+            )).id();
 
             // HP numeric
-            parent.spawn((
+            hp_num_e = parent.spawn((
                 Text2d::new(format!("{}/{}", info.hp_cur, info.hp_max)),
                 TextFont { font: font.clone(), font_size: 8.0, ..default() },
                 TextColor(Color::WHITE),
                 Transform::from_xyz(22.0, 2.0, 0.02),
                 vis,
                 HpNumText,
-            ));
+            )).id();
 
             // EXP numeric
-            parent.spawn((
+            exp_num_e = parent.spawn((
                 Text2d::new(format!("{}/{}", info.exp, EXP_MAX)),
                 TextFont { font: font.clone(), font_size: 8.0, ..default() },
                 TextColor(Color::WHITE),
                 Transform::from_xyz(22.0, -3.0, 0.02),
                 vis,
                 ExpNumText,
-            ));
-        });
+            )).id();
+        })
+        .id();
+
+    BarParts {
+        root,
+        lvl_text: lvl_text_e,
+        hp_fill: hp_fill_e,
+        exp_fill: exp_fill_e,
+        hp_num: hp_num_e,
+        exp_num: exp_num_e,
+    }
 }
 
 // ══════════ Update ══════════
@@ -285,26 +312,17 @@ fn create_bar(commands: &mut Commands, info: &UnitBarInfo, visible: bool, font: 
 #[allow(clippy::too_many_arguments)]
 fn update_bar(
     commands: &mut Commands,
-    bar_entity: Entity,
+    parts: &mut BarParts,
     info: &UnitBarInfo,
     should_show: bool,
-    hp_fill_query: &Query<Entity, With<HpFill>>,
-    exp_fill_query: &Query<Entity, With<ExpFill>>,
-    lvl_text_q: &mut Query<(&mut Text2d, Entity), With<LvlText>>,
-    hp_num_q: &mut Query<(&mut Text2d, Entity), With<HpNumText>>,
-    exp_num_q: &mut Query<(&mut Text2d, Entity), With<ExpNumText>>,
-    children_query: &Query<&Children>,
-    root_transforms: &mut Query<&mut Transform, With<BarRoot>>,
-    vis_query: &mut Query<&mut Visibility, With<BarRoot>>,
+    root_xform_vis: &mut Query<(&mut Transform, &mut Visibility), With<BarRoot>>,
+    text_q: &mut Query<&mut Text2d>,
 ) {
     let bar_pos = info.world_pos + Vec2::new(0.0, BAR_OFFSET_Y);
 
-    if let Ok(mut t) = root_transforms.get_mut(bar_entity) {
+    if let Ok((mut t, mut v)) = root_xform_vis.get_mut(parts.root) {
         t.translation.x = bar_pos.x;
         t.translation.y = bar_pos.y;
-    }
-
-    if let Ok(mut v) = vis_query.get_mut(bar_entity) {
         *v = if should_show { Visibility::Inherited } else { Visibility::Hidden };
     }
 
@@ -312,39 +330,27 @@ fn update_bar(
         return;
     }
 
-    // Get bar children for matching
-    let bar_kids: Vec<Entity> = children_query
-        .get(bar_entity)
-        .map(|c| c.to_vec())
-        .unwrap_or_default();
-
-    // Update texts
-    let new_lvl = format!("Lv.{}", info.level);
-    for (mut t, e) in lvl_text_q.iter_mut() {
-        if bar_kids.iter().any(|k| *k == e) { t.0 = new_lvl.clone(); }
+    // Update texts via stored entity IDs
+    if let Ok(mut t) = text_q.get_mut(parts.lvl_text) {
+        t.0 = format!("Lv.{}", info.level);
     }
-    let new_hp = format!("{}/{}", info.hp_cur, info.hp_max);
-    for (mut t, e) in hp_num_q.iter_mut() {
-        if bar_kids.iter().any(|k| *k == e) { t.0 = new_hp.clone(); }
+    if let Ok(mut t) = text_q.get_mut(parts.hp_num) {
+        t.0 = format!("{}/{}", info.hp_cur, info.hp_max);
     }
-    let new_exp = format!("{}/{}", info.exp, EXP_MAX);
-    for (mut t, e) in exp_num_q.iter_mut() {
-        if bar_kids.iter().any(|k| *k == e) { t.0 = new_exp.clone(); }
+    if let Ok(mut t) = text_q.get_mut(parts.exp_num) {
+        t.0 = format!("{}/{}", info.exp, EXP_MAX);
     }
 
-    // Update fill bars (despawn old children, spawn new)
+    // Update fill bars: despawn old, spawn new with correct width
     let hp_ratio = info.hp_cur as f32 / info.hp_max.max(1) as f32;
     let exp_ratio = (info.exp as f32 / EXP_MAX as f32).min(1.0);
 
-    let hp_kids: Vec<Entity> = hp_fill_query.iter()
-        .filter(|e| bar_kids.iter().any(|k| *k == *e))
-        .collect();
-    for e in hp_kids {
-        commands.entity(e).despawn();
-    }
+    let root = parts.root;
 
+    // HP fill: despawn old, spawn new
+    commands.entity(parts.hp_fill).despawn();
     let hp_w = HP_BAR_W * hp_ratio;
-    commands.spawn((
+    parts.hp_fill = commands.spawn((
         ShapeBuilder::with(&shapes::Rectangle {
             extents: Vec2::new(hp_w, HP_BAR_H),
             origin: shapes::RectangleOrigin::CustomCenter(Vec2::new(-HP_BAR_W / 2.0 + hp_w / 2.0, 0.0)),
@@ -353,17 +359,12 @@ fn update_bar(
         Transform::from_xyz(0.0, 2.0, 0.01),
         Visibility::Inherited,
         HpFill,
-    )).set_parent_in_place(bar_entity);
+    )).set_parent_in_place(root).id();
 
-    let exp_kids: Vec<Entity> = exp_fill_query.iter()
-        .filter(|e| bar_kids.iter().any(|k| *k == *e))
-        .collect();
-    for e in exp_kids {
-        commands.entity(e).despawn();
-    }
-
+    // EXP fill: despawn old, spawn new
+    commands.entity(parts.exp_fill).despawn();
     let exp_w = EXP_BAR_W * exp_ratio;
-    commands.spawn((
+    parts.exp_fill = commands.spawn((
         ShapeBuilder::with(&shapes::Rectangle {
             extents: Vec2::new(exp_w, EXP_BAR_H),
             origin: shapes::RectangleOrigin::CustomCenter(Vec2::new(-EXP_BAR_W / 2.0 + exp_w / 2.0, 0.0)),
@@ -372,7 +373,7 @@ fn update_bar(
         Transform::from_xyz(0.0, -3.0, 0.01),
         Visibility::Inherited,
         ExpFill,
-    )).set_parent_in_place(bar_entity);
+    )).set_parent_in_place(root).id();
 }
 
 // ══════════ Ctrl+H Mode Toggle ══════════
