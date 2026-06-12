@@ -15,10 +15,10 @@ pub struct UnitInfoBar(pub simulation::types::UnitId);
 pub(crate) struct BarRoot;
 
 #[derive(Component)]
-struct HpFill;
+pub(crate) struct HpFill;
 
 #[derive(Component)]
-struct ExpFill;
+pub(crate) struct ExpFill;
 
 #[derive(Component)]
 struct LvlText;
@@ -108,8 +108,10 @@ pub(crate) fn unit_info_bar_system(
     selection: Res<SelectionState>,
     mut sim_world: bevy::ecs::system::NonSendMut<SimulationWorld>,
     mut bar_parts: Local<HashMap<simulation::types::UnitId, BarParts>>,
-    mut root_xform_vis: Query<(&mut Transform, &mut Visibility), With<BarRoot>>,
+    mut root_xform_vis: Query<(&mut Transform, &mut Visibility), (With<BarRoot>, Without<HpFill>, Without<ExpFill>)>,
     mut text_q: Query<&mut Text2d>,
+    mut hp_fill_q: Query<(&mut Sprite, &mut Transform), (With<HpFill>, Without<ExpFill>)>,
+    mut exp_fill_q: Query<(&mut Sprite, &mut Transform), (With<ExpFill>, Without<HpFill>)>,
 ) {
     if font_cache.is_none() {
         *font_cache = Some(asset_server.load("fonts/Arial Unicode.ttf"));
@@ -180,8 +182,9 @@ pub(crate) fn unit_info_bar_system(
 
         if let Some(parts) = bar_parts.get_mut(&info.unit_id) {
             update_bar(
-                &mut commands, parts, info, should_show,
+                parts, info, should_show,
                 &mut root_xform_vis, &mut text_q,
+                &mut hp_fill_q, &mut exp_fill_q,
             );
         } else {
             let parts = create_bar(&mut commands, info, should_show, &font);
@@ -238,14 +241,14 @@ fn create_bar(
                 vis,
             ));
 
-            // HP fill
+            // HP fill (Sprite for reliable rendering)
             let hp_w = HP_BAR_W * hp_ratio;
             hp_fill_e = parent.spawn((
-                ShapeBuilder::with(&shapes::Rectangle {
-                    extents: Vec2::new(hp_w, HP_BAR_H),
-                    origin: shapes::RectangleOrigin::Center,
-                    radii: None,
-                }).fill(HP_FILL).build(),
+                Sprite {
+                    color: HP_FILL,
+                    custom_size: Some(Vec2::new(hp_w, HP_BAR_H)),
+                    ..default()
+                },
                 Transform::from_xyz(-HP_BAR_W / 2.0 + hp_w / 2.0, 2.0, 0.01),
                 vis,
                 HpFill,
@@ -262,14 +265,14 @@ fn create_bar(
                 vis,
             ));
 
-            // EXP fill
+            // EXP fill (Sprite for reliable rendering)
             let exp_w = EXP_BAR_W * exp_ratio;
             exp_fill_e = parent.spawn((
-                ShapeBuilder::with(&shapes::Rectangle {
-                    extents: Vec2::new(exp_w, EXP_BAR_H),
-                    origin: shapes::RectangleOrigin::Center,
-                    radii: None,
-                }).fill(EXP_FILL).build(),
+                Sprite {
+                    color: EXP_FILL,
+                    custom_size: Some(Vec2::new(exp_w, EXP_BAR_H)),
+                    ..default()
+                },
                 Transform::from_xyz(-EXP_BAR_W / 2.0 + exp_w / 2.0, -3.0, 0.01),
                 vis,
                 ExpFill,
@@ -311,12 +314,13 @@ fn create_bar(
 
 #[allow(clippy::too_many_arguments)]
 fn update_bar(
-    commands: &mut Commands,
     parts: &mut BarParts,
     info: &UnitBarInfo,
     should_show: bool,
-    root_xform_vis: &mut Query<(&mut Transform, &mut Visibility), With<BarRoot>>,
+    root_xform_vis: &mut Query<(&mut Transform, &mut Visibility), (With<BarRoot>, Without<HpFill>, Without<ExpFill>)>,
     text_q: &mut Query<&mut Text2d>,
+    hp_fill_q: &mut Query<(&mut Sprite, &mut Transform), (With<HpFill>, Without<ExpFill>)>,
+    exp_fill_q: &mut Query<(&mut Sprite, &mut Transform), (With<ExpFill>, Without<HpFill>)>,
 ) {
     let bar_pos = info.world_pos + Vec2::new(0.0, BAR_OFFSET_Y);
 
@@ -341,39 +345,23 @@ fn update_bar(
         t.0 = format!("{}/{}", info.exp, EXP_MAX);
     }
 
-    // Update fill bars: despawn old, spawn new with correct width
+    // Update fill bars: modify Sprite directly (no despawn/respawn)
     let hp_ratio = info.hp_cur as f32 / info.hp_max.max(1) as f32;
     let exp_ratio = (info.exp as f32 / EXP_MAX as f32).min(1.0);
 
-    let root = parts.root;
-
-    // HP fill: despawn old, spawn new
-    commands.entity(parts.hp_fill).despawn();
+    // HP fill: update custom_size and position
     let hp_w = HP_BAR_W * hp_ratio;
-    parts.hp_fill = commands.spawn((
-        ShapeBuilder::with(&shapes::Rectangle {
-            extents: Vec2::new(hp_w, HP_BAR_H),
-            origin: shapes::RectangleOrigin::Center,
-            radii: None,
-        }).fill(HP_FILL).build(),
-        Transform::from_xyz(-HP_BAR_W / 2.0 + hp_w / 2.0, 2.0, 0.01),
-        Visibility::Inherited,
-        HpFill,
-    )).set_parent_in_place(root).id();
+    if let Ok((mut sprite, mut xform)) = hp_fill_q.get_mut(parts.hp_fill) {
+        sprite.custom_size = Some(Vec2::new(hp_w, HP_BAR_H));
+        xform.translation.x = -HP_BAR_W / 2.0 + hp_w / 2.0;
+    }
 
-    // EXP fill: despawn old, spawn new
-    commands.entity(parts.exp_fill).despawn();
+    // EXP fill: update custom_size and position
     let exp_w = EXP_BAR_W * exp_ratio;
-    parts.exp_fill = commands.spawn((
-        ShapeBuilder::with(&shapes::Rectangle {
-            extents: Vec2::new(exp_w, EXP_BAR_H),
-            origin: shapes::RectangleOrigin::Center,
-            radii: None,
-        }).fill(EXP_FILL).build(),
-        Transform::from_xyz(-EXP_BAR_W / 2.0 + exp_w / 2.0, -3.0, 0.01),
-        Visibility::Inherited,
-        ExpFill,
-    )).set_parent_in_place(root).id();
+    if let Ok((mut sprite, mut xform)) = exp_fill_q.get_mut(parts.exp_fill) {
+        sprite.custom_size = Some(Vec2::new(exp_w, EXP_BAR_H));
+        xform.translation.x = -EXP_BAR_W / 2.0 + exp_w / 2.0;
+    }
 }
 
 // ══════════ Ctrl+H Mode Toggle ══════════
