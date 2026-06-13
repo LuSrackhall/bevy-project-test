@@ -29,7 +29,11 @@ pub struct UnitIdComponent(pub UnitId);
 #[derive(Component, Clone, Debug)] pub struct FactionComponent(pub Faction);
 #[derive(Component, Clone, Debug)] pub struct SoldierTypeComponent(pub SoldierType);
 #[derive(Component, Clone, Debug)] pub struct Level { pub level: u32, pub exp: u32 }
-#[derive(Component, Clone, Debug)] pub struct ShieldComponent(pub ShieldState);
+/// Shield state on a soldier. Only present if the soldier has a shield.
+#[derive(Component, Clone, Debug)]
+pub struct ShieldComponent {
+    pub state: ShieldState,
+}
 #[derive(Component, Clone, Debug)] pub struct CityOrigin(pub UnitId);
 #[derive(Component, Clone, Debug)] pub struct SlowDebuff { pub stacks: u32, pub remaining_ticks: u32 }
 #[derive(Component, Clone, Debug)] pub struct FearlessBuff { pub remaining_ticks: u32 }
@@ -92,7 +96,7 @@ pub fn consume_commands_system(world: &mut World, tick: u32) {
             }
             Action::SetShield { unit, state } => {
                 if let Some(e) = find_entity_by_unit_id(world, unit) {
-                    world.entity_mut(e).insert(ShieldComponent(state));
+                    world.entity_mut(e).insert(ShieldComponent { state });
                 }
             }
             Action::SetSpawnType { city, soldier_type } => {
@@ -211,7 +215,7 @@ pub fn soldier_movement_system(world: &mut World) {
                 speed *= (sc.base_amount * sc.stack_mult.powi(sl.stacks as i32 - 1)).max(sc.max_reduction);
             }
             if let Some(sh) = shield {
-                if sh.0 == ShieldState::ShieldUp { speed -= combat_config.shield.speed_penalty as f32; }
+                if sh.state == ShieldState::Blocking { speed -= combat_config.shield.speed_penalty as f32; }
             }
             if speed <= 0.0 { continue; }
             let mut speed_fixed = Fixed::from_float(speed);
@@ -386,7 +390,7 @@ pub fn city_spawn_system(world: &mut World) {
                 Health { current: cfg.health, max: cfg.health },
                 Attack { damage: cfg.attack, range: cfg.attack_range, interval_ticks: cfg.attack_interval_ticks, cooldown_remaining: cfg.attack_interval_ticks },
                 FactionComponent(faction), SoldierTypeComponent(spawn_type),
-                Level { level: 1, exp: 0 }, ShieldComponent(ShieldState::Normal),
+                Level { level: 1, exp: 0 }, ShieldComponent { state: ShieldState::Normal },
                 CityOrigin(origin), SoldierStateComponent(SoldierState::Moving),
                 crate::types::FacingDirection { angle: Fixed::ZERO },
                 crate::types::AttackWindup { remaining_ticks: 0, target: None },
@@ -654,7 +658,7 @@ mod seek_stance_tests {
             Health { current: cfg.health, max: cfg.health },
             Attack { damage: cfg.attack, range: cfg.attack_range, interval_ticks: cfg.attack_interval_ticks, cooldown_remaining: 0 },
             FactionComponent(Faction::Player), SoldierTypeComponent(stype),
-            Level { level: 1, exp: 0 }, ShieldComponent(ShieldState::Normal),
+            Level { level: 1, exp: 0 }, ShieldComponent { state: ShieldState::Normal },
             CityOrigin(UnitId(0)), SoldierStateComponent(SoldierState::Moving),
         ));
         uid
@@ -670,7 +674,7 @@ mod seek_stance_tests {
             Health { current: 100, max: 100 },
             Attack { damage: 10, range: 30, interval_ticks: 10, cooldown_remaining: 0 },
             FactionComponent(Faction::Enemy), SoldierTypeComponent(SoldierType::Militia),
-            Level { level: 1, exp: 0 }, ShieldComponent(ShieldState::Normal),
+            Level { level: 1, exp: 0 }, ShieldComponent { state: ShieldState::Normal },
             CityOrigin(UnitId(0)), SoldierStateComponent(SoldierState::Moving),
         ));
         uid

@@ -252,7 +252,23 @@ pub enum SoldierState {
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum ShieldState {
     Normal,
-    ShieldUp,
+    Blocking,
+}
+
+/// Shield item with independent HP. Can be held by a soldier or dropped on ground.
+#[derive(Component, Clone, Debug)]
+pub struct ShieldItem {
+    pub hp: u32,
+    pub max_hp: u32,
+}
+
+/// A shield dropped on the ground after a soldier dies.
+#[derive(Component, Clone, Debug)]
+pub struct DroppedShield {
+    pub shield: ShieldItem,
+    pub position: FixedVec2,
+    pub drop_tick: u32,
+    pub owner_faction: Option<Faction>,
 }
 
 // ═══════════════════════════════════════════════════════════════
