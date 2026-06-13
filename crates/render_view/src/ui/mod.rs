@@ -11,6 +11,8 @@ impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
         app
             .init_resource::<hud::HudTexts>()
+            .init_resource::<hud::SeekPanelState>()
+            .init_resource::<hud::ToastMessage>()
             .add_systems(OnEnter(crate::GameState::MainMenu), menu::setup_main_menu)
             .add_systems(OnExit(crate::GameState::MainMenu), menu::cleanup_main_menu)
             .add_systems(Update, menu::menu_button_system.run_if(in_state(crate::GameState::MainMenu)))
@@ -20,8 +22,13 @@ impl Plugin for UiPlugin {
                 hud::update_bottom_panel,
                 hud::soldier_type_button_system,
                 hud::toolbar_button_system,
-                hud::seek_button_system,
-                hud::update_seek_status,
+                hud::seek_panel_mode_system,
+                hud::seek_panel_dropdown_system,
+                hud::seek_panel_input_system,
+                hud::seek_panel_issue_system,
+                hud::toast_tick_system,
+                hud::toast_display_system,
+                hud::selection_summary_toast_system,
             ).run_if(in_state(crate::GameState::Playing)))
             .add_systems(OnEnter(crate::GameState::Paused), pause::setup_pause)
             .add_systems(OnExit(crate::GameState::Paused), pause::cleanup_pause)
@@ -38,8 +45,19 @@ fn handle_pause_input(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut next: ResMut<NextState<crate::GameState>>,
     mut selection: ResMut<crate::selection::SelectionState>,
+    mut seek_state: ResMut<hud::SeekPanelState>,
 ) {
     if keyboard.just_pressed(KeyCode::Escape) {
+        // If editing range input, cancel edit instead of deselecting/pausing
+        if seek_state.editing {
+            seek_state.editing = false;
+            seek_state.input_buffer.clear();
+            return;
+        }
+        if seek_state.dropdown_open {
+            seek_state.dropdown_open = false;
+            return;
+        }
         if !selection.selected_unit_ids.is_empty() || selection.selected_city.is_some() {
             selection.selected_unit_ids.clear();
             selection.selected_city = None;

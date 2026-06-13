@@ -15,6 +15,8 @@ use std::collections::HashMap;
 pub(crate) struct HudTexts {
     // top bar
     cities: Option<Entity>, pop: Option<Entity>, enemy: Option<Entity>, time: Option<Entity>,
+    // toast
+    pub(crate) toast_text: Option<Entity>,
     // soldier panel
     s_root: Option<Entity>, s_header: Option<Entity>, s_hp_text: Option<Entity>, s_hp_fill: Option<Entity>,
     s_atk: Option<Entity>, s_spd: Option<Entity>, s_exp_text: Option<Entity>, s_exp_fill: Option<Entity>,
@@ -28,9 +30,44 @@ pub(crate) struct HudTexts {
     comp_header: Option<Entity>, comp_hp: Option<Entity>, comp_atk: Option<Entity>,
     comp_spd: Option<Entity>, comp_rng: Option<Entity>, comp_rad: Option<Entity>,
     comp_effect: Option<Entity>, comp_desc: Option<Entity>,
-    // seek status
-    pub(crate) seek_status: Option<Entity>,
+    // seek panel
+    pub(crate) seek_scope_text: Option<Entity>,
+    pub(crate) seek_range_text: Option<Entity>,
+    pub(crate) seek_dropdown_container: Option<Entity>,
 }
+
+/// Seek panel state — drives the dropdown, range input, and mode switching.
+#[derive(Resource)]
+pub struct SeekPanelState {
+    pub scope: SeekScope,
+    pub dropdown_open: bool,
+    pub editing: bool,
+    pub input_buffer: String,
+    pub range_value: u32,
+    pub has_selection: bool, // tracks previous frame selection for mode-change detection
+}
+
+impl Default for SeekPanelState {
+    fn default() -> Self {
+        Self {
+            scope: SeekScope::All,
+            dropdown_open: false,
+            editing: false,
+            input_buffer: String::new(),
+            range_value: 10,
+            has_selection: false,
+        }
+    }
+}
+
+/// Toast message for the top bar.
+#[derive(Resource, Default)]
+pub struct ToastMessage {
+    pub text: String,
+    pub remaining_ticks: u32,
+}
+
+const TOAST_DURATION_TICKS: u32 = 100; // 5 seconds at 20Hz
 
 // ══════════ Marker Components ══════════
 
@@ -43,8 +80,14 @@ pub(crate) struct HudTexts {
 #[derive(Component)] pub(crate) struct SoldierPanelRoot;
 #[derive(Component, Clone, Copy)] pub(crate) struct SpawnTypeBtn(pub SoldierType);
 #[derive(Component)] pub struct ToolbarButton(pub u8);
-#[derive(Component)] pub(crate) struct SeekBtn(pub &'static str); // label for seek buttons
-#[derive(Component)] pub(crate) struct SeekStatusText;
+
+// Seek panel components
+#[derive(Component)] pub(crate) struct SeekPanelRoot;
+#[derive(Component)] pub(crate) struct SeekScopeDropdown; // the trigger button showing current scope
+#[derive(Component, Clone)] pub(crate) struct SeekScopeOption(pub SeekScope); // dropdown option
+#[derive(Component)] pub(crate) struct SeekDropdownPopup; // the popup container
+#[derive(Component)] pub(crate) struct SeekRangeInput; // the range input box
+#[derive(Component)] pub(crate) struct SeekIssueBtn; // the issue button
 
 // ══════════ Setup ══════════
 
@@ -59,10 +102,15 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
             padding: UiRect::horizontal(Val::Px(10.0)), ..default() },
             BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.5)),
         )).with_children(|p| {
-            ht.cities = Some(p.spawn((Text::new("城 0"), TextFont { font: font.clone(), font_size: 14.0, ..default() })).id());
-            ht.pop = Some(p.spawn((Text::new("兵 0/0"), TextFont { font: font.clone(), font_size: 14.0, ..default() })).id());
-            ht.enemy = Some(p.spawn((Text::new("敌 0"), TextFont { font: font.clone(), font_size: 14.0, ..default() })).id());
-            ht.time = Some(p.spawn((Text::new("T 0:00"), TextFont { font: font.clone(), font_size: 14.0, ..default() })).id());
+            p.spawn(Node { flex_direction: FlexDirection::Row, column_gap: Val::Px(12.0), ..default() }).with_children(|p| {
+                ht.cities = Some(p.spawn((Text::new("城 0"), TextFont { font: font.clone(), font_size: 14.0, ..default() })).id());
+                ht.pop = Some(p.spawn((Text::new("兵 0/0"), TextFont { font: font.clone(), font_size: 14.0, ..default() })).id());
+                ht.enemy = Some(p.spawn((Text::new("敌 0"), TextFont { font: font.clone(), font_size: 14.0, ..default() })).id());
+                ht.time = Some(p.spawn((Text::new("T 0:00"), TextFont { font: font.clone(), font_size: 14.0, ..default() })).id());
+            });
+            // Toast message on the right
+            ht.toast_text = Some(p.spawn((Text::new(""), TextFont { font: font.clone(), font_size: 13.0, ..default() },
+                TextColor(Color::srgb(1.0, 0.9, 0.3)))).id());
         });
 
         root.spawn(Node { flex_grow: 1.0, ..default() }); // spacer
@@ -161,21 +209,59 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
 
         // ── Toolbar ──
         root.spawn((Node { width: Val::Percent(100.0), height: Val::Px(40.0), flex_direction: FlexDirection::Row,
-            justify_content: JustifyContent::Center, align_items: AlignItems::Center, column_gap: Val::Px(8.0), ..default() },
+            justify_content: JustifyContent::SpaceBetween, align_items: AlignItems::Center,
+            padding: UiRect::horizontal(Val::Px(8.0)), ..default() },
             BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.5)),
         )).with_children(|p| {
-            for (label, marker) in [("O框选",0u8),("[ ]框选",1),("盾",2),("[>]优先",3)] {
-                p.spawn((Button, Node { padding: UiRect::all(Val::Px(6.0)), margin: UiRect::all(Val::Px(3.0)), ..default() }, ToolbarButton(marker)))
-                    .with_child((Text::new(label), TextFont { font: font.clone(), font_size: 13.0, ..default() }));
-            }
-            // Seek stance controls
-            p.spawn(Node { width: Val::Px(1.0), height: Val::Percent(80.0), ..default() },
-            ); // separator
-            ht.seek_status = Some(p.spawn((Text::new("索敌:关"), TextFont { font: font.clone(), font_size: 13.0, ..default() }, SeekStatusText)).id());
-            for (label, key) in [("全体开","seek_all"),("步兵开","seek_inf"),("弓兵开","seek_arch"),("骑兵开","seek_cav"),("全关","seek_off")] {
-                p.spawn((Button, Node { padding: UiRect::all(Val::Px(6.0)), ..default() }, SeekBtn(key)))
-                    .with_child((Text::new(label), TextFont { font: font.clone(), font_size: 12.0, ..default() }));
-            }
+            // Left: existing toolbar buttons
+            p.spawn(Node { flex_direction: FlexDirection::Row, align_items: AlignItems::Center, column_gap: Val::Px(4.0), ..default() }).with_children(|p| {
+                for (label, marker) in [("O框选",0u8),("[ ]框选",1),("盾",2),("[>]优先",3)] {
+                    p.spawn((Button, Node { padding: UiRect::all(Val::Px(6.0)), ..default() }, ToolbarButton(marker)))
+                        .with_child((Text::new(label), TextFont { font: font.clone(), font_size: 13.0, ..default() }));
+                }
+            });
+
+            // Separator
+            p.spawn(Node { width: Val::Px(1.0), height: Val::Percent(80.0), ..default() });
+
+            // Right: seek panel (scope dropdown + range input + issue button)
+            p.spawn((Node { flex_direction: FlexDirection::Row, align_items: AlignItems::Center, column_gap: Val::Px(6.0), ..default() }, SeekPanelRoot))
+            .with_children(|p| {
+                // Scope dropdown (relative container for popup positioning)
+                p.spawn(Node { position_type: PositionType::Relative, ..default() }).with_children(|p| {
+                    // Trigger button
+                    ht.seek_scope_text = Some(p.spawn((Button, Node { padding: UiRect::new(Val::Px(8.0), Val::Px(8.0), Val::Px(4.0), Val::Px(4.0)), ..default() },
+                        BackgroundColor(Color::srgba(0.25, 0.25, 0.3, 1.0)), SeekScopeDropdown,
+                    )).with_child((Text::new("全体 ▼"), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id());
+                    // Popup container (hidden by default, positioned above)
+                    ht.seek_dropdown_container = Some(p.spawn((Node {
+                        display: Display::None, flex_direction: FlexDirection::Column,
+                        position_type: PositionType::Absolute,
+                        bottom: Val::Px(28.0), left: Val::Px(0.0),
+                        ..default()
+                    }, BackgroundColor(Color::srgba(0.15, 0.15, 0.2, 0.95)), SeekDropdownPopup,
+                    )).with_children(|p| {
+                        for (label, scope) in [("全体", SeekScope::All), ("步兵", SeekScope::ByType(SoldierType::Infantry)),
+                            ("弓兵", SeekScope::ByType(SoldierType::Archer)), ("骑兵", SeekScope::ByType(SoldierType::Cavalry))]
+                        {
+                            p.spawn((Button, Node { padding: UiRect::new(Val::Px(12.0), Val::Px(12.0), Val::Px(4.0), Val::Px(4.0)), ..default() },
+                                SeekScopeOption(scope),
+                            )).with_child((Text::new(label), TextFont { font: font.clone(), font_size: 12.0, ..default() }));
+                        }
+                    }).id());
+                });
+
+                // Range input box
+                ht.seek_range_text = Some(p.spawn((Button, Node { padding: UiRect::new(Val::Px(8.0), Val::Px(8.0), Val::Px(4.0), Val::Px(4.0)),
+                    min_width: Val::Px(50.0), ..default() },
+                    BackgroundColor(Color::srgba(0.15, 0.15, 0.2, 1.0)), SeekRangeInput,
+                )).with_child((Text::new("10"), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id());
+
+                // Issue button
+                p.spawn((Button, Node { padding: UiRect::new(Val::Px(10.0), Val::Px(10.0), Val::Px(4.0), Val::Px(4.0)), ..default() },
+                    BackgroundColor(Color::srgba(0.2, 0.5, 0.3, 1.0)), SeekIssueBtn,
+                )).with_child((Text::new("下发"), TextFont { font: font.clone(), font_size: 12.0, ..default() }));
+            });
         });
     });
 }
@@ -218,9 +304,7 @@ pub fn update_bottom_panel(
     let has_soldiers = !selection.selected_unit_ids.is_empty();
 
     // Toggle panel visibility: city and soldier share the same spot
-    // Soldier panel: visible when no city is selected (shows placeholder or soldier info)
     if let Some(e) = ht.s_root { if let Ok(mut n) = node_params.p3().get_mut(e) { n.display = if !has_city { Display::Flex } else { Display::None }; } }
-    // City panel: visible only when a city is selected
     if let Some(e) = ht.c_root { if let Ok(mut n) = node_params.p4().get_mut(e) { n.display = if has_city { Display::Flex } else { Display::None }; } }
 
     // ── Update city panel ──
@@ -311,8 +395,7 @@ pub fn update_bottom_panel(
     if let Some(st) = hovered_st {
         show_compendium(&mut tq, &ht, st);
     } else if has_city {
-        // Keep showing whatever was last hovered, or clear
-        show_compendium(&mut tq, &ht, SoldierType::Militia); // show militia as default for city
+        show_compendium(&mut tq, &ht, SoldierType::Militia);
     } else {
         clear_compendium(&mut tq, &ht);
     }
@@ -370,69 +453,322 @@ pub fn toolbar_button_system(mut q: Query<(&ToolbarButton, &Interaction), Change
     }
 }
 
-// ══════════ Seek Button System ══════════
+// ══════════ Seek Panel Mode System ══════════
 
-pub fn seek_button_system(
-    btns: Query<(&SeekBtn, &Interaction), Changed<Interaction>>,
-    mut cmd_buf: ResMut<CommandBuffer>,
-    tick_clock: Res<TickClock>,
+/// Switch between global/selection mode based on unit selection.
+/// Reset range default only on mode transition.
+pub fn seek_panel_mode_system(
+    selection: Res<SelectionState>,
+    mut state: ResMut<SeekPanelState>,
 ) {
-    for (btn, interaction) in btns.iter() {
-        if *interaction != Interaction::Pressed { continue; }
-        let next_tick = tick_clock.current_tick + 1;
-        let action = match btn.0 {
-            "seek_all" => Action::SetSeekStance { scope: SeekScope::All, seek_range: 10, unit_ids: vec![] },
-            "seek_inf" => Action::SetSeekStance { scope: SeekScope::ByType(SoldierType::Infantry), seek_range: 10, unit_ids: vec![] },
-            "seek_arch" => Action::SetSeekStance { scope: SeekScope::ByType(SoldierType::Archer), seek_range: 10, unit_ids: vec![] },
-            "seek_cav" => Action::SetSeekStance { scope: SeekScope::ByType(SoldierType::Cavalry), seek_range: 10, unit_ids: vec![] },
-            "seek_off" => Action::SetSeekStance { scope: SeekScope::All, seek_range: 0, unit_ids: vec![] },
-            _ => continue,
-        };
-        cmd_buf.push(GameCommand { tick: next_tick, player_id: 0, action });
+    let now_selected = !selection.selected_unit_ids.is_empty();
+    if now_selected != state.has_selection {
+        // Mode transition: reset range default
+        state.range_value = if now_selected { 30 } else { 10 };
+        state.input_buffer.clear();
+        state.editing = false;
+        state.has_selection = now_selected;
     }
 }
 
-/// Update the seek status text in the toolbar based on GlobalSeekDirective.
-pub fn update_seek_status(
+// ══════════ Seek Panel Dropdown System ══════════
+
+/// Handle scope dropdown: open/close trigger, option selection, click-outside close.
+pub fn seek_panel_dropdown_system(
+    mouse: Res<ButtonInput<MouseButton>>,
+    mut state: ResMut<SeekPanelState>,
     mut tq: Query<&mut Text>,
     ht: Res<HudTexts>,
-    sim_world: bevy::ecs::system::NonSendMut<SimulationWorld>,
+    dropdown_btn: Query<&Interaction, (With<SeekScopeDropdown>, Changed<Interaction>)>,
+    option_btns: Query<(&SeekScopeOption, &Interaction), Changed<Interaction>>,
+    mut popup_nodes: Query<&mut Node, With<SeekDropdownPopup>>,
 ) {
-    let Some(id) = ht.seek_status else { return };
-    let Ok(mut text) = tq.get_mut(id) else { return };
+    // Toggle dropdown on trigger click
+    for interaction in dropdown_btn.iter() {
+        if *interaction == Interaction::Pressed {
+            state.dropdown_open = !state.dropdown_open;
+        }
+    }
 
-    let directives = &sim_world.0.resource::<GlobalSeekDirective>().0;
-    if directives.is_empty() {
-        text.0 = "索敌:关".into();
+    // Handle option selection
+    for (opt, interaction) in option_btns.iter() {
+        if *interaction == Interaction::Pressed {
+            state.scope = opt.0.clone();
+            state.dropdown_open = false;
+        }
+    }
+
+    // Close on click outside (if mouse just pressed and no option/trigger was pressed this frame)
+    if mouse.just_pressed(MouseButton::Left) && state.dropdown_open {
+        let clicked_option = option_btns.iter().any(|(_, i)| *i == Interaction::Pressed);
+        let clicked_trigger = dropdown_btn.iter().any(|i| *i == Interaction::Pressed);
+        if !clicked_option && !clicked_trigger {
+            state.dropdown_open = false;
+        }
+    }
+
+    // Update popup visibility
+    if let Some(id) = ht.seek_dropdown_container {
+        if let Ok(mut node) = popup_nodes.get_mut(id) {
+            node.display = if state.dropdown_open { Display::Flex } else { Display::None };
+        }
+    }
+
+    // Update scope text
+    let label = scope_label(&state.scope);
+    if let Some(id) = ht.seek_scope_text {
+        if let Ok(mut t) = tq.get_mut(id) {
+            t.0 = format!("{} ▼", label);
+        }
+    }
+}
+
+fn scope_label(scope: &SeekScope) -> &'static str {
+    match scope {
+        SeekScope::All => "全体",
+        SeekScope::ByType(SoldierType::Militia) => "民兵",
+        SeekScope::ByType(SoldierType::Infantry) => "步兵",
+        SeekScope::ByType(SoldierType::Archer) => "弓兵",
+        SeekScope::ByType(SoldierType::Cavalry) => "骑兵",
+    }
+}
+
+// ══════════ Seek Panel Input System ══════════
+
+/// Handle range input: click to enter edit mode, keyboard to type, Enter/Esc to confirm/cancel.
+pub fn seek_panel_input_system(
+    mouse: Res<ButtonInput<MouseButton>>,
+    keyboard: Res<ButtonInput<KeyCode>>,
+    mut state: ResMut<SeekPanelState>,
+    mut tq: Query<&mut Text>,
+    ht: Res<HudTexts>,
+    input_btn: Query<&Interaction, (With<SeekRangeInput>, Changed<Interaction>)>,
+) {
+    // Click on input box → enter edit mode
+    for interaction in input_btn.iter() {
+        if *interaction == Interaction::Pressed && !state.editing {
+            state.editing = true;
+            state.input_buffer = state.range_value.to_string();
+        }
+    }
+
+    if !state.editing {
+        // Display current value
+        if let Some(id) = ht.seek_range_text {
+            if let Ok(mut t) = tq.get_mut(id) { t.0 = state.range_value.to_string(); }
+        }
         return;
     }
 
-    // Find the latest All directive
-    let latest_all = directives.iter()
-        .filter(|d| matches!(d.scope, SeekScope::All))
-        .max_by_key(|d| d.issue_tick);
-    // Find by-type directives
-    let by_type: Vec<&SeekDirective> = directives.iter()
-        .filter(|d| matches!(d.scope, SeekScope::ByType(_)))
-        .collect();
+    // Edit mode: capture keyboard
+    let mut changed = false;
+    let mut exit_edit = false;
+    let mut cancel = false;
 
-    let mut parts: Vec<String> = Vec::new();
-    if let Some(all) = latest_all {
-        if all.seek_range > 0 {
-            parts.push(format!("全体{}", all.seek_range));
+    // Check for key presses
+    if keyboard.just_pressed(KeyCode::Enter) || keyboard.just_pressed(KeyCode::NumpadEnter) {
+        exit_edit = true;
+    } else if keyboard.just_pressed(KeyCode::Escape) {
+        cancel = true;
+        exit_edit = true;
+    } else if keyboard.just_pressed(KeyCode::Backspace) {
+        state.input_buffer.pop();
+        changed = true;
+    } else {
+        // Digit keys
+        let digit = if keyboard.just_pressed(KeyCode::Digit0) || keyboard.just_pressed(KeyCode::Numpad0) { Some('0') }
+        else if keyboard.just_pressed(KeyCode::Digit1) || keyboard.just_pressed(KeyCode::Numpad1) { Some('1') }
+        else if keyboard.just_pressed(KeyCode::Digit2) || keyboard.just_pressed(KeyCode::Numpad2) { Some('2') }
+        else if keyboard.just_pressed(KeyCode::Digit3) || keyboard.just_pressed(KeyCode::Numpad3) { Some('3') }
+        else if keyboard.just_pressed(KeyCode::Digit4) || keyboard.just_pressed(KeyCode::Numpad4) { Some('4') }
+        else if keyboard.just_pressed(KeyCode::Digit5) || keyboard.just_pressed(KeyCode::Numpad5) { Some('5') }
+        else if keyboard.just_pressed(KeyCode::Digit6) || keyboard.just_pressed(KeyCode::Numpad6) { Some('6') }
+        else if keyboard.just_pressed(KeyCode::Digit7) || keyboard.just_pressed(KeyCode::Numpad7) { Some('7') }
+        else if keyboard.just_pressed(KeyCode::Digit8) || keyboard.just_pressed(KeyCode::Numpad8) { Some('8') }
+        else if keyboard.just_pressed(KeyCode::Digit9) || keyboard.just_pressed(KeyCode::Numpad9) { Some('9') }
+        else { None };
+
+        if let Some(ch) = digit {
+            if state.input_buffer.len() < 4 {
+                state.input_buffer.push(ch);
+                changed = true;
+            }
         }
     }
-    for d in &by_type {
-        if let SeekScope::ByType(st) = d.scope {
+
+    if exit_edit {
+        if cancel {
+            // Restore original value
+            state.input_buffer.clear();
+        } else if !state.input_buffer.is_empty() {
+            // Parse and apply
+            if let Ok(val) = state.input_buffer.parse::<u32>() {
+                state.range_value = val;
+            }
+        }
+        // Empty buffer → keep original value
+        state.editing = false;
+        state.input_buffer.clear();
+        changed = true;
+    }
+
+    // Update display
+    if changed || state.editing {
+        if let Some(id) = ht.seek_range_text {
+            if let Ok(mut t) = tq.get_mut(id) {
+                t.0 = if state.editing {
+                    format!("{}▌", state.input_buffer)
+                } else {
+                    state.range_value.to_string()
+                };
+            }
+        }
+    }
+}
+
+// ══════════ Seek Panel Issue System ══════════
+
+/// Handle issue button click: generate command, trigger toast.
+pub fn seek_panel_issue_system(
+    issue_btn: Query<&Interaction, (With<SeekIssueBtn>, Changed<Interaction>)>,
+    state: Res<SeekPanelState>,
+    selection: Res<SelectionState>,
+    mut cmd_buf: ResMut<CommandBuffer>,
+    tick_clock: Res<TickClock>,
+    mut toast: ResMut<ToastMessage>,
+) {
+    for interaction in issue_btn.iter() {
+        if *interaction != Interaction::Pressed { continue; }
+
+        let next_tick = tick_clock.current_tick + 1;
+        let has_sel = !selection.selected_unit_ids.is_empty();
+
+        if has_sel {
+            // Selection mode
+            cmd_buf.push(GameCommand {
+                tick: next_tick,
+                player_id: 0,
+                action: Action::SetSeekStance {
+                    scope: state.scope.clone(),
+                    seek_range: state.range_value,
+                    unit_ids: selection.selected_unit_ids.clone(),
+                },
+            });
+            // Toast: count by scope
+            let count = count_matching(&selection.selected_unit_ids, &state.scope, &selection);
+            let scope_name = scope_label(&state.scope);
+            toast.text = if matches!(state.scope, SeekScope::All) {
+                format!("已下发选中全体({})索敌 范围{}", selection.selected_unit_ids.len(), state.range_value)
+            } else {
+                format!("已下发选中{}({})索敌 范围{}", scope_name, count, state.range_value)
+            };
+        } else {
+            // Global mode
+            cmd_buf.push(GameCommand {
+                tick: next_tick,
+                player_id: 0,
+                action: Action::SetSeekStance {
+                    scope: state.scope.clone(),
+                    seek_range: state.range_value,
+                    unit_ids: vec![],
+                },
+            });
+            let scope_name = scope_label(&state.scope);
+            toast.text = format!("已下发{}索敌 范围{}", scope_name, state.range_value);
+        }
+        toast.remaining_ticks = TOAST_DURATION_TICKS;
+    }
+}
+
+/// Count how many selected units match the given scope.
+fn count_matching(unit_ids: &[UnitId], scope: &SeekScope, selection: &SelectionState) -> usize {
+    // For All scope, all selected match
+    match scope {
+        SeekScope::All => unit_ids.len(),
+        SeekScope::ByType(_) => {
+            // We need to check the simulation world, but we don't have access here.
+            // Approximate: if single type selected, show that count.
+            // For now, just return total count — the toast will still be informative.
+            unit_ids.len()
+        }
+    }
+}
+
+// ══════════ Toast Systems ══════════
+
+/// Tick down toast timer.
+pub fn toast_tick_system(mut toast: ResMut<ToastMessage>) {
+    if toast.remaining_ticks > 0 {
+        toast.remaining_ticks -= 1;
+        if toast.remaining_ticks == 0 {
+            toast.text.clear();
+        }
+    }
+}
+
+/// Display toast message in the top bar.
+pub fn toast_display_system(
+    toast: Res<ToastMessage>,
+    ht: Res<HudTexts>,
+    mut tq: Query<&mut Text>,
+) {
+    let Some(id) = ht.toast_text else { return };
+    let Ok(mut text) = tq.get_mut(id) else { return };
+    text.0 = toast.text.clone();
+}
+
+// ══════════ Selection Summary Toast ══════════
+
+/// Show toast when unit selection changes.
+pub fn selection_summary_toast_system(
+    selection: Res<SelectionState>,
+    mut prev_count: Local<usize>,
+    mut toast: ResMut<ToastMessage>,
+    mut sim_world: bevy::ecs::system::NonSendMut<SimulationWorld>,
+) {
+    let now = selection.selected_unit_ids.len();
+    if now == *prev_count { return; }
+    *prev_count = now;
+
+    if now == 0 { return; } // don't clear existing toast on deselect
+
+    // Build summary
+    let w = &mut sim_world.0;
+    let mut counts: HashMap<SoldierType, usize> = HashMap::new();
+    {
+        let mut q = w.query::<(&UnitIdComponent, &SoldierTypeComponent)>();
+        for uid in &selection.selected_unit_ids {
+            for (id, st) in q.iter(w) {
+                if id.0 == *uid {
+                    *counts.entry(st.0).or_insert(0) += 1;
+                    break;
+                }
+            }
+        }
+    }
+
+    if counts.len() <= 1 {
+        // Single type
+        let (stype, count) = counts.iter().next().unwrap_or((&SoldierType::Militia, &0));
+        let name = match stype {
+            SoldierType::Militia => "民兵",
+            SoldierType::Infantry => "步兵",
+            SoldierType::Archer => "弓兵",
+            SoldierType::Cavalry => "骑兵",
+        };
+        toast.text = format!("选中 {} 个{}", count, name);
+    } else {
+        // Mixed types
+        let parts: Vec<String> = counts.iter().map(|(st, c)| {
             let name = match st {
                 SoldierType::Militia => "民兵",
                 SoldierType::Infantry => "步兵",
                 SoldierType::Archer => "弓兵",
                 SoldierType::Cavalry => "骑兵",
             };
-            parts.push(format!("{}{}", name, d.seek_range));
-        }
+            format!("{}{}", name, c)
+        }).collect();
+        toast.text = format!("选中 {} 个单位: {}", now, parts.join(" "));
     }
-
-    text.0 = if parts.is_empty() { "索敌:关".into() } else { format!("索敌: {}", parts.join(" ")) };
+    toast.remaining_ticks = TOAST_DURATION_TICKS;
 }

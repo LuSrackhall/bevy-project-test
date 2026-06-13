@@ -415,12 +415,15 @@ pub fn waypoint_cleanup_system(
 pub fn seek_stance_shortcut_system(
     keyboard: Res<ButtonInput<KeyCode>>,
     selection: Res<SelectionState>,
+    seek_state: Res<crate::ui::hud::SeekPanelState>,
     mut cmd_buf: ResMut<CommandBuffer>,
     tick_clock: Res<bevy_adapter::tick::TickClock>,
     sim_world: bevy::ecs::system::NonSendMut<SimulationWorld>,
 ) {
     if !keyboard.just_pressed(KeyCode::KeyS) { return; }
     if selection.selected_unit_ids.is_empty() { return; }
+    // Don't trigger when seek panel is in edit mode
+    if seek_state.editing { return; }
     // Don't trigger when Ctrl/Cmd is held (that would be Ctrl+S etc.)
     if keyboard.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight])
         || keyboard.any_pressed([KeyCode::SuperLeft, KeyCode::SuperRight]) { return; }
