@@ -63,7 +63,6 @@ pub fn combat_engagement_system(world: &mut World) {
     let soldiers: Vec<EngData> = {
         let mut q = world.query::<(Entity, &UnitIdComponent, &LogicalPosition, &FactionComponent, &SoldierTypeComponent, &SoldierStateComponent, &Movement, Option<&SeekStance>)>();
         q.iter(world)
-            .filter(|(_, _, _, _, st, _, _, _)| st.0 != SoldierType::Archer)
             .map(|(e, id, pos, fac, st, sst, mov, seek)| EngData {
                 entity: e, uid: id.0, pos: pos.0, faction: fac.0, stype: st.0,
                 state: sst.0, force_move: mov.force_move,
