@@ -6,6 +6,7 @@ pub mod city;
 pub mod combat;
 pub mod map;
 pub mod ai;
+pub mod facing;
 
 pub use bevy_ecs::world::World;
 pub use crate::events::SimulationEvents;
