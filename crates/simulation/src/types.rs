@@ -271,6 +271,15 @@ pub struct ShieldItem {
     pub max_hp: u32,
 }
 
+/// A shield that has been dropped on the ground (e.g., after a soldier dies or discards it).
+#[derive(Component, Clone, Debug)]
+pub struct DroppedShield {
+    pub shield: ShieldItem,
+    pub position: FixedVec2,
+    pub drop_tick: u32,
+    pub owner_faction: Option<Faction>,
+}
+
 // ═══════════════════════════════════════════════════════════════
 // Deterministic PRNG
 // ═══════════════════════════════════════════════════════════════

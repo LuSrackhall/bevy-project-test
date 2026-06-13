@@ -117,3 +117,30 @@ pub fn draw_debug_shapes_system(
         }
     }
 }
+
+/// Render dropped shields on the ground as gray rectangles.
+pub fn draw_dropped_shields_system(
+    mut gizmos: Gizmos,
+    mut sim_world: bevy::ecs::system::NonSendMut<SimulationWorld>,
+) {
+    let world = &mut sim_world.0;
+    let mut query = world.query::<(&simulation::types::DroppedShield,)>();
+    for (dropped,) in query.iter(world) {
+        let p = Vec2::new(dropped.position.x.to_float(), dropped.position.y.to_float());
+        let color = Color::srgb(0.6, 0.6, 0.6);
+
+        // 6x8 rectangle outline
+        let hw = 3.0;
+        let hh = 4.0;
+        let corners = [
+            p + Vec2::new(-hw, -hh),
+            p + Vec2::new(hw, -hh),
+            p + Vec2::new(hw, hh),
+            p + Vec2::new(-hw, hh),
+        ];
+        gizmos.line_2d(corners[0], corners[1], color);
+        gizmos.line_2d(corners[1], corners[2], color);
+        gizmos.line_2d(corners[2], corners[3], color);
+        gizmos.line_2d(corners[3], corners[0], color);
+    }
+}

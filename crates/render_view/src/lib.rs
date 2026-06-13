@@ -28,6 +28,7 @@ impl Plugin for RenderViewPlugin {
             .init_resource::<crate::unit_info_bar::UnitInfoBarSettings>()
             .add_systems(Update, (
                 crate::debug_shape::draw_debug_shapes_system,
+                crate::debug_shape::draw_dropped_shields_system,
                 crate::unit_info_bar::unit_info_bar_system,
                 crate::unit_info_bar::info_bar_mode_toggle_system,
                 crate::camera::camera_drag_system,
