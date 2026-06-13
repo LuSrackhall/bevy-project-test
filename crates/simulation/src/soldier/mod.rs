@@ -12,6 +12,7 @@ use crate::soldier::config::SoldierConfig;
 use crate::city::config::CityGlobalConfig;
 use crate::combat::config::CombatGlobalConfig;
 use crate::soldier::spatial_hash::SpatialHash;
+use crate::facing;
 
 // ══════════ Components ══════════
 
@@ -181,8 +182,8 @@ pub fn soldier_movement_system(world: &mut World) {
     let mut arrivals: Vec<(Entity, u32)> = Vec::new();
 
     {
-        let mut q = world.query::<(Entity, &LogicalPosition, &Movement, &SoldierTypeComponent, &SoldierStateComponent, Option<&SlowDebuff>, Option<&ShieldComponent>)>();
-        for (e, pos, mov, st, sst, slow, shield) in q.iter(world) {
+        let mut q = world.query::<(Entity, &LogicalPosition, &Movement, &SoldierTypeComponent, &SoldierStateComponent, Option<&SlowDebuff>, Option<&ShieldComponent>, Option<&FacingDirection>)>();
+        for (e, pos, mov, st, sst, slow, shield, facing_dir) in q.iter(world) {
             if st.0 == SoldierType::Archer && sst.0 == SoldierState::Fighting { continue; }
             let mut speed = mov.speed as f32;
             if let Some(sl) = slow {
@@ -193,7 +194,7 @@ pub fn soldier_movement_system(world: &mut World) {
                 if sh.0 == ShieldState::ShieldUp { speed -= combat_config.shield.speed_penalty as f32; }
             }
             if speed <= 0.0 { continue; }
-            let speed_fixed = Fixed::from_float(speed);
+            let mut speed_fixed = Fixed::from_float(speed);
 
             let is_cav = st.0 == SoldierType::Cavalry;
             let target_pos = if is_cav {
@@ -204,6 +205,15 @@ pub fn soldier_movement_system(world: &mut World) {
             }.or(mov.waypoint);
 
             let Some(target_pos) = target_pos else { continue };
+
+            // Facing-based speed reduction: moving sideways or backward is slower
+            if let Some(facing) = facing_dir {
+                let desired = facing::compute_angle_between(pos.0, target_pos);
+                let deviation = facing::angle_distance(facing.angle, desired);
+                let factor = Fixed::ONE - deviation / Fixed::from_int(180);
+                let factor = factor.max(Fixed::ZERO);
+                speed_fixed = speed_fixed * factor;
+            }
 
             let delta = target_pos - pos.0;
             let dist_sq = delta.length_squared();
