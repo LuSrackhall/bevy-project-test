@@ -8,6 +8,7 @@ use crate::types::*;
 use crate::events::*;
 use crate::soldier::*;
 use crate::soldier::config::SoldierConfig;
+use crate::facing;
 use crate::combat::config::CombatGlobalConfig;
 
 // ══════════ Arrow Types ══════════
@@ -47,6 +48,24 @@ fn integer_sqrt(n: i64) -> i64 {
     x
 }
 
+/// Drop a shield on the ground if the dying entity has one.
+/// Must be called BEFORE despawning the entity.
+pub(crate) fn drop_shield_on_death(world: &mut World, dying_entity: Entity, current_tick: u32) {
+    let has_shield = world.get::<ShieldItem>(dying_entity).map(|s| s.hp > 0).unwrap_or(false);
+    if !has_shield { return; }
+
+    let shield = world.get::<ShieldItem>(dying_entity).cloned().unwrap();
+    let pos = world.get::<LogicalPosition>(dying_entity).map(|p| p.0).unwrap_or(FixedVec2::ZERO);
+    let faction = world.get::<FactionComponent>(dying_entity).map(|f| f.0);
+
+    world.spawn(DroppedShield {
+        shield,
+        position: pos,
+        drop_tick: current_tick,
+        owner_faction: faction,
+    });
+}
+
 // ══════════ combat_engagement ══════════
 
 pub fn combat_engagement_system(world: &mut World) {
@@ -63,7 +82,6 @@ pub fn combat_engagement_system(world: &mut World) {
     let soldiers: Vec<EngData> = {
         let mut q = world.query::<(Entity, &UnitIdComponent, &LogicalPosition, &FactionComponent, &SoldierTypeComponent, &SoldierStateComponent, &Movement, Option<&SeekStance>)>();
         q.iter(world)
-            .filter(|(_, _, _, _, st, _, _, _)| st.0 != SoldierType::Archer)
             .map(|(e, id, pos, fac, st, sst, mov, seek)| EngData {
                 entity: e, uid: id.0, pos: pos.0, faction: fac.0, stype: st.0,
                 state: sst.0, force_move: mov.force_move,
@@ -116,9 +134,74 @@ pub fn combat_engagement_system(world: &mut World) {
     }
 }
 
+// ══════════ Shield block helper (manual + passive) ══════════
+
+/// Attempt shield block (manual frontal + passive chance).
+/// Returns remaining damage after shield absorption.
+/// Call AFTER cavalry dodge, BEFORE applying damage to Health.
+fn try_passive_block(world: &mut World, target_entity: Entity, mut damage: u32, attacker_pos: Option<FixedVec2>) -> u32 {
+    if damage == 0 { return 0; }
+
+    let combat_config = world.resource::<CombatGlobalConfig>().clone();
+
+    // ── Manual block check (infantry in Blocking state) ──
+    let is_blocking = world.get::<ShieldComponent>(target_entity)
+        .map_or(false, |sc| sc.state == ShieldState::Blocking);
+
+    if is_blocking {
+        if let (Some(facing_comp), Some(atk_pos)) = (world.get::<FacingDirection>(target_entity), attacker_pos) {
+            if let Some(target_pos) = world.get::<LogicalPosition>(target_entity).map(|p| p.0) {
+                let attack_angle = facing::compute_angle_between(target_pos, atk_pos);
+                let deviation = facing::angle_distance(facing_comp.angle, attack_angle);
+                let frontal_half = Fixed::from_int(combat_config.shield.frontal_angle_deg as i32 / 2);
+
+                if deviation <= frontal_half {
+                    // Frontal hit — 100% absorbed by shield
+                    if let Some(mut shield_item) = world.get_mut::<ShieldItem>(target_entity) {
+                        if shield_item.hp <= damage {
+                            let absorbed = shield_item.hp;
+                            shield_item.hp = 0;
+                            damage -= absorbed;
+                            world.entity_mut(target_entity).remove::<ShieldComponent>();
+                            world.entity_mut(target_entity).remove::<ShieldItem>();
+                        } else {
+                            shield_item.hp -= damage;
+                            return 0; // all damage absorbed
+                        }
+                    }
+                    return damage;
+                }
+                // Non-frontal: falls through to passive block check below
+            }
+        }
+    }
+
+    // ── Passive block check (40% chance, any direction) ──
+    if world.get::<ShieldComponent>(target_entity).is_none() { return damage; }
+
+    let passive_block_chance = combat_config.shield.passive_block_chance;
+    let block_roll = world.resource_mut::<DeterministicRng>().gen_probability();
+
+    if block_roll < passive_block_chance {
+        if let Some(mut shield_item) = world.get_mut::<ShieldItem>(target_entity) {
+            if shield_item.hp <= damage {
+                let shield_damage = shield_item.hp;
+                shield_item.hp = 0;
+                damage -= shield_damage;
+                world.entity_mut(target_entity).remove::<ShieldComponent>();
+                world.entity_mut(target_entity).remove::<ShieldItem>();
+            } else {
+                shield_item.hp -= damage;
+                damage = 0;
+            }
+        }
+    }
+    damage
+}
+
 // ══════════ melee_attack ══════════
 
-pub fn melee_attack_system(world: &mut World) {
+pub fn melee_attack_system(world: &mut World, current_tick: u32) {
     let soldier_config = world.resource::<SoldierConfig>().clone();
     let combat_config = world.resource::<CombatGlobalConfig>().clone();
 
@@ -157,6 +240,8 @@ pub fn melee_attack_system(world: &mut World) {
     let mut ls_hits: Vec<(Entity, u32, u32, bool)> = Vec::new();
     let mut ls_kills: Vec<(Entity, u32, u32, bool)> = Vec::new();
 
+    let windup_config = combat_config.attack_windup.clone();
+
     for ad in attackers {
         let Some(tid) = ad.target else { continue };
         let Some(&tpos) = positions.get(&tid) else { continue };
@@ -164,6 +249,22 @@ pub fn melee_attack_system(world: &mut World) {
         let range_f = Fixed::from_int(ad.range as i32);
         if (ad.pos - tpos).length_squared() > range_f * range_f { continue; }
 
+        // Non-cavalry: start windup instead of attacking immediately
+        if ad.stype != SoldierType::Cavalry || !windup_config.cavalry_no_windup {
+            // Check if already in a windup — if so, don't start another
+            let already_winding = world.entity(ad.entity)
+                .get::<AttackWindup>()
+                .map_or(false, |w| w.remaining_ticks > 0);
+            if !already_winding {
+                world.entity_mut(ad.entity).insert(AttackWindup {
+                    remaining_ticks: windup_config.windup_ticks,
+                    target: Some(tid),
+                });
+            }
+            continue;
+        }
+
+        // Cavalry with cavalry_no_windup: attack immediately (existing behavior)
         let Some(te) = find_entity_by_unit_id(world, tid) else { continue };
 
         let (thp, tmax, tst, _tfac, city_origin) = {
@@ -190,6 +291,9 @@ pub fn melee_attack_system(world: &mut World) {
             }
         }
 
+        // Shield block check (after dodge, before damage application)
+        damage = try_passive_block(world, te, damage, Some(ad.pos));
+
         if damage > 0 {
             let died = {
                 let mut em = world.entity_mut(te);
@@ -208,8 +312,13 @@ pub fn melee_attack_system(world: &mut World) {
             }
         }
 
-        // Reset attacker cooldown
-        world.entity_mut(ad.entity).insert(Attack { damage: ad.dmg, range: ad.range, interval_ticks: ad.interval, cooldown_remaining: ad.interval });
+        // Reset attacker cooldown (penalized if blocking)
+        let cooldown = if world.get::<ShieldComponent>(ad.entity).map_or(false, |sc| sc.state == ShieldState::Blocking) {
+            combat_config.shield.attack_speed_penalty
+        } else {
+            ad.interval
+        };
+        world.entity_mut(ad.entity).insert(Attack { damage: ad.dmg, range: ad.range, interval_ticks: ad.interval, cooldown_remaining: cooldown });
     }
 
     // Apply lifesteal & XP
@@ -232,6 +341,7 @@ pub fn melee_attack_system(world: &mut World) {
         if seen.contains(&te) { continue; }
         seen.insert(te);
         let uid = find_unit_id(world, te).unwrap_or(UnitId(0));
+        drop_shield_on_death(world, te, current_tick);
         world.despawn(te);
         // Decrement origin city population when soldier dies in combat
         if let Some(origin_id) = origin {
@@ -247,6 +357,163 @@ pub fn melee_attack_system(world: &mut World) {
 }
 
 // ══════════ melee_attack (end) ══════════
+
+// ══════════ attack_windup ══════════
+
+/// Process attack windups — when windup completes, apply the attack.
+pub fn attack_windup_system(world: &mut World, current_tick: u32) {
+    let combat_config = world.resource::<CombatGlobalConfig>().clone();
+
+    // Collect entities with active windups (remaining_ticks > 0)
+    let mut windup_entities: Vec<(Entity, u32, Option<UnitId>)> = Vec::new();
+    {
+        let mut q = world.query::<(Entity, &AttackWindup)>();
+        for (entity, windup) in q.iter(world) {
+            if windup.remaining_ticks > 0 {
+                windup_entities.push((entity, windup.remaining_ticks, windup.target));
+            }
+        }
+    }
+
+    // Decrement windups and collect completed ones
+    let mut ready: Vec<(Entity, UnitId)> = Vec::new();
+    for (entity, remaining, target) in windup_entities {
+        let new_remaining = remaining - 1;
+        if new_remaining == 0 {
+            if let Some(target_id) = target {
+                ready.push((entity, target_id));
+            }
+            // Clear windup state
+            world.entity_mut(entity).insert(AttackWindup { remaining_ticks: 0, target: None });
+        } else {
+            world.entity_mut(entity).insert(AttackWindup { remaining_ticks: new_remaining, target });
+        }
+    }
+
+    // Position lookup for range checks
+    let positions: HashMap<UnitId, FixedVec2> = {
+        let mut q = world.query::<(Entity, &UnitIdComponent, &LogicalPosition)>();
+        q.iter(world).map(|(_, id, pos)| (id.0, pos.0)).collect()
+    };
+
+    // Apply attacks for completed windups
+    let mut pending_deaths: Vec<(Entity, Option<UnitId>, Option<UnitId>)> = Vec::new();
+    let mut xp_grants: Vec<(Entity, u32)> = Vec::new();
+    let mut ls_hits: Vec<(Entity, u32, u32, bool)> = Vec::new();
+    let mut ls_kills: Vec<(Entity, u32, u32, bool)> = Vec::new();
+
+    for (attacker_entity, target_id) in ready {
+        // Get attacker data
+        let (ad_uid, ad_pos, ad_dmg, ad_range, ad_level, ad_interval, ad_has_fearless) = {
+            let em = world.entity(attacker_entity);
+            let uid = em.get::<UnitIdComponent>().map(|c| c.0);
+            let pos = em.get::<LogicalPosition>().map(|p| p.0);
+            let atk = em.get::<Attack>();
+            let lvl = em.get::<Level>().map(|l| l.level);
+            let fb = em.get::<FearlessBuff>().is_some();
+            match (uid, pos, atk, lvl) {
+                (Some(u), Some(p), Some(a), Some(l)) => (u, p, a.damage, a.range, l, a.interval_ticks, fb),
+                _ => continue,
+            }
+        };
+
+        // Verify target is still in range
+        let Some(&tpos) = positions.get(&target_id) else { continue };
+        let range_f = Fixed::from_int(ad_range as i32);
+        if (ad_pos - tpos).length_squared() > range_f * range_f { continue; }
+
+        let Some(te) = find_entity_by_unit_id(world, target_id) else { continue };
+
+        let (thp, tmax, tst, _tfac, city_origin) = {
+            let em = world.entity(te);
+            let hp = em.get::<Health>();
+            (hp.map(|h| h.current), hp.map(|h| h.max),
+             em.get::<SoldierTypeComponent>().map(|s| s.0),
+             em.get::<FactionComponent>().map(|f| f.0),
+             em.get::<CityOrigin>().map(|c| c.0))
+        };
+        let Some(hp_cur) = thp else { continue };
+        let Some(hp_max) = tmax else { continue };
+
+        // Compute damage (same formula as melee_attack_system)
+        let mut damage = ad_dmg + ad_level * combat_config.level_up.attack_gain;
+        if ad_has_fearless { damage += combat_config.fearless.attack_bonus; }
+
+        // Cavalry dodge
+        if tst == Some(SoldierType::Cavalry) && hp_max > 0 {
+            let hp_r = hp_cur as f32 / hp_max as f32;
+            let dc = (combat_config.cavalry.dodge_max_chance - (1.0 - hp_r) * combat_config.cavalry.dodge_decay_rate).max(0.0);
+            if world.resource_mut::<DeterministicRng>().gen_probability() < dc {
+                damage = 0;
+                world.entity_mut(te).insert(FearlessBuff { remaining_ticks: combat_config.fearless.duration_ticks });
+            }
+        }
+
+        // Shield block check (after dodge, before damage application)
+        damage = try_passive_block(world, te, damage, Some(ad_pos));
+
+        if damage > 0 {
+            let died = {
+                let mut em = world.entity_mut(te);
+                if let Some(mut hp) = em.get_mut::<Health>() {
+                    hp.current = hp.current.saturating_sub(damage);
+                    hp.current == 0
+                } else { false }
+            };
+
+            if died {
+                pending_deaths.push((te, Some(ad_uid), city_origin));
+                xp_grants.push((attacker_entity, combat_config.level_up.exp_per_kill));
+                ls_kills.push((attacker_entity, damage, ad_level, ad_has_fearless));
+            } else {
+                ls_hits.push((attacker_entity, damage, ad_level, ad_has_fearless));
+            }
+        }
+
+        // Reset attacker cooldown (penalized if blocking)
+        let cooldown = if world.get::<ShieldComponent>(attacker_entity).map_or(false, |sc| sc.state == ShieldState::Blocking) {
+            combat_config.shield.attack_speed_penalty
+        } else {
+            ad_interval
+        };
+        world.entity_mut(attacker_entity).insert(Attack { damage: ad_dmg, range: ad_range, interval_ticks: ad_interval, cooldown_remaining: cooldown });
+    }
+
+    // Apply lifesteal & XP
+    for (e, dmg, lvl, hf) in ls_kills.iter().chain(ls_hits.iter()) {
+        let ls = if *lvl >= combat_config.level_up.lifesteal_unlock_level { combat_config.level_up.lifesteal_rate } else { 0.0 }
+            + if *hf { combat_config.fearless.lifesteal_bonus } else { 0.0 };
+        if ls > 0.0 {
+            if let Some(mut hp) = world.entity_mut(*e).get_mut::<Health>() {
+                hp.current = (hp.current + (*dmg as f32 * ls) as u32).min(hp.max);
+            }
+        }
+    }
+    for (e, xp) in xp_grants {
+        if let Some(mut lvl) = world.entity_mut(e).get_mut::<Level>() { lvl.exp += xp; }
+    }
+
+    // Process deaths
+    let mut seen = std::collections::HashSet::new();
+    for (te, kid, origin) in pending_deaths {
+        if seen.contains(&te) { continue; }
+        seen.insert(te);
+        let uid = find_unit_id(world, te).unwrap_or(UnitId(0));
+        drop_shield_on_death(world, te, current_tick);
+        world.despawn(te);
+        if let Some(origin_id) = origin {
+            if let Some(oe) = find_entity_by_unit_id(world, origin_id) {
+                if let Some(mut c) = world.entity_mut(oe).get_mut::<CityComponent>() {
+                    c.population = c.population.saturating_sub(1);
+                }
+            }
+        }
+        let mut events = world.resource_mut::<SimulationEvents>();
+        events.destroyed.push(UnitDestroyed { unit_id: uid, killer_id: kid });
+    }
+}
+
+// ══════════ attack_windup (end) ══════════
 
 
 // ══════════ archer_attack (direction-based) ══════════
@@ -289,17 +556,21 @@ pub fn archer_attack_system(world: &mut World) {
     };
 
     for ad in archers {
-        // Find nearest enemy in range
+        // Find all enemy soldiers in range and track nearest
         let range_fixed = Fixed::from_int(ad.range as i32);
         let range_sq = range_fixed * range_fixed;
+        let mut enemy_soldiers_in_range: Vec<(UnitId, FixedVec2)> = Vec::new();
         let mut nearest: Option<(UnitId, FixedVec2)> = None;
         let mut nearest_d = i64::MAX;
         for (eid, epos, efac) in &all_units {
             if *efac == ad.faction { continue; } // only target enemies
             let ds = (ad.pos - *epos).length_squared();
-            if ds <= range_sq && ds.0 < nearest_d {
-                nearest = Some((*eid, *epos));
-                nearest_d = ds.0;
+            if ds <= range_sq {
+                enemy_soldiers_in_range.push((*eid, *epos));
+                if ds.0 < nearest_d {
+                    nearest = Some((*eid, *epos));
+                    nearest_d = ds.0;
+                }
             }
         }
 
@@ -322,53 +593,95 @@ pub fn archer_attack_system(world: &mut World) {
             continue;
         };
 
-        // Compute flight direction with spread (65% dead-on, 35% ±0.1°–10°)
-        let delta = target_pos - ad.pos;
-        let dist_internal = integer_sqrt(delta.length_squared().0 * FIXED_ONE);
-        if dist_internal <= 0 { continue; }
-        let dist = Fixed(dist_internal);
-        let dir_unit = FixedVec2::new(delta.x / dist, delta.y / dist);
+        // ── Multi-shot check ──
+        let multi_cfg = &combat_config.archer_multi_shot;
+        let multi_chance = (multi_cfg.base_chance + ad.level as f32 * multi_cfg.per_level_bonus)
+            .min(multi_cfg.max_chance)
+            .max(multi_cfg.min_chance);
 
-        // Spread: 10° max in radians ≈ 0.1745 → Fixed(44) with 8-bit precision
-        let max_spread = Fixed(44);
-        let spread_angle = {
+        let targets_to_hit: Vec<(UnitId, FixedVec2)> = {
             let mut rng = world.resource_mut::<DeterministicRng>();
-            if rng.gen_probability() < 0.65 {
-                Fixed::ZERO // 65% perfect aim
+            let roll = rng.gen_probability();
+
+            if roll < multi_chance && enemy_soldiers_in_range.len() > 1 {
+                // Multi-shot: pick 2-5 random enemies in range
+                let num_shots = 2 + (rng.gen_probability() * 4.0) as u32; // 2-5
+                let num_shots = num_shots.min(enemy_soldiers_in_range.len() as u32);
+
+                // Collect candidates excluding primary target
+                let mut candidates: Vec<(UnitId, FixedVec2)> = enemy_soldiers_in_range
+                    .iter()
+                    .filter(|(id, _)| *id != target_id)
+                    .cloned()
+                    .collect();
+
+                // Shuffle using Fisher-Yates with deterministic RNG
+                for i in (1..candidates.len()).rev() {
+                    let j = (rng.gen_probability() * (i + 1) as f32) as usize;
+                    candidates.swap(i, j.min(i));
+                }
+
+                // Take num_shots - 1 extra targets + primary
+                let mut targets = vec![(target_id, target_pos)];
+                targets.extend(candidates.into_iter().take((num_shots - 1) as usize));
+                targets
             } else {
-                let angle = Fixed(1 + (rng.next_u64() % 44) as i64); // 0.1°–10°
-                if rng.gen_probability() < 0.5 { Fixed(-angle.0) } else { angle }
+                // Single shot
+                vec![(target_id, target_pos)]
             }
         };
+        // RNG borrow dropped here before spawning arrows
 
-        // Apply rotation via small-angle approx: sin(θ)≈θ, cos(θ)≈1
-        let sin_a = spread_angle;
-        let cos_a = Fixed::ONE; // cos(small) ≈ 1
-        let rotated_x = dir_unit.x * cos_a - dir_unit.y * sin_a;
-        let rotated_y = dir_unit.x * sin_a + dir_unit.y * cos_a;
-
-        let speed = Fixed::from_int(ad.cfg.arrow_speed as i32);
-        let direction = FixedVec2::new(rotated_x * speed, rotated_y * speed);
-
+        // Fire arrows at all targets
         let flight_ticks = ad.cfg.compute_flight_ticks(ad.level);
         let pierce_chance = ad.cfg.compute_pierce_chance(ad.level);
         let damage = ad.dmg + ad.level * combat_config.level_up.attack_gain;
+        let speed = Fixed::from_int(ad.cfg.arrow_speed as i32);
+        let shooter_id = find_unit_id(world, ad.entity);
 
-        // Spawn arrow
-        let aid = { world.resource_mut::<IdGenerator>().next() };
-        world.spawn((
-            UnitIdComponent(aid), ArrowMarker, LogicalPosition(ad.pos),
-            Arrow {
-                direction, damage, from_faction: ad.faction,
-                shooter: find_unit_id(world, ad.entity),
-                flight_remaining: flight_ticks, decay_remaining: 0,
-                pierce_chance, stuck_to: None, hit_units: Vec::new(),
-                start_pos: ad.pos,
-            },
-        ));
+        for (_t_id, t_pos) in &targets_to_hit {
+            // Compute flight direction with spread (65% dead-on, 35% ±0.1°–10°)
+            let delta = *t_pos - ad.pos;
+            let dist_internal = integer_sqrt(delta.length_squared().0 * FIXED_ONE);
+            if dist_internal <= 0 { continue; }
+            let dist = Fixed(dist_internal);
+            let dir_unit = FixedVec2::new(delta.x / dist, delta.y / dist);
 
-        let mut events = world.resource_mut::<SimulationEvents>();
-        events.spawned.push(UnitSpawned { unit_id: aid, pos: ad.pos, faction: ad.faction, unit_kind: UnitKind::Arrow });
+            // Spread: 10° max in radians ≈ 0.1745 → Fixed(44) with 8-bit precision
+            let spread_angle = {
+                let mut rng = world.resource_mut::<DeterministicRng>();
+                if rng.gen_probability() < 0.65 {
+                    Fixed::ZERO // 65% perfect aim
+                } else {
+                    let angle = Fixed(1 + (rng.next_u64() % 44) as i64); // 0.1°–10°
+                    if rng.gen_probability() < 0.5 { Fixed(-angle.0) } else { angle }
+                }
+            };
+
+            // Apply rotation via small-angle approx: sin(θ)≈θ, cos(θ)≈1
+            let sin_a = spread_angle;
+            let cos_a = Fixed::ONE; // cos(small) ≈ 1
+            let rotated_x = dir_unit.x * cos_a - dir_unit.y * sin_a;
+            let rotated_y = dir_unit.x * sin_a + dir_unit.y * cos_a;
+
+            let direction = FixedVec2::new(rotated_x * speed, rotated_y * speed);
+
+            // Spawn arrow
+            let aid = { world.resource_mut::<IdGenerator>().next() };
+            world.spawn((
+                UnitIdComponent(aid), ArrowMarker, LogicalPosition(ad.pos),
+                Arrow {
+                    direction, damage, from_faction: ad.faction,
+                    shooter: shooter_id,
+                    flight_remaining: flight_ticks, decay_remaining: 0,
+                    pierce_chance, stuck_to: None, hit_units: Vec::new(),
+                    start_pos: ad.pos,
+                },
+            ));
+
+            let mut events = world.resource_mut::<SimulationEvents>();
+            events.spawned.push(UnitSpawned { unit_id: aid, pos: ad.pos, faction: ad.faction, unit_kind: UnitKind::Arrow });
+        }
 
         // Reset cooldown and set Fighting state (prevents movement while shooting)
         world.entity_mut(ad.entity).insert(Attack { damage: ad.dmg, range: ad.range, interval_ticks: ad.interval, cooldown_remaining: ad.interval });
@@ -378,7 +691,7 @@ pub fn archer_attack_system(world: &mut World) {
 
 // ══════════ arrow_movement (flight + collision + decay) ══════════
 
-pub fn arrow_movement_system(world: &mut World) {
+pub fn arrow_movement_system(world: &mut World, current_tick: u32) {
     let combat_config = world.resource::<CombatGlobalConfig>().clone();
 
     // Collect soldier positions for collision (filter by SoldierMarker)
@@ -403,7 +716,7 @@ pub fn arrow_movement_system(world: &mut World) {
     };
     let mut pierce_idx = 0usize;
 
-    let mut hits: Vec<(Entity, u32, Option<UnitId>, bool, Option<UnitId>)> = Vec::new();
+    let mut hits: Vec<(Entity, u32, Option<UnitId>, bool, Option<UnitId>, FixedVec2)> = Vec::new();
     let mut city_hits: Vec<(Entity, u32)> = Vec::new(); // (city_entity, arrow_damage)
 
     // Process each arrow
@@ -439,11 +752,11 @@ pub fn arrow_movement_system(world: &mut World) {
                         let rolled = pierce_rolls[pierce_idx.min(pierce_rolls.len()-1)];
                         pierce_idx += 1;
                         if rolled < arrow.pierce_chance {
-                            hits.push((ae, arrow.damage, None, true, arrow.shooter));
+                            hits.push((ae, arrow.damage, None, true, arrow.shooter, arrow_pos.0));
                         } else {
                             arrow.stuck_to = Some(*eid);
                             arrow.decay_remaining = ARROW_DECAY_TICKS;
-                            hits.push((ae, arrow.damage, Some(*eid), false, arrow.shooter));
+                            hits.push((ae, arrow.damage, Some(*eid), false, arrow.shooter, arrow_pos.0));
                             stopped_by_soldier = true;
                             break;
                         }
@@ -473,17 +786,18 @@ pub fn arrow_movement_system(world: &mut World) {
     }
 
     // Apply damage from hits
-    for (ae, dmg, stuck_to, _pierced, shooter) in &hits {
+    for (ae, dmg, stuck_to, _pierced, shooter, arrow_hit_pos) in &hits {
         if let Some(sid) = stuck_to {
             if let Some(te) = find_entity_by_unit_id(world, *sid) {
+                // Shield block check (before damage application)
+                let remaining_dmg = try_passive_block(world, te, *dmg, Some(*arrow_hit_pos));
                 let died = {
                     let mut em = world.entity_mut(te);
                     if let Some(mut hp) = em.get_mut::<Health>() {
-                        hp.current = hp.current.saturating_sub(*dmg);
+                        hp.current = hp.current.saturating_sub(remaining_dmg);
                         hp.current == 0
                     } else { false }
                 };
-                // Shield intercept check (simplified — shield handled in melee for now)
                 if died {
                     let uid = find_unit_id(world, te).unwrap_or(UnitId(0));
                     if let Some(origin) = world.entity(te).get::<CityOrigin>().map(|c| c.0) {
@@ -493,6 +807,7 @@ pub fn arrow_movement_system(world: &mut World) {
                             }
                         }
                     }
+                    drop_shield_on_death(world, te, current_tick);
                     world.despawn(te);
                     let mut events = world.resource_mut::<SimulationEvents>();
                     events.destroyed.push(UnitDestroyed { unit_id: uid, killer_id: *shooter });
@@ -578,7 +893,7 @@ mod arrow_city_tests {
         let dmg = 16u32;
         spawn_test_arrow(&mut world, arrow_start, dir, dmg, Faction::Player);
 
-        arrow_movement_system(&mut world);
+        arrow_movement_system(&mut world, 0);
 
         // Find city, check accumulator
         let mut q = world.query::<(Entity, &CityComponent)>();
@@ -608,7 +923,7 @@ mod arrow_city_tests {
         let dir = FixedVec2::new(Fixed::ZERO, Fixed::from_int(20));
         spawn_test_arrow(&mut world, arrow_start, dir, 16, Faction::Player);
 
-        arrow_movement_system(&mut world);
+        arrow_movement_system(&mut world, 0);
 
         let mut q = world.query::<(Entity, &CityComponent)>();
         let (_, city) = q.iter(&world).next().unwrap();
@@ -628,7 +943,7 @@ mod arrow_city_tests {
         let dir = FixedVec2::new(Fixed::ZERO, Fixed::from_int(20));
         spawn_test_arrow(&mut world, arrow_start, dir, 16, Faction::Player);
 
-        arrow_movement_system(&mut world);
+        arrow_movement_system(&mut world, 0);
 
         let mut q = world.query::<(Entity, &Arrow)>();
         let (_, arrow) = q.iter(&world).next().unwrap();
@@ -647,7 +962,7 @@ mod arrow_city_tests {
         let dir = FixedVec2::new(Fixed::ZERO, Fixed::from_int(20));
         spawn_test_arrow(&mut world, arrow_start, dir, 16, Faction::Player);
 
-        arrow_movement_system(&mut world);
+        arrow_movement_system(&mut world, 0);
 
         let mut q = world.query::<(Entity, &CityComponent)>();
         let (_, city) = q.iter(&world).next().unwrap();
@@ -696,7 +1011,7 @@ mod arrow_city_tests {
             },
         ));
 
-        arrow_movement_system(&mut world);
+        arrow_movement_system(&mut world, 0);
 
         // Check city took damage (200 damage → 200/200 = 1 HP)
         let mut q = world.query::<(Entity, &CityComponent)>();
@@ -707,5 +1022,306 @@ mod arrow_city_tests {
         let mut q = world.query::<(Entity, &Arrow)>();
         let (_, arrow) = q.iter(&world).next().unwrap();
         assert!(arrow.decay_remaining > 0, "Arrow should enter decay after hitting city");
+    }
+}
+
+// ══════════ Tests: Facing, Block, Multi-shot, Archer Chase ══════════
+
+#[cfg(test)]
+mod integration_tests {
+    use super::*;
+    use crate::init_simulation_world;
+    use crate::facing;
+    use crate::soldier;
+    use crate::soldier::{
+        UnitIdComponent, SoldierMarker, LogicalPosition, Movement, SeekStance,
+        Health, Attack, FactionComponent, SoldierTypeComponent, Level,
+        ShieldComponent, CityOrigin, SoldierStateComponent,
+    };
+
+    /// Spawn a full soldier entity with all components needed for combat/facing systems.
+    /// Follows the same pattern as shield_lifecycle_tests: 14 components in the spawn
+    /// tuple, then FacingDirection and AttackWindup via separate `.insert()` calls.
+    fn spawn_test_soldier(
+        world: &mut World,
+        pos: FixedVec2,
+        faction: Faction,
+        stype: SoldierType,
+        facing_angle: Fixed,
+    ) -> (UnitId, Entity) {
+        let uid = world.resource_mut::<IdGenerator>().next();
+        let cfg = world.resource::<SoldierConfig>().get(stype).clone();
+        let shield_hp = world.resource::<CombatGlobalConfig>().shield.initial_hp;
+        let e = world.spawn((
+            UnitIdComponent(uid), SoldierMarker, LogicalPosition(pos),
+            Movement { speed: cfg.speed, target: None, command_target: None, waypoint: None, force_move: false },
+            SeekStance { active: false, seek_range: 0 },
+            Health { current: cfg.health, max: cfg.health },
+            Attack { damage: cfg.attack, range: cfg.attack_range, interval_ticks: cfg.attack_interval_ticks, cooldown_remaining: 0 },
+            FactionComponent(faction), SoldierTypeComponent(stype),
+            Level { level: 1, exp: 0 },
+            ShieldComponent { state: ShieldState::Normal },
+            ShieldItem { hp: shield_hp, max_hp: shield_hp },
+            CityOrigin(UnitId(0)), SoldierStateComponent(SoldierState::Moving),
+        )).id();
+        world.entity_mut(e).insert(crate::types::FacingDirection { angle: facing_angle });
+        world.entity_mut(e).insert(crate::types::AttackWindup { remaining_ticks: 0, target: None });
+        (uid, e)
+    }
+
+    /// Spawn an archer entity (no shield components).
+    fn spawn_test_archer(
+        world: &mut World,
+        pos: FixedVec2,
+        faction: Faction,
+        facing_angle: Fixed,
+    ) -> (UnitId, Entity) {
+        let uid = world.resource_mut::<IdGenerator>().next();
+        let cfg = world.resource::<SoldierConfig>().get(SoldierType::Archer).clone();
+        let e = world.spawn((
+            UnitIdComponent(uid), SoldierMarker, LogicalPosition(pos),
+            Movement { speed: cfg.speed, target: None, command_target: None, waypoint: None, force_move: false },
+            SeekStance { active: false, seek_range: 0 },
+            Health { current: cfg.health, max: cfg.health },
+            Attack { damage: cfg.attack, range: cfg.attack_range, interval_ticks: cfg.attack_interval_ticks, cooldown_remaining: 0 },
+            FactionComponent(faction), SoldierTypeComponent(SoldierType::Archer),
+            Level { level: 1, exp: 0 },
+            CityOrigin(UnitId(0)), SoldierStateComponent(SoldierState::Moving),
+        )).id();
+        world.entity_mut(e).insert(crate::types::FacingDirection { angle: facing_angle });
+        world.entity_mut(e).insert(crate::types::AttackWindup { remaining_ticks: 0, target: None });
+        (uid, e)
+    }
+
+    // ── Test 1: Facing direction turn toward target ──
+
+    #[test]
+    fn test_facing_turn_toward_target() {
+        let mut world = init_simulation_world(42);
+
+        // Soldier at origin facing right (0°), waypoint above (→ 90°)
+        let (_uid, entity) = spawn_test_soldier(
+            &mut world,
+            FixedVec2::new(Fixed::ZERO, Fixed::ZERO),
+            Faction::Player,
+            SoldierType::Infantry,
+            Fixed::ZERO, // facing 0° (right)
+        );
+
+        // Set waypoint above so facing_turn_system computes target angle = 90°
+        {
+            let mut mov = world.get_mut::<Movement>(entity).unwrap();
+            mov.waypoint = Some(FixedVec2::new(Fixed::ZERO, Fixed::from_int(100)));
+        }
+
+        // Run facing_turn_system for several ticks
+        for _ in 0..15 {
+            facing::facing_turn_system(&mut world);
+        }
+
+        // Verify facing angle has approached 90°
+        let facing = world.get::<crate::types::FacingDirection>(entity).unwrap();
+        let deviation = facing::angle_distance(facing.angle, Fixed::from_int(90));
+        assert!(
+            deviation < Fixed::from_int(5),
+            "Facing angle should approach 90°, got ~{}°, deviation ~{}°",
+            facing.angle.0 / 256,
+            deviation.0 / 256,
+        );
+    }
+
+    // ── Test 2: Passive block with 100% block chance ──
+
+    #[test]
+    fn test_passive_block_full_chance_shield_absorbs() {
+        let mut world = init_simulation_world(42);
+
+        // Override passive_block_chance to 1.0 (100%)
+        {
+            let mut cfg = world.resource_mut::<CombatGlobalConfig>();
+            cfg.shield.passive_block_chance = 1.0;
+        }
+
+        // Infantry in Normal state (not Blocking) at origin
+        let (_uid, entity) = spawn_test_soldier(
+            &mut world,
+            FixedVec2::new(Fixed::ZERO, Fixed::ZERO),
+            Faction::Player,
+            SoldierType::Infantry,
+            Fixed::ZERO,
+        );
+
+        let initial_shield_hp = world.get::<ShieldItem>(entity).unwrap().hp;
+        let initial_soldier_hp = world.get::<Health>(entity).unwrap().current;
+        let damage = 50u32;
+
+        // Attacker to the right (irrelevant for passive block — direction-independent)
+        let attacker_pos = FixedVec2::new(Fixed::from_int(100), Fixed::ZERO);
+        let remaining = try_passive_block(&mut world, entity, damage, Some(attacker_pos));
+
+        // All damage should be absorbed by shield
+        assert_eq!(remaining, 0, "All damage should be absorbed by shield");
+        let shield = world.get::<ShieldItem>(entity).unwrap();
+        assert_eq!(shield.hp, initial_shield_hp - damage, "Shield HP should decrease by damage amount");
+        let hp = world.get::<Health>(entity).unwrap();
+        assert_eq!(hp.current, initial_soldier_hp, "Soldier HP should be unchanged");
+    }
+
+    // ── Test 3: Manual block — frontal absorbs, behind does not ──
+
+    #[test]
+    fn test_manual_block_frontal_absorbs_behind_does_not() {
+        let mut world = init_simulation_world(42);
+
+        // Disable passive block so only manual (Blocking state) matters
+        {
+            let mut cfg = world.resource_mut::<CombatGlobalConfig>();
+            cfg.shield.passive_block_chance = 0.0;
+        }
+
+        // Infantry facing right (0°) in Blocking state
+        let (_uid, entity) = spawn_test_soldier(
+            &mut world,
+            FixedVec2::new(Fixed::ZERO, Fixed::ZERO),
+            Faction::Player,
+            SoldierType::Infantry,
+            Fixed::ZERO, // facing 0° (right)
+        );
+        {
+            let mut sc = world.get_mut::<ShieldComponent>(entity).unwrap();
+            sc.state = ShieldState::Blocking;
+        }
+
+        let initial_shield_hp = world.get::<ShieldItem>(entity).unwrap().hp;
+        let initial_soldier_hp = world.get::<Health>(entity).unwrap().current;
+        let damage = 50u32;
+
+        // Case A: Frontal attack (attacker to the right, facing = 0°, attack angle = 0°)
+        let frontal_attacker = FixedVec2::new(Fixed::from_int(100), Fixed::ZERO);
+        let remaining = try_passive_block(&mut world, entity, damage, Some(frontal_attacker));
+        assert_eq!(remaining, 0, "Frontal attack should be fully absorbed by shield");
+        let shield = world.get::<ShieldItem>(entity).unwrap();
+        assert_eq!(shield.hp, initial_shield_hp - damage, "Shield should absorb frontal damage");
+
+        // Case B: Rear attack (attacker behind — facing = 0°, attack angle = 180°)
+        let rear_attacker = FixedVec2::new(Fixed::from_int(-100), Fixed::ZERO);
+        let remaining = try_passive_block(&mut world, entity, damage, Some(rear_attacker));
+        assert_eq!(remaining, damage, "Rear attack should NOT be absorbed (pass through to HP)");
+        // Apply remaining damage to Health (same as melee_attack_system does)
+        {
+            let mut hp = world.get_mut::<Health>(entity).unwrap();
+            hp.current = hp.current.saturating_sub(remaining);
+        }
+        let hp = world.get::<Health>(entity).unwrap();
+        assert_eq!(hp.current, initial_soldier_hp - damage, "Soldier should take full damage from behind");
+    }
+
+    // ── Test 4: Multi-shot spawns multiple arrows ──
+
+    #[test]
+    fn test_multi_shot_spawns_multiple_arrows() {
+        let mut world = init_simulation_world(42);
+
+        // Override multi-shot to 100% chance
+        {
+            let mut cfg = world.resource_mut::<CombatGlobalConfig>();
+            cfg.archer_multi_shot.base_chance = 1.0;
+            cfg.archer_multi_shot.min_chance = 1.0;
+            cfg.archer_multi_shot.max_chance = 1.0;
+        }
+
+        // Archer at origin (cooldown starts at 0 → fires immediately)
+        let (_archer_uid, _archer_e) = spawn_test_archer(
+            &mut world,
+            FixedVec2::new(Fixed::ZERO, Fixed::ZERO),
+            Faction::Player,
+            Fixed::ZERO,
+        );
+
+        // Spawn 5 enemies in range (archer range at level 1 = 380)
+        for i in 0..5 {
+            let enemy_pos = FixedVec2::new(Fixed::from_int(50 + i * 30), Fixed::from_int(50));
+            let eid = world.resource_mut::<IdGenerator>().next();
+            world.spawn((
+                UnitIdComponent(eid), SoldierMarker, LogicalPosition(enemy_pos),
+                FactionComponent(Faction::Enemy), SoldierTypeComponent(SoldierType::Militia),
+                Health { current: 100, max: 100 },
+                Movement { speed: 80, target: None, command_target: None, waypoint: None, force_move: false },
+                Level { level: 1, exp: 0 },
+                Attack { damage: 10, range: 30, interval_ticks: 10, cooldown_remaining: 0 },
+                SoldierStateComponent(SoldierState::Moving),
+            ));
+        }
+
+        archer_attack_system(&mut world);
+
+        // Verify multiple arrows were spawned
+        let mut arrow_query = world.query::<&Arrow>();
+        let arrow_count = arrow_query.iter(&world).count();
+        assert!(
+            arrow_count > 1,
+            "Multi-shot should spawn multiple arrows, got {}",
+            arrow_count,
+        );
+    }
+
+    // ── Test 5: Archer chases target out of attack range ──
+
+    #[test]
+    fn test_archer_chases_target_out_of_range() {
+        let mut world = init_simulation_world(42);
+
+        // Archer at origin facing up (90°), in Fighting state with a target out of range
+        let (_archer_uid, archer_e) = spawn_test_archer(
+            &mut world,
+            FixedVec2::new(Fixed::ZERO, Fixed::ZERO),
+            Faction::Player,
+            Fixed::from_int(90), // facing up
+        );
+        {
+            let mut sc = world.get_mut::<SoldierStateComponent>(archer_e).unwrap();
+            sc.0 = SoldierState::Fighting;
+        }
+
+        // Enemy far above — out of archer attack range (level 1 range = 380)
+        let enemy_pos = FixedVec2::new(Fixed::ZERO, Fixed::from_int(500));
+        let enemy_uid = {
+            let eid = world.resource_mut::<IdGenerator>().next();
+            world.spawn((
+                UnitIdComponent(eid), SoldierMarker, LogicalPosition(enemy_pos),
+                FactionComponent(Faction::Enemy), SoldierTypeComponent(SoldierType::Militia),
+                Health { current: 100, max: 100 },
+                Movement { speed: 80, target: None, command_target: None, waypoint: None, force_move: false },
+                Level { level: 1, exp: 0 },
+                Attack { damage: 10, range: 30, interval_ticks: 10, cooldown_remaining: 0 },
+                SoldierStateComponent(SoldierState::Moving),
+            ));
+            eid
+        };
+
+        // Set the archer's target to the enemy
+        {
+            let mut mov = world.get_mut::<Movement>(archer_e).unwrap();
+            mov.target = Some(enemy_uid);
+        }
+
+        let initial_pos = world.get::<LogicalPosition>(archer_e).unwrap().0;
+
+        // Run movement system for 20 ticks — archer should chase
+        for _ in 0..20 {
+            soldier::soldier_movement_system(&mut world);
+        }
+
+        let final_pos = world.get::<LogicalPosition>(archer_e).unwrap().0;
+        let moved = (final_pos.y - initial_pos.y).abs();
+        assert!(
+            moved > Fixed::from_int(1),
+            "Archer should have moved toward out-of-range target. Moved ~{} units",
+            moved.0 / 256,
+        );
+        assert!(
+            final_pos.y > initial_pos.y,
+            "Archer should have moved upward toward target (y should increase)",
+        );
     }
 }

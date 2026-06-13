@@ -7,8 +7,12 @@ use serde::Deserialize;
 #[derive(Clone, Debug, Deserialize)]
 pub struct ShieldConfig {
     pub speed_penalty: u32,
-    pub damage_reduction: f32,
-    pub intercept_chance: f32,
+    pub attack_speed_penalty: u32,
+    pub passive_block_chance: f32,
+    pub frontal_angle_deg: u32,
+    pub initial_hp: u32,
+    pub drop_survive_ticks: u32,
+    pub disappear_animation_ticks: u32,
 }
 
 /// Cavalry dodge mechanics.
@@ -62,13 +66,26 @@ pub struct OverlapResolutionConfig {
     pub max_iterations: u32,
 }
 
+/// Facing direction mechanics.
+#[derive(Clone, Debug, Deserialize)]
+pub struct FacingConfig {
+    pub turn_rate_ticks_per_full_rotation: u32, // ticks for 360 degrees
+}
+
+/// Attack windup mechanics.
+#[derive(Clone, Debug, Deserialize)]
+pub struct AttackWindupConfig {
+    pub windup_ticks: u32,          // 3 ticks = 0.15s for non-cavalry
+    pub cavalry_no_windup: bool,    // true = cavalry attacks instantly
+}
+
 /// Top-level combat configuration.
 #[derive(Clone, Debug, Deserialize, Resource)]
 pub struct CombatGlobalConfig {
     pub city_damage_per_soldier_ratio: f32,
     pub arrow_building_damage_ratio: f32,
-    pub archer_melee_range: u32,
-    pub archer_melee_damage_mult: f32,
+    pub facing: FacingConfig,
+    pub attack_windup: AttackWindupConfig,
     pub shield: ShieldConfig,
     pub cavalry: CavalryConfig,
     pub archer_multi_shot: ArcherMultiShotConfig,
