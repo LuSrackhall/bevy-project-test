@@ -30,6 +30,12 @@ struct HpNumText;
 #[derive(Component)]
 struct ExpNumText;
 
+#[derive(Component)]
+pub(crate) struct ShieldFill;
+
+#[derive(Component)]
+struct ShieldNumText;
+
 // ══════════ Display Mode ══════════
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -78,6 +84,11 @@ const HP_FILL: Color = Color::srgb(0.0, 0.8, 0.0);
 const EXP_BG: Color = Color::srgb(0.133, 0.267, 0.667);
 const EXP_FILL: Color = Color::srgb(0.667, 0.267, 1.0);
 
+const SHIELD_BAR_W: f32 = 40.0;
+const SHIELD_BAR_H: f32 = 4.0;
+const SHIELD_BG: Color = Color::srgb(0.3, 0.3, 0.3);
+const SHIELD_FILL: Color = Color::srgb(0.9, 0.9, 0.9);
+
 // ══════════ Collected unit info ══════════
 
 struct UnitBarInfo {
@@ -87,6 +98,8 @@ struct UnitBarInfo {
     hp_max: u32,
     level: u32,
     exp: u32,
+    shield_hp: u32,
+    shield_max: u32,
 }
 
 // ══════════ Tracked bar child entity references ══════════
@@ -95,8 +108,10 @@ struct UnitBarInfo {
 pub(crate) struct BarParts {
     root: Entity,
     lvl_text: Entity,
+    shield_fill: Entity,
     hp_fill: Entity,
     exp_fill: Entity,
+    shield_num: Entity,
     hp_num: Entity,
     exp_num: Entity,
 }
@@ -113,8 +128,9 @@ pub(crate) fn unit_info_bar_system(
     mut bar_parts: Local<HashMap<simulation::types::UnitId, BarParts>>,
     mut root_xform_vis: Query<(&mut Transform, &mut Visibility), (With<BarRoot>, Without<HpFill>, Without<ExpFill>)>,
     mut text_q: Query<&mut Text2d>,
-    mut hp_fill_q: Query<(&mut Sprite, &mut Transform), (With<HpFill>, Without<ExpFill>)>,
-    mut exp_fill_q: Query<(&mut Sprite, &mut Transform), (With<ExpFill>, Without<HpFill>)>,
+    mut shield_fill_q: Query<(&mut Sprite, &mut Transform), (With<ShieldFill>, Without<HpFill>, Without<ExpFill>)>,
+    mut hp_fill_q: Query<(&mut Sprite, &mut Transform), (With<HpFill>, Without<ExpFill>, Without<ShieldFill>)>,
+    mut exp_fill_q: Query<(&mut Sprite, &mut Transform), (With<ExpFill>, Without<HpFill>, Without<ShieldFill>)>,
     q_windows: Query<&Window>,
     q_camera: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
 ) {
@@ -129,8 +145,13 @@ pub(crate) fn unit_info_bar_system(
     let mut units: Vec<UnitBarInfo> = Vec::new();
 
     {
-        let mut q = world.query::<(&UnitIdComponent, &LogicalPosition, &Health, &Level)>();
-        for (id, pos, hp, lvl) in q.iter(world) {
+        let mut q = world.query::<(Entity, &UnitIdComponent, &LogicalPosition, &Health, &Level)>();
+        for (entity, id, pos, hp, lvl) in q.iter(world) {
+            let (shield_hp, shield_max) = if let Some(shield) = world.get::<simulation::types::ShieldItem>(entity) {
+                (shield.hp, shield.max_hp)
+            } else {
+                (0, 0)
+            };
             units.push(UnitBarInfo {
                 unit_id: id.0,
                 world_pos: Vec2::new(pos.0.x.to_float(), pos.0.y.to_float()),
@@ -138,6 +159,8 @@ pub(crate) fn unit_info_bar_system(
                 hp_max: hp.max,
                 level: lvl.level,
                 exp: lvl.exp,
+                shield_hp,
+                shield_max,
             });
         }
     }
@@ -152,6 +175,8 @@ pub(crate) fn unit_info_bar_system(
                 hp_max: city.health_max,
                 level: city.level,
                 exp: city.level_exp as u32,
+                shield_hp: 0,
+                shield_max: 0,
             });
         }
     }
@@ -213,7 +238,7 @@ pub(crate) fn unit_info_bar_system(
         let should_show = match settings.mode {
             InfoBarMode::Always => true,
             InfoBarMode::Selected => is_selected || is_hovered,
-            InfoBarMode::Smart => is_selected || info.hp_cur < info.hp_max || info.exp > 0,
+            InfoBarMode::Smart => is_selected || info.hp_cur < info.hp_max || info.exp > 0 || info.shield_hp < info.shield_max,
             InfoBarMode::Classic => is_selected || is_hovered,
         };
 
@@ -221,7 +246,7 @@ pub(crate) fn unit_info_bar_system(
             update_bar(
                 parts, info, should_show,
                 &mut root_xform_vis, &mut text_q,
-                &mut hp_fill_q, &mut exp_fill_q,
+                &mut shield_fill_q, &mut hp_fill_q, &mut exp_fill_q,
             );
         } else {
             let parts = create_bar(&mut commands, info, should_show, &font);
@@ -244,8 +269,10 @@ fn create_bar(
     let exp_ratio = (info.exp as f32 / EXP_MAX as f32).min(1.0);
 
     let mut lvl_text_e = Entity::PLACEHOLDER;
+    let mut shield_fill_e = Entity::PLACEHOLDER;
     let mut hp_fill_e = Entity::PLACEHOLDER;
     let mut exp_fill_e = Entity::PLACEHOLDER;
+    let mut shield_num_e = Entity::PLACEHOLDER;
     let mut hp_num_e = Entity::PLACEHOLDER;
     let mut exp_num_e = Entity::PLACEHOLDER;
 
@@ -266,6 +293,45 @@ fn create_bar(
                 Visibility::Inherited,
                 LvlText,
             )).id();
+
+            // Shield bar (only if unit has a shield)
+            if info.shield_max > 0 {
+                let shield_ratio = info.shield_hp as f32 / info.shield_max.max(1) as f32;
+                let shield_w = SHIELD_BAR_W * shield_ratio;
+
+                // Shield bg
+                parent.spawn((
+                    ShapeBuilder::with(&shapes::Rectangle {
+                        extents: Vec2::new(SHIELD_BAR_W, SHIELD_BAR_H),
+                        origin: shapes::RectangleOrigin::Center,
+                        radii: None,
+                    }).fill(SHIELD_BG).build(),
+                    Transform::from_xyz(0.0, 8.0, 0.0),
+                    Visibility::Inherited,
+                ));
+
+                // Shield fill
+                shield_fill_e = parent.spawn((
+                    Sprite {
+                        color: SHIELD_FILL,
+                        custom_size: Some(Vec2::new(shield_w, SHIELD_BAR_H)),
+                        ..default()
+                    },
+                    Transform::from_xyz(-SHIELD_BAR_W / 2.0 + shield_w / 2.0, 8.0, 0.01),
+                    Visibility::Inherited,
+                    ShieldFill,
+                )).id();
+
+                // Shield numeric
+                shield_num_e = parent.spawn((
+                    Text2d::new(format!("{}/{}", info.shield_hp, info.shield_max)),
+                    TextFont { font: font.clone(), font_size: 8.0, ..default() },
+                    TextColor(Color::WHITE),
+                    Transform::from_xyz(22.0, 8.0, 0.02),
+                    Visibility::Inherited,
+                    ShieldNumText,
+                )).id();
+            }
 
             // HP bg
             parent.spawn((
@@ -340,8 +406,10 @@ fn create_bar(
     BarParts {
         root,
         lvl_text: lvl_text_e,
+        shield_fill: shield_fill_e,
         hp_fill: hp_fill_e,
         exp_fill: exp_fill_e,
+        shield_num: shield_num_e,
         hp_num: hp_num_e,
         exp_num: exp_num_e,
     }
@@ -356,8 +424,9 @@ fn update_bar(
     should_show: bool,
     root_xform_vis: &mut Query<(&mut Transform, &mut Visibility), (With<BarRoot>, Without<HpFill>, Without<ExpFill>)>,
     text_q: &mut Query<&mut Text2d>,
-    hp_fill_q: &mut Query<(&mut Sprite, &mut Transform), (With<HpFill>, Without<ExpFill>)>,
-    exp_fill_q: &mut Query<(&mut Sprite, &mut Transform), (With<ExpFill>, Without<HpFill>)>,
+    shield_fill_q: &mut Query<(&mut Sprite, &mut Transform), (With<ShieldFill>, Without<HpFill>, Without<ExpFill>)>,
+    hp_fill_q: &mut Query<(&mut Sprite, &mut Transform), (With<HpFill>, Without<ExpFill>, Without<ShieldFill>)>,
+    exp_fill_q: &mut Query<(&mut Sprite, &mut Transform), (With<ExpFill>, Without<HpFill>, Without<ShieldFill>)>,
 ) {
     let bar_pos = info.world_pos + Vec2::new(0.0, BAR_OFFSET_Y);
 
@@ -381,10 +450,25 @@ fn update_bar(
     if let Ok(mut t) = text_q.get_mut(parts.exp_num) {
         t.0 = format!("{}/{}", info.exp, EXP_MAX);
     }
+    if info.shield_max > 0 {
+        if let Ok(mut t) = text_q.get_mut(parts.shield_num) {
+            t.0 = format!("{}/{}", info.shield_hp, info.shield_max);
+        }
+    }
 
     // Update fill bars: modify Sprite directly (no despawn/respawn)
     let hp_ratio = info.hp_cur as f32 / info.hp_max.max(1) as f32;
     let exp_ratio = (info.exp as f32 / EXP_MAX as f32).min(1.0);
+
+    // Shield fill: update custom_size and position
+    if info.shield_max > 0 {
+        let shield_ratio = info.shield_hp as f32 / info.shield_max.max(1) as f32;
+        let shield_w = SHIELD_BAR_W * shield_ratio;
+        if let Ok((mut sprite, mut xform)) = shield_fill_q.get_mut(parts.shield_fill) {
+            sprite.custom_size = Some(Vec2::new(shield_w, SHIELD_BAR_H));
+            xform.translation.x = -SHIELD_BAR_W / 2.0 + shield_w / 2.0;
+        }
+    }
 
     // HP fill: update custom_size and position
     let hp_w = HP_BAR_W * hp_ratio;

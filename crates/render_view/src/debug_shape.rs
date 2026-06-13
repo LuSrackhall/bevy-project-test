@@ -40,19 +40,55 @@ pub fn draw_debug_shapes_system(
     // Draw soldiers — circle radius from collision_radius config
     {
         let soldier_config = world.resource::<SoldierConfig>().clone();
-        let mut query = world.query::<(&LogicalPosition, &FactionComponent, &SoldierTypeComponent)>();
-        for (pos, faction, stype) in query.iter(world) {
+        let mut query = world.query::<(Entity, &LogicalPosition, &FactionComponent, &SoldierTypeComponent, Option<&simulation::types::FacingDirection>)>();
+        for (entity, pos, faction, stype, facing) in query.iter(world) {
             let color = match faction.0 {
                 simulation::types::Faction::Player => Color::srgb(0.3, 0.5, 0.9),
                 simulation::types::Faction::Enemy => Color::srgb(0.9, 0.3, 0.3),
                 simulation::types::Faction::Neutral => Color::srgb(0.5, 0.5, 0.5),
             };
             let r = soldier_config.get(stype.0).collision_radius as f32;
-            gizmos.circle_2d(
-                Vec2::new(pos.0.x.to_float(), pos.0.y.to_float()),
-                r,
-                color,
-            );
+            let p = Vec2::new(pos.0.x.to_float(), pos.0.y.to_float());
+            gizmos.circle_2d(p, r, color);
+
+            // Facing direction line
+            if let Some(facing) = facing {
+                let angle_deg = facing.angle.to_float();
+                let angle_rad = angle_deg * std::f32::consts::PI / 180.0;
+                let line_len = r * 1.5;
+                let dir = Vec2::new(angle_rad.cos(), angle_rad.sin());
+                let line_color = match faction.0 {
+                    simulation::types::Faction::Player => Color::srgb(0.5, 0.7, 1.0),
+                    simulation::types::Faction::Enemy => Color::srgb(1.0, 0.5, 0.5),
+                    simulation::types::Faction::Neutral => Color::srgb(0.7, 0.7, 0.7),
+                };
+                gizmos.line_2d(p, p + dir * line_len, line_color);
+            }
+
+            // Shield visual — small rectangle to the right of the soldier
+            if let Some(shield) = world.get::<simulation::types::ShieldItem>(entity) {
+                if shield.hp > 0 {
+                    let shield_offset = r + 3.0;
+                    let shield_pos = p + Vec2::new(shield_offset, 0.0);
+                    let shield_color = match faction.0 {
+                        simulation::types::Faction::Player => Color::srgb(0.4, 0.6, 1.0),
+                        simulation::types::Faction::Enemy => Color::srgb(1.0, 0.4, 0.4),
+                        simulation::types::Faction::Neutral => Color::srgb(0.6, 0.6, 0.6),
+                    };
+                    let hw = 2.0;
+                    let hh = 2.5;
+                    let corners = [
+                        shield_pos + Vec2::new(-hw, -hh),
+                        shield_pos + Vec2::new(hw, -hh),
+                        shield_pos + Vec2::new(hw, hh),
+                        shield_pos + Vec2::new(-hw, hh),
+                    ];
+                    gizmos.line_2d(corners[0], corners[1], shield_color);
+                    gizmos.line_2d(corners[1], corners[2], shield_color);
+                    gizmos.line_2d(corners[2], corners[3], shield_color);
+                    gizmos.line_2d(corners[3], corners[0], shield_color);
+                }
+            }
         }
     }
 
@@ -79,5 +115,32 @@ pub fn draw_debug_shapes_system(
             let dir = Vec2::new(arrow.direction.x.to_float(), arrow.direction.y.to_float()).normalize_or_zero();
             gizmos.line_2d(p, p + dir * dir_len, color);
         }
+    }
+}
+
+/// Render dropped shields on the ground as gray rectangles.
+pub fn draw_dropped_shields_system(
+    mut gizmos: Gizmos,
+    mut sim_world: bevy::ecs::system::NonSendMut<SimulationWorld>,
+) {
+    let world = &mut sim_world.0;
+    let mut query = world.query::<(&simulation::types::DroppedShield,)>();
+    for (dropped,) in query.iter(world) {
+        let p = Vec2::new(dropped.position.x.to_float(), dropped.position.y.to_float());
+        let color = Color::srgb(0.6, 0.6, 0.6);
+
+        // 6x8 rectangle outline
+        let hw = 3.0;
+        let hh = 4.0;
+        let corners = [
+            p + Vec2::new(-hw, -hh),
+            p + Vec2::new(hw, -hh),
+            p + Vec2::new(hw, hh),
+            p + Vec2::new(-hw, hh),
+        ];
+        gizmos.line_2d(corners[0], corners[1], color);
+        gizmos.line_2d(corners[1], corners[2], color);
+        gizmos.line_2d(corners[2], corners[3], color);
+        gizmos.line_2d(corners[3], corners[0], color);
     }
 }
