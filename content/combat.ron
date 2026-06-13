@@ -1,28 +1,39 @@
 // content/combat.ron
-// ═══════════════════════════════════════════════════════════════
-// 战斗公式配置 — RON struct 格式
-// 修改后重启游戏生效，无需重新编译。
-// ═══════════════════════════════════════════════════════════════
 (
     city_damage_per_soldier_ratio: 0.5,
     arrow_building_damage_ratio: 0.005,
-    archer_melee_range: 50,
-    archer_melee_damage_mult: 0.85,
-    shield: (
-        speed_penalty: 30,
-        damage_reduction: 0.80,
-        intercept_chance: 0.70,
+
+    facing: (
+        turn_rate_ticks_per_full_rotation: 20,
     ),
+
+    attack_windup: (
+        windup_ticks: 3,
+        cavalry_no_windup: true,
+    ),
+
+    shield: (
+        speed_penalty: 15,
+        attack_speed_penalty: 60,
+        passive_block_chance: 0.40,
+        frontal_angle_deg: 120,
+        initial_hp: 1500,
+        drop_survive_ticks: 600,
+        disappear_animation_ticks: 60,
+    ),
+
     cavalry: (
         dodge_max_chance: 0.50,
         dodge_decay_rate: 0.35,
     ),
+
     archer_multi_shot: (
         base_chance: 0.05,
         per_level_bonus: 0.005,
         min_chance: 0.05,
         max_chance: 0.30,
     ),
+
     slow_debuff: (
         base_amount: 0.85,
         stack_mult: 0.90,
@@ -30,6 +41,7 @@
         duration_ticks: 20,
         max_stacks: 9,
     ),
+
     level_up: (
         exp_per_kill: 1,
         exp_to_level: 100,
@@ -38,11 +50,13 @@
         lifesteal_unlock_level: 4,
         lifesteal_rate: 0.10,
     ),
+
     fearless: (
         duration_ticks: 40,
         attack_bonus: 10,
         lifesteal_bonus: 0.15,
     ),
+
     overlap_resolution: (
         max_iterations: 3,
     ),

@@ -6,7 +6,7 @@
 use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign};
 use rand::rngs::SmallRng;
 use rand::{RngCore, SeedableRng};
-use bevy_ecs::prelude::Resource;
+use bevy_ecs::prelude::{Component, Resource};
 
 // ═══════════════════════════════════════════════════════════════
 // Fixed-point number: i64 with 8 fractional bits
@@ -253,6 +253,24 @@ pub enum SoldierState {
 pub enum ShieldState {
     Normal,
     ShieldUp,
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Facing direction & attack windup
+// ═══════════════════════════════════════════════════════════════
+
+/// Unit facing direction — independent state updated by movement and attack targeting.
+/// All 360 degrees represented as fixed-point. 0° = right, 90° = up, etc.
+#[derive(Component, Clone, Debug)]
+pub struct FacingDirection {
+    pub angle: Fixed, // 0.0 to <360.0 in fixed-point degrees
+}
+
+/// Attack windup state — non-cavalry units pause briefly before attacking.
+#[derive(Component, Clone, Debug)]
+pub struct AttackWindup {
+    pub remaining_ticks: u32,      // ticks remaining in windup; 0 = not winding up
+    pub target: Option<UnitId>,    // target to attack when windup completes
 }
 
 // ═══════════════════════════════════════════════════════════════
