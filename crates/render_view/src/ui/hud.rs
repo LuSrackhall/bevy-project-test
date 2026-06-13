@@ -233,11 +233,11 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
                     ht.seek_scope_text = Some(p.spawn((Button, Node { padding: UiRect::new(Val::Px(8.0), Val::Px(8.0), Val::Px(4.0), Val::Px(4.0)), ..default() },
                         BackgroundColor(Color::srgba(0.25, 0.25, 0.3, 1.0)), SeekScopeDropdown,
                     )).with_child((Text::new("全体 ▼"), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id());
-                    // Popup container (hidden by default, positioned above)
+                    // Popup container (always rendered, hidden via off-screen offset)
                     ht.seek_dropdown_container = Some(p.spawn((Node {
-                        display: Display::None, flex_direction: FlexDirection::Column,
+                        flex_direction: FlexDirection::Column,
                         position_type: PositionType::Absolute,
-                        bottom: Val::Px(28.0), left: Val::Px(0.0),
+                        bottom: Val::Px(28.0), left: Val::Px(-9999.0),
                         ..default()
                     }, BackgroundColor(Color::srgba(0.15, 0.15, 0.2, 0.95)), SeekDropdownPopup,
                     )).with_children(|p| {
@@ -507,10 +507,10 @@ pub fn seek_panel_dropdown_system(
         }
     }
 
-    // Update popup visibility
+    // Update popup visibility via position offset (always Display::Flex, hide via off-screen)
     if let Some(id) = ht.seek_dropdown_container {
         if let Ok(mut node) = popup_nodes.get_mut(id) {
-            node.display = if state.dropdown_open { Display::Flex } else { Display::None };
+            node.left = if state.dropdown_open { Val::Px(0.0) } else { Val::Px(-9999.0) };
         }
     }
 
