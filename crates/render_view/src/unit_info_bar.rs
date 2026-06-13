@@ -243,13 +243,20 @@ pub(crate) fn unit_info_bar_system(
         };
 
         if let Some(parts) = bar_parts.get_mut(&info.unit_id) {
-            update_bar(
-                parts, info, should_show,
-                &mut root_xform_vis, &mut text_q,
-                &mut shield_fill_q, &mut hp_fill_q, &mut exp_fill_q,
-            );
-        } else {
-            let parts = create_bar(&mut commands, info, should_show, &font);
+            // Rebuild bar if unit gained a shield (shield bar was not created initially)
+            if info.shield_max > 0 && parts.shield_fill == Entity::PLACEHOLDER {
+                commands.entity(parts.root).despawn();
+                bar_parts.remove(&info.unit_id);
+                let parts = create_bar(&mut commands, info, should_show, &font);
+                bar_parts.insert(info.unit_id, parts);
+            } else {
+                update_bar(
+                    parts, info, should_show,
+                    &mut root_xform_vis, &mut text_q,
+                    &mut shield_fill_q, &mut hp_fill_q, &mut exp_fill_q,
+                );
+            }
+        } else {            let parts = create_bar(&mut commands, info, should_show, &font);
             bar_parts.insert(info.unit_id, parts);
         }
     }
