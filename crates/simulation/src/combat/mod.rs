@@ -1024,3 +1024,304 @@ mod arrow_city_tests {
         assert!(arrow.decay_remaining > 0, "Arrow should enter decay after hitting city");
     }
 }
+
+// ══════════ Tests: Facing, Block, Multi-shot, Archer Chase ══════════
+
+#[cfg(test)]
+mod integration_tests {
+    use super::*;
+    use crate::init_simulation_world;
+    use crate::facing;
+    use crate::soldier;
+    use crate::soldier::{
+        UnitIdComponent, SoldierMarker, LogicalPosition, Movement, SeekStance,
+        Health, Attack, FactionComponent, SoldierTypeComponent, Level,
+        ShieldComponent, CityOrigin, SoldierStateComponent,
+    };
+
+    /// Spawn a full soldier entity with all components needed for combat/facing systems.
+    /// Follows the same pattern as shield_lifecycle_tests: 14 components in the spawn
+    /// tuple, then FacingDirection and AttackWindup via separate `.insert()` calls.
+    fn spawn_test_soldier(
+        world: &mut World,
+        pos: FixedVec2,
+        faction: Faction,
+        stype: SoldierType,
+        facing_angle: Fixed,
+    ) -> (UnitId, Entity) {
+        let uid = world.resource_mut::<IdGenerator>().next();
+        let cfg = world.resource::<SoldierConfig>().get(stype).clone();
+        let shield_hp = world.resource::<CombatGlobalConfig>().shield.initial_hp;
+        let e = world.spawn((
+            UnitIdComponent(uid), SoldierMarker, LogicalPosition(pos),
+            Movement { speed: cfg.speed, target: None, command_target: None, waypoint: None, force_move: false },
+            SeekStance { active: false, seek_range: 0 },
+            Health { current: cfg.health, max: cfg.health },
+            Attack { damage: cfg.attack, range: cfg.attack_range, interval_ticks: cfg.attack_interval_ticks, cooldown_remaining: 0 },
+            FactionComponent(faction), SoldierTypeComponent(stype),
+            Level { level: 1, exp: 0 },
+            ShieldComponent { state: ShieldState::Normal },
+            ShieldItem { hp: shield_hp, max_hp: shield_hp },
+            CityOrigin(UnitId(0)), SoldierStateComponent(SoldierState::Moving),
+        )).id();
+        world.entity_mut(e).insert(crate::types::FacingDirection { angle: facing_angle });
+        world.entity_mut(e).insert(crate::types::AttackWindup { remaining_ticks: 0, target: None });
+        (uid, e)
+    }
+
+    /// Spawn an archer entity (no shield components).
+    fn spawn_test_archer(
+        world: &mut World,
+        pos: FixedVec2,
+        faction: Faction,
+        facing_angle: Fixed,
+    ) -> (UnitId, Entity) {
+        let uid = world.resource_mut::<IdGenerator>().next();
+        let cfg = world.resource::<SoldierConfig>().get(SoldierType::Archer).clone();
+        let e = world.spawn((
+            UnitIdComponent(uid), SoldierMarker, LogicalPosition(pos),
+            Movement { speed: cfg.speed, target: None, command_target: None, waypoint: None, force_move: false },
+            SeekStance { active: false, seek_range: 0 },
+            Health { current: cfg.health, max: cfg.health },
+            Attack { damage: cfg.attack, range: cfg.attack_range, interval_ticks: cfg.attack_interval_ticks, cooldown_remaining: 0 },
+            FactionComponent(faction), SoldierTypeComponent(SoldierType::Archer),
+            Level { level: 1, exp: 0 },
+            CityOrigin(UnitId(0)), SoldierStateComponent(SoldierState::Moving),
+        )).id();
+        world.entity_mut(e).insert(crate::types::FacingDirection { angle: facing_angle });
+        world.entity_mut(e).insert(crate::types::AttackWindup { remaining_ticks: 0, target: None });
+        (uid, e)
+    }
+
+    // ── Test 1: Facing direction turn toward target ──
+
+    #[test]
+    fn test_facing_turn_toward_target() {
+        let mut world = init_simulation_world(42);
+
+        // Soldier at origin facing right (0°), waypoint above (→ 90°)
+        let (_uid, entity) = spawn_test_soldier(
+            &mut world,
+            FixedVec2::new(Fixed::ZERO, Fixed::ZERO),
+            Faction::Player,
+            SoldierType::Infantry,
+            Fixed::ZERO, // facing 0° (right)
+        );
+
+        // Set waypoint above so facing_turn_system computes target angle = 90°
+        {
+            let mut mov = world.get_mut::<Movement>(entity).unwrap();
+            mov.waypoint = Some(FixedVec2::new(Fixed::ZERO, Fixed::from_int(100)));
+        }
+
+        // Run facing_turn_system for several ticks
+        for _ in 0..15 {
+            facing::facing_turn_system(&mut world);
+        }
+
+        // Verify facing angle has approached 90°
+        let facing = world.get::<crate::types::FacingDirection>(entity).unwrap();
+        let deviation = facing::angle_distance(facing.angle, Fixed::from_int(90));
+        assert!(
+            deviation < Fixed::from_int(5),
+            "Facing angle should approach 90°, got ~{}°, deviation ~{}°",
+            facing.angle.0 / 256,
+            deviation.0 / 256,
+        );
+    }
+
+    // ── Test 2: Passive block with 100% block chance ──
+
+    #[test]
+    fn test_passive_block_full_chance_shield_absorbs() {
+        let mut world = init_simulation_world(42);
+
+        // Override passive_block_chance to 1.0 (100%)
+        {
+            let mut cfg = world.resource_mut::<CombatGlobalConfig>();
+            cfg.shield.passive_block_chance = 1.0;
+        }
+
+        // Infantry in Normal state (not Blocking) at origin
+        let (_uid, entity) = spawn_test_soldier(
+            &mut world,
+            FixedVec2::new(Fixed::ZERO, Fixed::ZERO),
+            Faction::Player,
+            SoldierType::Infantry,
+            Fixed::ZERO,
+        );
+
+        let initial_shield_hp = world.get::<ShieldItem>(entity).unwrap().hp;
+        let initial_soldier_hp = world.get::<Health>(entity).unwrap().current;
+        let damage = 50u32;
+
+        // Attacker to the right (irrelevant for passive block — direction-independent)
+        let attacker_pos = FixedVec2::new(Fixed::from_int(100), Fixed::ZERO);
+        let remaining = try_passive_block(&mut world, entity, damage, Some(attacker_pos));
+
+        // All damage should be absorbed by shield
+        assert_eq!(remaining, 0, "All damage should be absorbed by shield");
+        let shield = world.get::<ShieldItem>(entity).unwrap();
+        assert_eq!(shield.hp, initial_shield_hp - damage, "Shield HP should decrease by damage amount");
+        let hp = world.get::<Health>(entity).unwrap();
+        assert_eq!(hp.current, initial_soldier_hp, "Soldier HP should be unchanged");
+    }
+
+    // ── Test 3: Manual block — frontal absorbs, behind does not ──
+
+    #[test]
+    fn test_manual_block_frontal_absorbs_behind_does_not() {
+        let mut world = init_simulation_world(42);
+
+        // Disable passive block so only manual (Blocking state) matters
+        {
+            let mut cfg = world.resource_mut::<CombatGlobalConfig>();
+            cfg.shield.passive_block_chance = 0.0;
+        }
+
+        // Infantry facing right (0°) in Blocking state
+        let (_uid, entity) = spawn_test_soldier(
+            &mut world,
+            FixedVec2::new(Fixed::ZERO, Fixed::ZERO),
+            Faction::Player,
+            SoldierType::Infantry,
+            Fixed::ZERO, // facing 0° (right)
+        );
+        {
+            let mut sc = world.get_mut::<ShieldComponent>(entity).unwrap();
+            sc.state = ShieldState::Blocking;
+        }
+
+        let initial_shield_hp = world.get::<ShieldItem>(entity).unwrap().hp;
+        let initial_soldier_hp = world.get::<Health>(entity).unwrap().current;
+        let damage = 50u32;
+
+        // Case A: Frontal attack (attacker to the right, facing = 0°, attack angle = 0°)
+        let frontal_attacker = FixedVec2::new(Fixed::from_int(100), Fixed::ZERO);
+        let remaining = try_passive_block(&mut world, entity, damage, Some(frontal_attacker));
+        assert_eq!(remaining, 0, "Frontal attack should be fully absorbed by shield");
+        let shield = world.get::<ShieldItem>(entity).unwrap();
+        assert_eq!(shield.hp, initial_shield_hp - damage, "Shield should absorb frontal damage");
+
+        // Case B: Rear attack (attacker behind — facing = 0°, attack angle = 180°)
+        let rear_attacker = FixedVec2::new(Fixed::from_int(-100), Fixed::ZERO);
+        let remaining = try_passive_block(&mut world, entity, damage, Some(rear_attacker));
+        assert_eq!(remaining, damage, "Rear attack should NOT be absorbed (pass through to HP)");
+        // Apply remaining damage to Health (same as melee_attack_system does)
+        {
+            let mut hp = world.get_mut::<Health>(entity).unwrap();
+            hp.current = hp.current.saturating_sub(remaining);
+        }
+        let hp = world.get::<Health>(entity).unwrap();
+        assert_eq!(hp.current, initial_soldier_hp - damage, "Soldier should take full damage from behind");
+    }
+
+    // ── Test 4: Multi-shot spawns multiple arrows ──
+
+    #[test]
+    fn test_multi_shot_spawns_multiple_arrows() {
+        let mut world = init_simulation_world(42);
+
+        // Override multi-shot to 100% chance
+        {
+            let mut cfg = world.resource_mut::<CombatGlobalConfig>();
+            cfg.archer_multi_shot.base_chance = 1.0;
+            cfg.archer_multi_shot.min_chance = 1.0;
+            cfg.archer_multi_shot.max_chance = 1.0;
+        }
+
+        // Archer at origin (cooldown starts at 0 → fires immediately)
+        let (_archer_uid, _archer_e) = spawn_test_archer(
+            &mut world,
+            FixedVec2::new(Fixed::ZERO, Fixed::ZERO),
+            Faction::Player,
+            Fixed::ZERO,
+        );
+
+        // Spawn 5 enemies in range (archer range at level 1 = 380)
+        for i in 0..5 {
+            let enemy_pos = FixedVec2::new(Fixed::from_int(50 + i * 30), Fixed::from_int(50));
+            let eid = world.resource_mut::<IdGenerator>().next();
+            world.spawn((
+                UnitIdComponent(eid), SoldierMarker, LogicalPosition(enemy_pos),
+                FactionComponent(Faction::Enemy), SoldierTypeComponent(SoldierType::Militia),
+                Health { current: 100, max: 100 },
+                Movement { speed: 80, target: None, command_target: None, waypoint: None, force_move: false },
+                Level { level: 1, exp: 0 },
+                Attack { damage: 10, range: 30, interval_ticks: 10, cooldown_remaining: 0 },
+                SoldierStateComponent(SoldierState::Moving),
+            ));
+        }
+
+        archer_attack_system(&mut world);
+
+        // Verify multiple arrows were spawned
+        let mut arrow_query = world.query::<&Arrow>();
+        let arrow_count = arrow_query.iter(&world).count();
+        assert!(
+            arrow_count > 1,
+            "Multi-shot should spawn multiple arrows, got {}",
+            arrow_count,
+        );
+    }
+
+    // ── Test 5: Archer chases target out of attack range ──
+
+    #[test]
+    fn test_archer_chases_target_out_of_range() {
+        let mut world = init_simulation_world(42);
+
+        // Archer at origin facing up (90°), in Fighting state with a target out of range
+        let (_archer_uid, archer_e) = spawn_test_archer(
+            &mut world,
+            FixedVec2::new(Fixed::ZERO, Fixed::ZERO),
+            Faction::Player,
+            Fixed::from_int(90), // facing up
+        );
+        {
+            let mut sc = world.get_mut::<SoldierStateComponent>(archer_e).unwrap();
+            sc.0 = SoldierState::Fighting;
+        }
+
+        // Enemy far above — out of archer attack range (level 1 range = 380)
+        let enemy_pos = FixedVec2::new(Fixed::ZERO, Fixed::from_int(500));
+        let enemy_uid = {
+            let eid = world.resource_mut::<IdGenerator>().next();
+            world.spawn((
+                UnitIdComponent(eid), SoldierMarker, LogicalPosition(enemy_pos),
+                FactionComponent(Faction::Enemy), SoldierTypeComponent(SoldierType::Militia),
+                Health { current: 100, max: 100 },
+                Movement { speed: 80, target: None, command_target: None, waypoint: None, force_move: false },
+                Level { level: 1, exp: 0 },
+                Attack { damage: 10, range: 30, interval_ticks: 10, cooldown_remaining: 0 },
+                SoldierStateComponent(SoldierState::Moving),
+            ));
+            eid
+        };
+
+        // Set the archer's target to the enemy
+        {
+            let mut mov = world.get_mut::<Movement>(archer_e).unwrap();
+            mov.target = Some(enemy_uid);
+        }
+
+        let initial_pos = world.get::<LogicalPosition>(archer_e).unwrap().0;
+
+        // Run movement system for 20 ticks — archer should chase
+        for _ in 0..20 {
+            soldier::soldier_movement_system(&mut world);
+        }
+
+        let final_pos = world.get::<LogicalPosition>(archer_e).unwrap().0;
+        let moved = (final_pos.y - initial_pos.y).abs();
+        assert!(
+            moved > Fixed::from_int(1),
+            "Archer should have moved toward out-of-range target. Moved ~{} units",
+            moved.0 / 256,
+        );
+        assert!(
+            final_pos.y > initial_pos.y,
+            "Archer should have moved upward toward target (y should increase)",
+        );
+    }
+}
