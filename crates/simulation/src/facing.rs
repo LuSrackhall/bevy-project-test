@@ -1,9 +1,10 @@
 //! Facing direction system — deterministic angle calculations.
 
+use bevy_ecs::entity::Entity;
 use bevy_ecs::world::World;
 use std::collections::HashMap;
-use crate::types::{Fixed, FixedVec2, UnitId};
-use crate::soldier::{LogicalPosition, Movement, SoldierMarker, UnitIdComponent};
+use crate::types::{FacingDirection, Fixed, FixedVec2, SoldierType, UnitId};
+use crate::soldier::{LogicalPosition, Movement, SoldierMarker, SoldierTypeComponent, UnitIdComponent};
 use crate::combat::config::CombatGlobalConfig;
 
 /// Atan approximation constant: 0.28 * 256 ≈ 72
@@ -108,8 +109,9 @@ pub fn turn_toward(current: Fixed, target: Fixed, max_turn: Fixed) -> Fixed {
 
 /// Update each soldier's facing direction toward their movement target each tick.
 ///
-/// Target priority: attack target (`movement.target`), then command target
-/// (`movement.command_target`), then waypoint (`movement.waypoint`).
+/// Target priority depends on unit type:
+/// - Cavalry: command target, then attack target, then waypoint
+/// - Non-cavalry: attack target, then waypoint
 pub fn facing_turn_system(world: &mut World) {
     let ticks_per_rotation = world.resource::<CombatGlobalConfig>().facing.turn_rate_ticks_per_full_rotation;
     if ticks_per_rotation == 0 {
@@ -125,15 +127,22 @@ pub fn facing_turn_system(world: &mut World) {
     };
 
     // Collect facing updates: (entity, new_angle)
-    let mut updates: Vec<(bevy_ecs::entity::Entity, Fixed)> = Vec::new();
+    let mut updates: Vec<(Entity, Fixed)> = Vec::new();
     {
-        let mut q = world.query::<(bevy_ecs::entity::Entity, &LogicalPosition, &Movement, &SoldierMarker)>();
-        for (e, pos, mov, _) in q.iter(world) {
-            // Determine target position: prefer attack target, then command target, then waypoint
-            let target_pos = mov.target
-                .and_then(|tid| positions.get(&tid).copied())
-                .or_else(|| mov.command_target.and_then(|tid| positions.get(&tid).copied()))
-                .or(mov.waypoint);
+        let mut q = world.query::<(Entity, &LogicalPosition, &Movement, &SoldierMarker, Option<&SoldierTypeComponent>)>();
+        for (e, pos, mov, _, stype) in q.iter(world) {
+            // Determine target position based on unit type
+            // Cavalry: command_target first, then target, then waypoint
+            // Non-cavalry: target first, then waypoint (no command_target)
+            let is_cav = stype.map_or(false, |s| s.0 == SoldierType::Cavalry);
+            let target_pos = if is_cav {
+                mov.command_target
+                    .and_then(|tid| positions.get(&tid).copied())
+                    .or_else(|| mov.target.and_then(|tid| positions.get(&tid).copied()))
+            } else {
+                mov.target.and_then(|tid| positions.get(&tid).copied())
+            }
+            .or(mov.waypoint);
 
             let Some(target_pos) = target_pos else { continue };
 
@@ -144,7 +153,7 @@ pub fn facing_turn_system(world: &mut World) {
             }
 
             let desired_angle = compute_angle_between(pos.0, target_pos);
-            let facing = world.entity(e).get::<crate::types::FacingDirection>();
+            let facing = world.entity(e).get::<FacingDirection>();
             let current_angle = facing.map(|f| f.angle).unwrap_or(Fixed::ZERO);
             let new_angle = turn_toward(current_angle, desired_angle, turn_rate);
 
@@ -153,7 +162,7 @@ pub fn facing_turn_system(world: &mut World) {
     }
 
     for (e, angle) in updates {
-        world.entity_mut(e).insert(crate::types::FacingDirection { angle });
+        world.entity_mut(e).insert(FacingDirection { angle });
     }
 }
 
