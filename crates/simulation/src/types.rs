@@ -6,6 +6,7 @@
 use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign};
 use rand::rngs::SmallRng;
 use rand::{RngCore, SeedableRng};
+use bevy_ecs::component::Component;
 use bevy_ecs::prelude::Resource;
 
 // ═══════════════════════════════════════════════════════════════
@@ -253,6 +254,13 @@ pub enum SoldierState {
 pub enum ShieldState {
     Normal,
     ShieldUp,
+}
+
+/// Unit facing direction -- independent state updated by movement and attack targeting.
+/// All 360 degrees represented as fixed-point. 0° = right, 90° = up, etc.
+#[derive(Component, Clone, Debug)]
+pub struct FacingDirection {
+    pub angle: Fixed, // 0.0 to <360.0 in fixed-point degrees
 }
 
 // ═══════════════════════════════════════════════════════════════

@@ -40,19 +40,30 @@ pub fn draw_debug_shapes_system(
     // Draw soldiers — circle radius from collision_radius config
     {
         let soldier_config = world.resource::<SoldierConfig>().clone();
-        let mut query = world.query::<(&LogicalPosition, &FactionComponent, &SoldierTypeComponent)>();
-        for (pos, faction, stype) in query.iter(world) {
+        let mut query = world.query::<(Entity, &LogicalPosition, &FactionComponent, &SoldierTypeComponent, Option<&simulation::types::FacingDirection>)>();
+        for (_entity, pos, faction, stype, facing) in query.iter(world) {
             let color = match faction.0 {
                 simulation::types::Faction::Player => Color::srgb(0.3, 0.5, 0.9),
                 simulation::types::Faction::Enemy => Color::srgb(0.9, 0.3, 0.3),
                 simulation::types::Faction::Neutral => Color::srgb(0.5, 0.5, 0.5),
             };
             let r = soldier_config.get(stype.0).collision_radius as f32;
-            gizmos.circle_2d(
-                Vec2::new(pos.0.x.to_float(), pos.0.y.to_float()),
-                r,
-                color,
-            );
+            let p = Vec2::new(pos.0.x.to_float(), pos.0.y.to_float());
+            gizmos.circle_2d(p, r, color);
+
+            // Facing direction line
+            if let Some(facing) = facing {
+                let angle_deg = facing.angle.to_float();
+                let angle_rad = angle_deg * std::f32::consts::PI / 180.0;
+                let line_len = r * 1.5;
+                let dir = Vec2::new(angle_rad.cos(), angle_rad.sin());
+                let line_color = match faction.0 {
+                    simulation::types::Faction::Player => Color::srgb(0.5, 0.7, 1.0),
+                    simulation::types::Faction::Enemy => Color::srgb(1.0, 0.5, 0.5),
+                    simulation::types::Faction::Neutral => Color::srgb(0.7, 0.7, 0.7),
+                };
+                gizmos.line_2d(p, p + dir * line_len, line_color);
+            }
         }
     }
 
