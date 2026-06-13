@@ -64,6 +64,9 @@ pub fn run_tick(world: &mut World, tick_number: u32) -> SimulationEvents {
     // Phase 2: Combat engagement (auto-targeting)
     combat::combat_engagement_system(world);
 
+    // Phase 2.5: Facing direction turn
+    facing::facing_turn_system(world);
+
     // Phase 3: Soldier movement
     soldier::soldier_movement_system(world);
 

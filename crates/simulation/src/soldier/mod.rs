@@ -358,6 +358,7 @@ pub fn city_spawn_system(world: &mut World) {
                 FactionComponent(faction), SoldierTypeComponent(spawn_type),
                 Level { level: 1, exp: 0 }, ShieldComponent(ShieldState::Normal),
                 CityOrigin(origin), SoldierStateComponent(SoldierState::Moving),
+                crate::types::FacingDirection { angle: Fixed::ZERO },
             ));
 
             let mut events = world.resource_mut::<SimulationEvents>();

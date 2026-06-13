@@ -1,6 +1,10 @@
 //! Facing direction system — deterministic angle calculations.
 
-use crate::types::{Fixed, FixedVec2};
+use bevy_ecs::world::World;
+use std::collections::HashMap;
+use crate::types::{Fixed, FixedVec2, UnitId};
+use crate::soldier::{LogicalPosition, Movement, SoldierMarker, UnitIdComponent};
+use crate::combat::config::CombatGlobalConfig;
 
 /// Atan approximation constant: 0.28 * 256 ≈ 72
 const ATAN_K: Fixed = Fixed(72);
@@ -99,6 +103,57 @@ pub fn turn_toward(current: Fixed, target: Fixed, max_turn: Fixed) -> Fixed {
         } else {
             normalize_angle(current - max_turn)
         }
+    }
+}
+
+/// Update each soldier's facing direction toward their movement target each tick.
+///
+/// Target priority: attack target (`movement.target`), then command target
+/// (`movement.command_target`), then waypoint (`movement.waypoint`).
+pub fn facing_turn_system(world: &mut World) {
+    let ticks_per_rotation = world.resource::<CombatGlobalConfig>().facing.turn_rate_ticks_per_full_rotation;
+    if ticks_per_rotation == 0 {
+        return; // degenerate config — no turning
+    }
+    // turn_rate = 360 / (ticks_per_rotation * 256)  in fixed-point internal units
+    let turn_rate = Fixed::from_int(360) / Fixed((ticks_per_rotation as i64) * 256);
+
+    // Build position lookup from ALL entities with UnitIdComponent + LogicalPosition
+    let positions: HashMap<UnitId, FixedVec2> = {
+        let mut q = world.query::<(&UnitIdComponent, &LogicalPosition)>();
+        q.iter(world).map(|(id, pos)| (id.0, pos.0)).collect()
+    };
+
+    // Collect facing updates: (entity, new_angle)
+    let mut updates: Vec<(bevy_ecs::entity::Entity, Fixed)> = Vec::new();
+    {
+        let mut q = world.query::<(bevy_ecs::entity::Entity, &LogicalPosition, &Movement, &SoldierMarker)>();
+        for (e, pos, mov, _) in q.iter(world) {
+            // Determine target position: prefer attack target, then command target, then waypoint
+            let target_pos = mov.target
+                .and_then(|tid| positions.get(&tid).copied())
+                .or_else(|| mov.command_target.and_then(|tid| positions.get(&tid).copied()))
+                .or(mov.waypoint);
+
+            let Some(target_pos) = target_pos else { continue };
+
+            // Skip if already at target (no meaningful angle)
+            let delta = target_pos - pos.0;
+            if delta.x == Fixed::ZERO && delta.y == Fixed::ZERO {
+                continue;
+            }
+
+            let desired_angle = compute_angle_between(pos.0, target_pos);
+            let facing = world.entity(e).get::<crate::types::FacingDirection>();
+            let current_angle = facing.map(|f| f.angle).unwrap_or(Fixed::ZERO);
+            let new_angle = turn_toward(current_angle, desired_angle, turn_rate);
+
+            updates.push((e, new_angle));
+        }
+    }
+
+    for (e, angle) in updates {
+        world.entity_mut(e).insert(crate::types::FacingDirection { angle });
     }
 }
 
