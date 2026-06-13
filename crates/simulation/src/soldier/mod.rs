@@ -391,11 +391,15 @@ pub fn city_spawn_system(world: &mut World) {
                 Health { current: cfg.health, max: cfg.health },
                 Attack { damage: cfg.attack, range: cfg.attack_range, interval_ticks: cfg.attack_interval_ticks, cooldown_remaining: cfg.attack_interval_ticks },
                 FactionComponent(faction), SoldierTypeComponent(spawn_type),
-                Level { level: 1, exp: 0 }, ShieldComponent { state: ShieldState::Normal },
-                ShieldItem { hp: combat_config.shield.initial_hp, max_hp: combat_config.shield.initial_hp },
+                Level { level: 1, exp: 0 },
                 CityOrigin(origin), SoldierStateComponent(SoldierState::Moving),
                 crate::types::FacingDirection { angle: Fixed::ZERO },
             )).id();
+            // Only Infantry spawns with a shield
+            if spawn_type == SoldierType::Infantry {
+                world.entity_mut(soldier_entity).insert(ShieldComponent { state: ShieldState::Normal });
+                world.entity_mut(soldier_entity).insert(ShieldItem { hp: combat_config.shield.initial_hp, max_hp: combat_config.shield.initial_hp });
+            }
             world.entity_mut(soldier_entity).insert(
                 crate::types::AttackWindup { remaining_ticks: 0, target: None },
             );
@@ -597,6 +601,96 @@ pub fn aura_heal_system(world: &mut World) {
         if let Some(mut hp) = world.entity_mut(e).get_mut::<Health>() {
             hp.current = (hp.current + heal).min(hp.max);
         }
+        if let Some(mut shield) = world.entity_mut(e).get_mut::<ShieldItem>() {
+            shield.hp = (shield.hp + heal).min(shield.max_hp);
+        }
+    }
+}
+
+// ══════════ System: shield_pickup ══════════
+
+pub fn shield_pickup_system(world: &mut World) {
+    let soldier_config = world.resource::<SoldierConfig>().clone();
+
+    // Collect all dropped shields
+    let dropped: Vec<(Entity, FixedVec2, u32, u32)> = {
+        let mut q = world.query::<(Entity, &DroppedShield)>();
+        q.iter(world)
+            .map(|(e, d)| (e, d.position, d.shield.hp, d.shield.max_hp))
+            .collect()
+    };
+
+    if dropped.is_empty() { return; }
+
+    // Collect soldier data for pickup checks
+    struct SoldierData { entity: Entity, pos: FixedVec2, stype: SoldierType, has_shield: bool, shield_hp: u32 }
+    let soldiers: Vec<SoldierData> = {
+        let mut q = world.query::<(Entity, &LogicalPosition, &SoldierTypeComponent)>();
+        q.iter(world)
+            .filter(|(_, _, st)| st.0 != SoldierType::Archer)
+            .map(|(e, pos, st)| {
+                let has_shield = world.get::<ShieldItem>(e).is_some();
+                let shield_hp = world.get::<ShieldItem>(e).map(|s| s.hp).unwrap_or(0);
+                SoldierData { entity: e, pos: pos.0, stype: st.0, has_shield, shield_hp }
+            })
+            .collect()
+    };
+
+    let mut pickups: Vec<(Entity, Entity, u32, u32)> = Vec::new(); // (soldier, dropped, hp, max_hp)
+    let mut claimed_dropped: HashSet<Entity> = HashSet::new();
+
+    for sd in &soldiers {
+        let collision_radius = soldier_config.get(sd.stype).collision_radius;
+        let pickup_range = Fixed::from_int(collision_radius as i32);
+        let range_sq = pickup_range * pickup_range;
+
+        for &(dropped_e, dropped_pos, dropped_hp, dropped_max_hp) in &dropped {
+            if claimed_dropped.contains(&dropped_e) { continue; }
+
+            let dist_sq = (sd.pos - dropped_pos).length_squared();
+            if dist_sq <= range_sq {
+                if !sd.has_shield {
+                    // No current shield — pick up directly
+                    pickups.push((sd.entity, dropped_e, dropped_hp, dropped_max_hp));
+                    claimed_dropped.insert(dropped_e);
+                    break;
+                } else if dropped_hp > sd.shield_hp {
+                    // Has shield but dropped one is better — swap
+                    pickups.push((sd.entity, dropped_e, dropped_hp, dropped_max_hp));
+                    claimed_dropped.insert(dropped_e);
+                    break;
+                }
+            }
+        }
+    }
+
+    for (soldier_e, dropped_e, hp, max_hp) in pickups {
+        world.entity_mut(soldier_e).insert(ShieldItem { hp, max_hp });
+        world.entity_mut(soldier_e).insert(ShieldComponent { state: ShieldState::Normal });
+        world.despawn(dropped_e);
+    }
+}
+
+// ══════════ System: shield_decay ══════════
+
+pub fn shield_decay_system(world: &mut World, current_tick: u32) {
+    let config = world.resource::<CombatGlobalConfig>().clone();
+    let survive_ticks = config.shield.drop_survive_ticks;
+    let anim_ticks = config.shield.disappear_animation_ticks;
+
+    let to_despawn: Vec<Entity> = {
+        let mut q = world.query::<(Entity, &DroppedShield)>();
+        q.iter(world)
+            .filter(|(_, d)| {
+                let age = current_tick.saturating_sub(d.drop_tick);
+                age >= survive_ticks + anim_ticks
+            })
+            .map(|(e, _)| e)
+            .collect()
+    };
+
+    for entity in to_despawn {
+        world.despawn(entity);
     }
 }
 
@@ -973,5 +1067,432 @@ mod seek_stance_tests {
         assert_eq!(militia.health, 100);
         assert_eq!(militia.attack, 16);
         assert_eq!(militia.speed, 80);
+    }
+}
+
+// ══════════ Tests: Shield Lifecycle ══════════
+
+#[cfg(test)]
+mod shield_lifecycle_tests {
+    use super::*;
+    use crate::init_simulation_world;
+    use crate::map;
+    use crate::combat::drop_shield_on_death;
+
+    fn spawn_infantry(world: &mut World, pos: FixedVec2, faction: Faction) -> UnitId {
+        let uid = world.resource_mut::<IdGenerator>().next();
+        let cfg = world.resource::<SoldierConfig>().get(SoldierType::Infantry).clone();
+        let shield_hp = world.resource::<CombatGlobalConfig>().shield.initial_hp;
+        let e = world.spawn((
+            UnitIdComponent(uid), SoldierMarker, LogicalPosition(pos),
+            Movement { speed: cfg.speed, target: None, command_target: None, waypoint: None, force_move: false },
+            SeekStance { active: false, seek_range: 0 },
+            Health { current: cfg.health, max: cfg.health },
+            Attack { damage: cfg.attack, range: cfg.attack_range, interval_ticks: cfg.attack_interval_ticks, cooldown_remaining: 0 },
+            FactionComponent(faction), SoldierTypeComponent(SoldierType::Infantry),
+            Level { level: 1, exp: 0 },
+            ShieldComponent { state: ShieldState::Normal },
+            ShieldItem { hp: shield_hp, max_hp: shield_hp },
+            CityOrigin(UnitId(0)), SoldierStateComponent(SoldierState::Moving),
+        )).id();
+        world.entity_mut(e).insert(crate::types::FacingDirection { angle: Fixed::ZERO });
+        world.entity_mut(e).insert(crate::types::AttackWindup { remaining_ticks: 0, target: None });
+        uid
+    }
+
+    fn spawn_militia(world: &mut World, pos: FixedVec2, faction: Faction) -> UnitId {
+        let uid = world.resource_mut::<IdGenerator>().next();
+        let cfg = world.resource::<SoldierConfig>().get(SoldierType::Militia).clone();
+        world.spawn((
+            UnitIdComponent(uid), SoldierMarker, LogicalPosition(pos),
+            Movement { speed: cfg.speed, target: None, command_target: None, waypoint: None, force_move: false },
+            SeekStance { active: false, seek_range: 0 },
+            Health { current: cfg.health, max: cfg.health },
+            Attack { damage: cfg.attack, range: cfg.attack_range, interval_ticks: cfg.attack_interval_ticks, cooldown_remaining: 0 },
+            FactionComponent(faction), SoldierTypeComponent(SoldierType::Militia),
+            Level { level: 1, exp: 0 },
+            CityOrigin(UnitId(0)), SoldierStateComponent(SoldierState::Moving),
+            crate::types::FacingDirection { angle: Fixed::ZERO },
+            crate::types::AttackWindup { remaining_ticks: 0, target: None },
+        ));
+        uid
+    }
+
+    // ── Infantry spawns with shield ──
+
+    #[test]
+    fn test_infantry_spawns_with_shield() {
+        let mut world = init_simulation_world(42);
+        let uid = spawn_infantry(&mut world, FixedVec2::new(Fixed::from_int(0), Fixed::from_int(0)), Faction::Player);
+        let e = find_entity_by_unit_id(&mut world, uid).unwrap();
+        assert!(world.get::<ShieldItem>(e).is_some(), "Infantry should have ShieldItem");
+        assert!(world.get::<ShieldComponent>(e).is_some(), "Infantry should have ShieldComponent");
+        let shield = world.get::<ShieldItem>(e).unwrap();
+        assert_eq!(shield.hp, 1500);
+        assert_eq!(shield.max_hp, 1500);
+    }
+
+    #[test]
+    fn test_militia_spawns_without_shield() {
+        let mut world = init_simulation_world(42);
+        let uid = spawn_militia(&mut world, FixedVec2::new(Fixed::from_int(0), Fixed::from_int(0)), Faction::Player);
+        let e = find_entity_by_unit_id(&mut world, uid).unwrap();
+        assert!(world.get::<ShieldItem>(e).is_none(), "Militia should NOT have ShieldItem");
+        assert!(world.get::<ShieldComponent>(e).is_none(), "Militia should NOT have ShieldComponent");
+    }
+
+    #[test]
+    fn test_city_spawn_infantry_has_shield_militia_does_not() {
+        let mut world = init_simulation_world(42);
+        map::generate_map(&mut world);
+
+        // Change a city to spawn Infantry
+        {
+            let mut q = world.query::<(Entity, &FactionComponent, &mut CityComponent)>();
+            for (_, fac, mut city) in q.iter_mut(&mut world) {
+                if fac.0 == Faction::Player {
+                    city.spawn_type = SoldierType::Infantry;
+                    city.population = 0;
+                    city.max_population = 100;
+                    city.spawn_cooldown = 0;
+                    break;
+                }
+            }
+        }
+
+        city_spawn_system(&mut world);
+
+        // Check that spawned infantry has shield
+        let mut found_infantry_with_shield = false;
+        {
+            let mut q = world.query::<(&FactionComponent, &SoldierTypeComponent, Option<&ShieldItem>, Option<&ShieldComponent>)>();
+            for (fac, st, shield_item, shield_comp) in q.iter(&world) {
+                if fac.0 == Faction::Player && st.0 == SoldierType::Infantry {
+                    assert!(shield_item.is_some(), "Spawned Infantry should have ShieldItem");
+                    assert!(shield_comp.is_some(), "Spawned Infantry should have ShieldComponent");
+                    found_infantry_with_shield = true;
+                }
+            }
+        }
+        assert!(found_infantry_with_shield, "Should have spawned at least one Infantry");
+    }
+
+    // ── Shield drop on death ──
+
+    #[test]
+    fn test_shield_drops_on_death() {
+        let mut world = init_simulation_world(42);
+        let shield_hp = world.resource::<CombatGlobalConfig>().shield.initial_hp;
+
+        // Spawn an infantry with a shield
+        let uid = spawn_infantry(&mut world, FixedVec2::new(Fixed::from_int(50), Fixed::from_int(50)), Faction::Player);
+        let e = find_entity_by_unit_id(&mut world, uid).unwrap();
+
+        // Set HP to 0 to simulate death
+        {
+            let mut hp = world.get_mut::<Health>(e).unwrap();
+            hp.current = 0;
+        }
+
+        // Drop shield before despawn
+        drop_shield_on_death(&mut world, e, 100);
+        world.despawn(e);
+
+        // Verify DroppedShield was created
+        let mut q = world.query::<&DroppedShield>();
+        let dropped: Vec<&DroppedShield> = q.iter(&world).collect();
+        assert_eq!(dropped.len(), 1, "Should have exactly one DroppedShield");
+        assert_eq!(dropped[0].shield.hp, shield_hp);
+        assert_eq!(dropped[0].drop_tick, 100);
+        assert_eq!(dropped[0].position, FixedVec2::new(Fixed::from_int(50), Fixed::from_int(50)));
+    }
+
+    #[test]
+    fn test_no_shield_drop_if_no_shield() {
+        let mut world = init_simulation_world(42);
+
+        // Spawn militia (no shield)
+        let uid = spawn_militia(&mut world, FixedVec2::new(Fixed::from_int(50), Fixed::from_int(50)), Faction::Player);
+        let e = find_entity_by_unit_id(&mut world, uid).unwrap();
+
+        // Set HP to 0
+        {
+            let mut hp = world.get_mut::<Health>(e).unwrap();
+            hp.current = 0;
+        }
+
+        drop_shield_on_death(&mut world, e, 100);
+        world.despawn(e);
+
+        // Verify no DroppedShield was created
+        let mut q = world.query::<&DroppedShield>();
+        let dropped: Vec<&DroppedShield> = q.iter(&world).collect();
+        assert_eq!(dropped.len(), 0, "Should have no DroppedShield for militia");
+    }
+
+    // ── Shield pickup ──
+
+    #[test]
+    fn test_shield_pickup_no_existing_shield() {
+        let mut world = init_simulation_world(42);
+
+        // Spawn militia at origin (no shield)
+        let uid = spawn_militia(&mut world, FixedVec2::new(Fixed::from_int(10), Fixed::from_int(10)), Faction::Player);
+        let e = find_entity_by_unit_id(&mut world, uid).unwrap();
+
+        // Spawn a dropped shield nearby
+        world.spawn(DroppedShield {
+            shield: ShieldItem { hp: 800, max_hp: 1500 },
+            position: FixedVec2::new(Fixed::from_int(12), Fixed::from_int(10)),
+            drop_tick: 50,
+            owner_faction: Some(Faction::Enemy),
+        });
+
+        shield_pickup_system(&mut world);
+
+        // Militia should now have a shield
+        assert!(world.get::<ShieldItem>(e).is_some(), "Militia should have picked up ShieldItem");
+        assert!(world.get::<ShieldComponent>(e).is_some(), "Militia should have ShieldComponent");
+        let shield = world.get::<ShieldItem>(e).unwrap();
+        assert_eq!(shield.hp, 800);
+        assert_eq!(shield.max_hp, 1500);
+
+        // DroppedShield should be gone
+        let mut q = world.query::<&DroppedShield>();
+        assert_eq!(q.iter(&world).count(), 0, "DroppedShield should be consumed");
+    }
+
+    #[test]
+    fn test_shield_pickup_swap_better_shield() {
+        let mut world = init_simulation_world(42);
+
+        // Spawn infantry at origin (has shield with 1500 HP)
+        let uid = spawn_infantry(&mut world, FixedVec2::new(Fixed::from_int(10), Fixed::from_int(10)), Faction::Player);
+        let e = find_entity_by_unit_id(&mut world, uid).unwrap();
+
+        // Reduce their shield HP
+        {
+            let mut shield = world.get_mut::<ShieldItem>(e).unwrap();
+            shield.hp = 200;
+        }
+
+        // Spawn a dropped shield with higher HP nearby
+        world.spawn(DroppedShield {
+            shield: ShieldItem { hp: 1000, max_hp: 1500 },
+            position: FixedVec2::new(Fixed::from_int(12), Fixed::from_int(10)),
+            drop_tick: 50,
+            owner_faction: Some(Faction::Enemy),
+        });
+
+        shield_pickup_system(&mut world);
+
+        // Infantry should now have the better shield
+        let shield = world.get::<ShieldItem>(e).unwrap();
+        assert_eq!(shield.hp, 1000, "Should have swapped to the better shield");
+        assert_eq!(shield.max_hp, 1500);
+    }
+
+    #[test]
+    fn test_shield_pickup_ignores_worse_shield() {
+        let mut world = init_simulation_world(42);
+
+        // Spawn infantry at origin (has shield with 1500 HP)
+        let uid = spawn_infantry(&mut world, FixedVec2::new(Fixed::from_int(10), Fixed::from_int(10)), Faction::Player);
+        let e = find_entity_by_unit_id(&mut world, uid).unwrap();
+
+        // Spawn a dropped shield with lower HP nearby
+        world.spawn(DroppedShield {
+            shield: ShieldItem { hp: 500, max_hp: 1500 },
+            position: FixedVec2::new(Fixed::from_int(12), Fixed::from_int(10)),
+            drop_tick: 50,
+            owner_faction: Some(Faction::Enemy),
+        });
+
+        shield_pickup_system(&mut world);
+
+        // Infantry should keep their original shield (1500 HP)
+        let shield = world.get::<ShieldItem>(e).unwrap();
+        assert_eq!(shield.hp, 1500, "Should keep the better shield");
+
+        // DroppedShield should remain
+        let mut q = world.query::<&DroppedShield>();
+        assert_eq!(q.iter(&world).count(), 1, "DroppedShield should remain (not picked up)");
+    }
+
+    #[test]
+    fn test_shield_pickup_archer_ignored() {
+        let mut world = init_simulation_world(42);
+
+        // Spawn an archer
+        let uid = world.resource_mut::<IdGenerator>().next();
+        let cfg = world.resource::<SoldierConfig>().get(SoldierType::Archer).clone();
+        world.spawn((
+            UnitIdComponent(uid), SoldierMarker, LogicalPosition(FixedVec2::new(Fixed::from_int(10), Fixed::from_int(10))),
+            Movement { speed: cfg.speed, target: None, command_target: None, waypoint: None, force_move: false },
+            SeekStance { active: false, seek_range: 0 },
+            Health { current: cfg.health, max: cfg.health },
+            Attack { damage: cfg.attack, range: cfg.attack_range, interval_ticks: cfg.attack_interval_ticks, cooldown_remaining: 0 },
+            FactionComponent(Faction::Player), SoldierTypeComponent(SoldierType::Archer),
+            Level { level: 1, exp: 0 },
+            CityOrigin(UnitId(0)), SoldierStateComponent(SoldierState::Moving),
+        ));
+        let e = find_entity_by_unit_id(&mut world, uid).unwrap();
+
+        // Spawn a dropped shield right on top
+        world.spawn(DroppedShield {
+            shield: ShieldItem { hp: 1000, max_hp: 1500 },
+            position: FixedVec2::new(Fixed::from_int(10), Fixed::from_int(10)),
+            drop_tick: 50,
+            owner_faction: Some(Faction::Enemy),
+        });
+
+        shield_pickup_system(&mut world);
+
+        // Archer should NOT have a shield
+        assert!(world.get::<ShieldItem>(e).is_none(), "Archer should not pick up shields");
+    }
+
+    // ── Shield decay ──
+
+    #[test]
+    fn test_shield_decay_not_yet_expired() {
+        let mut world = init_simulation_world(42);
+
+        // Spawn a dropped shield at tick 100
+        world.spawn(DroppedShield {
+            shield: ShieldItem { hp: 800, max_hp: 1500 },
+            position: FixedVec2::new(Fixed::from_int(50), Fixed::from_int(50)),
+            drop_tick: 100,
+            owner_faction: Some(Faction::Player),
+        });
+
+        // At tick 500 (age = 400, need 600+60=660 to expire)
+        shield_decay_system(&mut world, 500);
+
+        let mut q = world.query::<&DroppedShield>();
+        assert_eq!(q.iter(&world).count(), 1, "Shield should not have decayed yet");
+    }
+
+    #[test]
+    fn test_shield_decay_expired() {
+        let mut world = init_simulation_world(42);
+
+        // Spawn a dropped shield at tick 100
+        world.spawn(DroppedShield {
+            shield: ShieldItem { hp: 800, max_hp: 1500 },
+            position: FixedVec2::new(Fixed::from_int(50), Fixed::from_int(50)),
+            drop_tick: 100,
+            owner_faction: Some(Faction::Player),
+        });
+
+        // At tick 760 (age = 660 = 600 + 60, exactly at threshold)
+        shield_decay_system(&mut world, 760);
+
+        let mut q = world.query::<&DroppedShield>();
+        assert_eq!(q.iter(&world).count(), 0, "Shield should have decayed");
+    }
+
+    #[test]
+    fn test_shield_decay_multiple_mixed_ages() {
+        let mut world = init_simulation_world(42);
+
+        // Spawn two shields: one fresh, one old
+        world.spawn(DroppedShield {
+            shield: ShieldItem { hp: 800, max_hp: 1500 },
+            position: FixedVec2::new(Fixed::from_int(50), Fixed::from_int(50)),
+            drop_tick: 100, // age at tick 800 = 700, expired
+            owner_faction: Some(Faction::Player),
+        });
+        world.spawn(DroppedShield {
+            shield: ShieldItem { hp: 900, max_hp: 1500 },
+            position: FixedVec2::new(Fixed::from_int(60), Fixed::from_int(60)),
+            drop_tick: 500, // age at tick 800 = 300, not expired
+            owner_faction: Some(Faction::Enemy),
+        });
+
+        shield_decay_system(&mut world, 800);
+
+        let mut q = world.query::<(Entity, &DroppedShield)>();
+        let remaining: Vec<(Entity, &DroppedShield)> = q.iter(&world).collect();
+        assert_eq!(remaining.len(), 1, "Only the expired shield should be removed");
+        assert_eq!(remaining[0].1.drop_tick, 500, "The remaining shield should be the newer one");
+    }
+
+    // ── Aura heal heals shield ──
+
+    #[test]
+    fn test_aura_heal_heals_shield() {
+        let mut world = init_simulation_world(42);
+        map::generate_map(&mut world);
+
+        // Find a player city position to place infantry nearby
+        let city_pos = {
+            let mut q = world.query::<(&LogicalPosition, &FactionComponent, &CityMarker)>();
+            let mut found = None;
+            for (pos, fac, _) in q.iter(&world) {
+                if fac.0 == Faction::Player {
+                    found = Some(pos.0);
+                    break;
+                }
+            }
+            found.expect("Should have a player city")
+        };
+
+        // Spawn infantry right at the player city position
+        let uid = spawn_infantry(&mut world, city_pos, Faction::Player);
+        let e = find_entity_by_unit_id(&mut world, uid).unwrap();
+
+        // Damage the shield
+        {
+            let mut shield = world.get_mut::<ShieldItem>(e).unwrap();
+            shield.hp = 1000; // damaged from 1500
+        }
+
+        // Run aura heal
+        aura_heal_system(&mut world);
+
+        // Shield should be healed
+        let shield = world.get::<ShieldItem>(e).unwrap();
+        assert!(shield.hp > 1000, "Shield HP should have been healed (was 1000, now {})", shield.hp);
+        assert!(shield.hp <= shield.max_hp, "Shield HP should not exceed max");
+    }
+
+    // ── Integration: full lifecycle ──
+
+    #[test]
+    fn test_full_shield_lifecycle() {
+        let mut world = init_simulation_world(42);
+
+        // 1. Infantry spawns with shield
+        let uid = spawn_infantry(&mut world, FixedVec2::new(Fixed::from_int(100), Fixed::from_int(100)), Faction::Player);
+        let e = find_entity_by_unit_id(&mut world, uid).unwrap();
+        assert!(world.get::<ShieldItem>(e).is_some());
+
+        // 2. Infantry dies — shield drops
+        {
+            let mut hp = world.get_mut::<Health>(e).unwrap();
+            hp.current = 0;
+        }
+        drop_shield_on_death(&mut world, e, 100);
+        world.despawn(e);
+
+        // 3. Verify DroppedShield exists
+        let mut q = world.query::<&DroppedShield>();
+        assert_eq!(q.iter(&world).count(), 1);
+
+        // 4. Another soldier picks it up
+        let uid2 = spawn_militia(&mut world, FixedVec2::new(Fixed::from_int(102), Fixed::from_int(100)), Faction::Player);
+        let e2 = find_entity_by_unit_id(&mut world, uid2).unwrap();
+        shield_pickup_system(&mut world);
+
+        assert!(world.get::<ShieldItem>(e2).is_some(), "Militia should have picked up the dropped shield");
+
+        // 5. DroppedShield consumed
+        let mut q = world.query::<&DroppedShield>();
+        assert_eq!(q.iter(&world).count(), 0);
+
+        // 6. Shield does not decay (it's been picked up, no DroppedShield left)
+        shield_decay_system(&mut world, 800);
+        assert!(world.get::<ShieldItem>(e2).is_some(), "Picked-up shield should not decay");
     }
 }

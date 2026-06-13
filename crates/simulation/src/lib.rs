@@ -82,20 +82,23 @@ pub fn run_tick(world: &mut World, tick_number: u32) -> SimulationEvents {
     // Phase 6: City interaction (soldiers entering cities)
     soldier::city_interaction_system(world);
 
+    // Phase 6.5: Shield pickup (soldiers picking up dropped shields)
+    soldier::shield_pickup_system(world);
+
     // Phase 7: Aura heal
     soldier::aura_heal_system(world);
 
     // Phase 8: Melee attacks
-    combat::melee_attack_system(world);
+    combat::melee_attack_system(world, tick_number);
 
     // Phase 8.5: Attack windup completion (non-cavalry delayed attacks)
-    combat::attack_windup_system(world);
+    combat::attack_windup_system(world, tick_number);
 
     // Phase 9: Archer attacks (direction-based)
     combat::archer_attack_system(world);
 
     // Phase 10: Arrow movement (flight + collision + decay)
-    combat::arrow_movement_system(world);
+    combat::arrow_movement_system(world, tick_number);
 
     // Phase 11: Slow debuff ticks
     soldier::slow_debuff_tick_system(world);
@@ -105,6 +108,9 @@ pub fn run_tick(world: &mut World, tick_number: u32) -> SimulationEvents {
 
     // Phase 13: Soldier level up
     soldier::soldier_level_up_system(world);
+
+    // Phase 13.5: Shield decay (despawn expired dropped shields)
+    soldier::shield_decay_system(world, tick_number);
 
     // Phase 14: AI decision
     ai::ai_decide(world, tick_number);

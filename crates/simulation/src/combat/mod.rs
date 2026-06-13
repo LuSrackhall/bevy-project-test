@@ -48,6 +48,24 @@ fn integer_sqrt(n: i64) -> i64 {
     x
 }
 
+/// Drop a shield on the ground if the dying entity has one.
+/// Must be called BEFORE despawning the entity.
+pub(crate) fn drop_shield_on_death(world: &mut World, dying_entity: Entity, current_tick: u32) {
+    let has_shield = world.get::<ShieldItem>(dying_entity).map(|s| s.hp > 0).unwrap_or(false);
+    if !has_shield { return; }
+
+    let shield = world.get::<ShieldItem>(dying_entity).cloned().unwrap();
+    let pos = world.get::<LogicalPosition>(dying_entity).map(|p| p.0).unwrap_or(FixedVec2::ZERO);
+    let faction = world.get::<FactionComponent>(dying_entity).map(|f| f.0);
+
+    world.spawn(DroppedShield {
+        shield,
+        position: pos,
+        drop_tick: current_tick,
+        owner_faction: faction,
+    });
+}
+
 // ══════════ combat_engagement ══════════
 
 pub fn combat_engagement_system(world: &mut World) {
@@ -183,7 +201,7 @@ fn try_passive_block(world: &mut World, target_entity: Entity, mut damage: u32, 
 
 // ══════════ melee_attack ══════════
 
-pub fn melee_attack_system(world: &mut World) {
+pub fn melee_attack_system(world: &mut World, current_tick: u32) {
     let soldier_config = world.resource::<SoldierConfig>().clone();
     let combat_config = world.resource::<CombatGlobalConfig>().clone();
 
@@ -323,6 +341,7 @@ pub fn melee_attack_system(world: &mut World) {
         if seen.contains(&te) { continue; }
         seen.insert(te);
         let uid = find_unit_id(world, te).unwrap_or(UnitId(0));
+        drop_shield_on_death(world, te, current_tick);
         world.despawn(te);
         // Decrement origin city population when soldier dies in combat
         if let Some(origin_id) = origin {
@@ -342,7 +361,7 @@ pub fn melee_attack_system(world: &mut World) {
 // ══════════ attack_windup ══════════
 
 /// Process attack windups — when windup completes, apply the attack.
-pub fn attack_windup_system(world: &mut World) {
+pub fn attack_windup_system(world: &mut World, current_tick: u32) {
     let combat_config = world.resource::<CombatGlobalConfig>().clone();
 
     // Collect entities with active windups (remaining_ticks > 0)
@@ -480,6 +499,7 @@ pub fn attack_windup_system(world: &mut World) {
         if seen.contains(&te) { continue; }
         seen.insert(te);
         let uid = find_unit_id(world, te).unwrap_or(UnitId(0));
+        drop_shield_on_death(world, te, current_tick);
         world.despawn(te);
         if let Some(origin_id) = origin {
             if let Some(oe) = find_entity_by_unit_id(world, origin_id) {
@@ -671,7 +691,7 @@ pub fn archer_attack_system(world: &mut World) {
 
 // ══════════ arrow_movement (flight + collision + decay) ══════════
 
-pub fn arrow_movement_system(world: &mut World) {
+pub fn arrow_movement_system(world: &mut World, current_tick: u32) {
     let combat_config = world.resource::<CombatGlobalConfig>().clone();
 
     // Collect soldier positions for collision (filter by SoldierMarker)
@@ -787,6 +807,7 @@ pub fn arrow_movement_system(world: &mut World) {
                             }
                         }
                     }
+                    drop_shield_on_death(world, te, current_tick);
                     world.despawn(te);
                     let mut events = world.resource_mut::<SimulationEvents>();
                     events.destroyed.push(UnitDestroyed { unit_id: uid, killer_id: *shooter });
@@ -872,7 +893,7 @@ mod arrow_city_tests {
         let dmg = 16u32;
         spawn_test_arrow(&mut world, arrow_start, dir, dmg, Faction::Player);
 
-        arrow_movement_system(&mut world);
+        arrow_movement_system(&mut world, 0);
 
         // Find city, check accumulator
         let mut q = world.query::<(Entity, &CityComponent)>();
@@ -902,7 +923,7 @@ mod arrow_city_tests {
         let dir = FixedVec2::new(Fixed::ZERO, Fixed::from_int(20));
         spawn_test_arrow(&mut world, arrow_start, dir, 16, Faction::Player);
 
-        arrow_movement_system(&mut world);
+        arrow_movement_system(&mut world, 0);
 
         let mut q = world.query::<(Entity, &CityComponent)>();
         let (_, city) = q.iter(&world).next().unwrap();
@@ -922,7 +943,7 @@ mod arrow_city_tests {
         let dir = FixedVec2::new(Fixed::ZERO, Fixed::from_int(20));
         spawn_test_arrow(&mut world, arrow_start, dir, 16, Faction::Player);
 
-        arrow_movement_system(&mut world);
+        arrow_movement_system(&mut world, 0);
 
         let mut q = world.query::<(Entity, &Arrow)>();
         let (_, arrow) = q.iter(&world).next().unwrap();
@@ -941,7 +962,7 @@ mod arrow_city_tests {
         let dir = FixedVec2::new(Fixed::ZERO, Fixed::from_int(20));
         spawn_test_arrow(&mut world, arrow_start, dir, 16, Faction::Player);
 
-        arrow_movement_system(&mut world);
+        arrow_movement_system(&mut world, 0);
 
         let mut q = world.query::<(Entity, &CityComponent)>();
         let (_, city) = q.iter(&world).next().unwrap();
@@ -990,7 +1011,7 @@ mod arrow_city_tests {
             },
         ));
 
-        arrow_movement_system(&mut world);
+        arrow_movement_system(&mut world, 0);
 
         // Check city took damage (200 damage → 200/200 = 1 HP)
         let mut q = world.query::<(Entity, &CityComponent)>();
