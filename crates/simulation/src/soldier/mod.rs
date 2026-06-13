@@ -73,7 +73,7 @@ pub fn consume_commands_system(world: &mut World, tick: u32) {
 
     for cmd in commands {
         match cmd.action {
-            Action::MoveTo { unit, target } => apply_movement(world, unit, target, false),
+            Action::MoveTo { unit, target } => apply_movement(world, unit, target, true),
             Action::ForceMove { unit, target } => apply_movement(world, unit, target, true),
             Action::Attack { unit, target } => {
                 if let Some(e) = find_entity_by_unit_id(world, unit) {

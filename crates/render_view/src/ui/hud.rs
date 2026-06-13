@@ -54,7 +54,7 @@ impl Default for SeekPanelState {
             scope: SeekScope::All,
             dropdown_open: false,
             input_active: false,
-            range_value: 10,
+            range_value: 0,
             has_selection: false,
         }
     }
@@ -504,7 +504,7 @@ pub fn seek_panel_mode_system(
         state.has_selection = now_selected;
         // Don't reset while user is actively typing in input
         if state.input_active { return; }
-        state.range_value = if now_selected { 30 } else { 10 };
+        state.range_value = 0;
     }
     // Update mode label
     if let Some(id) = ht.mode_label {
