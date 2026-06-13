@@ -41,7 +41,7 @@ pub fn draw_debug_shapes_system(
     {
         let soldier_config = world.resource::<SoldierConfig>().clone();
         let mut query = world.query::<(Entity, &LogicalPosition, &FactionComponent, &SoldierTypeComponent, Option<&simulation::types::FacingDirection>)>();
-        for (_entity, pos, faction, stype, facing) in query.iter(world) {
+        for (entity, pos, faction, stype, facing) in query.iter(world) {
             let color = match faction.0 {
                 simulation::types::Faction::Player => Color::srgb(0.3, 0.5, 0.9),
                 simulation::types::Faction::Enemy => Color::srgb(0.9, 0.3, 0.3),
@@ -63,6 +63,31 @@ pub fn draw_debug_shapes_system(
                     simulation::types::Faction::Neutral => Color::srgb(0.7, 0.7, 0.7),
                 };
                 gizmos.line_2d(p, p + dir * line_len, line_color);
+            }
+
+            // Shield visual — small rectangle to the right of the soldier
+            if let Some(shield) = world.get::<simulation::types::ShieldItem>(entity) {
+                if shield.hp > 0 {
+                    let shield_offset = r + 3.0;
+                    let shield_pos = p + Vec2::new(shield_offset, 0.0);
+                    let shield_color = match faction.0 {
+                        simulation::types::Faction::Player => Color::srgb(0.4, 0.6, 1.0),
+                        simulation::types::Faction::Enemy => Color::srgb(1.0, 0.4, 0.4),
+                        simulation::types::Faction::Neutral => Color::srgb(0.6, 0.6, 0.6),
+                    };
+                    let hw = 2.0;
+                    let hh = 2.5;
+                    let corners = [
+                        shield_pos + Vec2::new(-hw, -hh),
+                        shield_pos + Vec2::new(hw, -hh),
+                        shield_pos + Vec2::new(hw, hh),
+                        shield_pos + Vec2::new(-hw, hh),
+                    ];
+                    gizmos.line_2d(corners[0], corners[1], shield_color);
+                    gizmos.line_2d(corners[1], corners[2], shield_color);
+                    gizmos.line_2d(corners[2], corners[3], shield_color);
+                    gizmos.line_2d(corners[3], corners[0], shield_color);
+                }
             }
         }
     }

@@ -263,6 +263,14 @@ pub struct FacingDirection {
     pub angle: Fixed, // 0.0 to <360.0 in fixed-point degrees
 }
 
+/// Shield equipment with HP — attached to soldiers who carry a shield.
+/// When hp reaches 0 the shield is considered broken/dropped.
+#[derive(Component, Clone, Debug)]
+pub struct ShieldItem {
+    pub hp: u32,
+    pub max_hp: u32,
+}
+
 // ═══════════════════════════════════════════════════════════════
 // Deterministic PRNG
 // ═══════════════════════════════════════════════════════════════
