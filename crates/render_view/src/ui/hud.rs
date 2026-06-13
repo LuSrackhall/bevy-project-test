@@ -69,6 +69,17 @@ pub struct ToastMessage {
 
 const TOAST_DURATION_TICKS: u32 = 100; // 5 seconds at 20Hz
 
+/// Reset UI focus blocker at the start of each frame.
+pub fn reset_ui_focus_blocker(mut blocker: ResMut<UiFocusBlocker>) {
+    blocker.blocked = false;
+}
+
+/// Resource to block game-world click processing when UI is being interacted with.
+#[derive(Resource, Default)]
+pub struct UiFocusBlocker {
+    pub blocked: bool,
+}
+
 // ══════════ Marker Components ══════════
 
 #[derive(Component)] struct HudRoot;
@@ -509,6 +520,7 @@ pub fn seek_panel_mode_system(
 pub fn seek_panel_dropdown_system(
     mouse: Res<ButtonInput<MouseButton>>,
     mut state: ResMut<SeekPanelState>,
+    mut blocker: ResMut<UiFocusBlocker>,
     mut tq: Query<&mut Text>,
     ht: Res<HudTexts>,
     dropdown_btn: Query<&Interaction, With<SeekScopeDropdown>>,
@@ -517,6 +529,7 @@ pub fn seek_panel_dropdown_system(
 ) {
     // Toggle dropdown on trigger click (use just_pressed to avoid re-toggle)
     let trigger_pressed = dropdown_btn.iter().any(|i| *i == Interaction::Pressed);
+    if trigger_pressed { blocker.blocked = true; }
     if trigger_pressed && mouse.just_pressed(MouseButton::Left) {
         state.dropdown_open = !state.dropdown_open;
     }
@@ -639,14 +652,22 @@ pub fn seek_panel_input_system(
     mouse: Res<ButtonInput<MouseButton>>,
     keyboard: Res<ButtonInput<KeyCode>>,
     mut state: ResMut<SeekPanelState>,
+    mut blocker: ResMut<UiFocusBlocker>,
     mut tq: Query<&mut Text>,
     ht: Res<HudTexts>,
     input_btn: Query<&Interaction, With<SeekRangeInput>>,
 ) {
-    // Click on input box → activate keyboard capture
+    // Click on input box → activate keyboard capture and show cursor immediately
     let input_pressed = input_btn.iter().any(|i| *i == Interaction::Pressed);
-    if input_pressed && mouse.just_pressed(MouseButton::Left) {
+    if input_pressed { blocker.blocked = true; }
+    if input_pressed && mouse.just_pressed(MouseButton::Left) && !state.input_active {
         state.input_active = true;
+        // Show cursor immediately on activation
+        if let Some(id) = ht.seek_range_text {
+            if let Ok(mut t) = tq.get_mut(id) {
+                t.0 = format!("{}▌", state.range_value);
+            }
+        }
     }
 
     // Escape or click elsewhere → deactivate
@@ -713,6 +734,7 @@ pub fn seek_panel_input_system(
 pub fn seek_panel_issue_system(
     mouse: Res<ButtonInput<MouseButton>>,
     issue_btn: Query<&Interaction, With<SeekIssueBtn>>,
+    mut blocker: ResMut<UiFocusBlocker>,
     state: Res<SeekPanelState>,
     selection: Res<SelectionState>,
     mut cmd_buf: ResMut<CommandBuffer>,
@@ -720,6 +742,7 @@ pub fn seek_panel_issue_system(
     mut toast: ResMut<ToastMessage>,
 ) {
     if !mouse.just_pressed(MouseButton::Left) { return; }
+    if issue_btn.iter().any(|i| *i == Interaction::Pressed) { blocker.blocked = true; }
     for interaction in issue_btn.iter() {
         if *interaction != Interaction::Pressed { continue; }
 
