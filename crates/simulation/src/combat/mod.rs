@@ -288,17 +288,21 @@ pub fn archer_attack_system(world: &mut World) {
     };
 
     for ad in archers {
-        // Find nearest enemy in range
+        // Find all enemy soldiers in range and track nearest
         let range_fixed = Fixed::from_int(ad.range as i32);
         let range_sq = range_fixed * range_fixed;
+        let mut enemy_soldiers_in_range: Vec<(UnitId, FixedVec2)> = Vec::new();
         let mut nearest: Option<(UnitId, FixedVec2)> = None;
         let mut nearest_d = i64::MAX;
         for (eid, epos, efac) in &all_units {
             if *efac == ad.faction { continue; } // only target enemies
             let ds = (ad.pos - *epos).length_squared();
-            if ds <= range_sq && ds.0 < nearest_d {
-                nearest = Some((*eid, *epos));
-                nearest_d = ds.0;
+            if ds <= range_sq {
+                enemy_soldiers_in_range.push((*eid, *epos));
+                if ds.0 < nearest_d {
+                    nearest = Some((*eid, *epos));
+                    nearest_d = ds.0;
+                }
             }
         }
 
@@ -321,53 +325,95 @@ pub fn archer_attack_system(world: &mut World) {
             continue;
         };
 
-        // Compute flight direction with spread (65% dead-on, 35% ±0.1°–10°)
-        let delta = target_pos - ad.pos;
-        let dist_internal = integer_sqrt(delta.length_squared().0 * FIXED_ONE);
-        if dist_internal <= 0 { continue; }
-        let dist = Fixed(dist_internal);
-        let dir_unit = FixedVec2::new(delta.x / dist, delta.y / dist);
+        // ── Multi-shot check ──
+        let multi_cfg = &combat_config.archer_multi_shot;
+        let multi_chance = (multi_cfg.base_chance + ad.level as f32 * multi_cfg.per_level_bonus)
+            .min(multi_cfg.max_chance)
+            .max(multi_cfg.min_chance);
 
-        // Spread: 10° max in radians ≈ 0.1745 → Fixed(44) with 8-bit precision
-        let max_spread = Fixed(44);
-        let spread_angle = {
+        let targets_to_hit: Vec<(UnitId, FixedVec2)> = {
             let mut rng = world.resource_mut::<DeterministicRng>();
-            if rng.gen_probability() < 0.65 {
-                Fixed::ZERO // 65% perfect aim
+            let roll = rng.gen_probability();
+
+            if roll < multi_chance && enemy_soldiers_in_range.len() > 1 {
+                // Multi-shot: pick 2-5 random enemies in range
+                let num_shots = 2 + (rng.gen_probability() * 4.0) as u32; // 2-5
+                let num_shots = num_shots.min(enemy_soldiers_in_range.len() as u32);
+
+                // Collect candidates excluding primary target
+                let mut candidates: Vec<(UnitId, FixedVec2)> = enemy_soldiers_in_range
+                    .iter()
+                    .filter(|(id, _)| *id != target_id)
+                    .cloned()
+                    .collect();
+
+                // Shuffle using Fisher-Yates with deterministic RNG
+                for i in (1..candidates.len()).rev() {
+                    let j = (rng.gen_probability() * (i + 1) as f32) as usize;
+                    candidates.swap(i, j.min(i));
+                }
+
+                // Take num_shots - 1 extra targets + primary
+                let mut targets = vec![(target_id, target_pos)];
+                targets.extend(candidates.into_iter().take((num_shots - 1) as usize));
+                targets
             } else {
-                let angle = Fixed(1 + (rng.next_u64() % 44) as i64); // 0.1°–10°
-                if rng.gen_probability() < 0.5 { Fixed(-angle.0) } else { angle }
+                // Single shot
+                vec![(target_id, target_pos)]
             }
         };
+        // RNG borrow dropped here before spawning arrows
 
-        // Apply rotation via small-angle approx: sin(θ)≈θ, cos(θ)≈1
-        let sin_a = spread_angle;
-        let cos_a = Fixed::ONE; // cos(small) ≈ 1
-        let rotated_x = dir_unit.x * cos_a - dir_unit.y * sin_a;
-        let rotated_y = dir_unit.x * sin_a + dir_unit.y * cos_a;
-
-        let speed = Fixed::from_int(ad.cfg.arrow_speed as i32);
-        let direction = FixedVec2::new(rotated_x * speed, rotated_y * speed);
-
+        // Fire arrows at all targets
         let flight_ticks = ad.cfg.compute_flight_ticks(ad.level);
         let pierce_chance = ad.cfg.compute_pierce_chance(ad.level);
         let damage = ad.dmg + ad.level * combat_config.level_up.attack_gain;
+        let speed = Fixed::from_int(ad.cfg.arrow_speed as i32);
+        let shooter_id = find_unit_id(world, ad.entity);
 
-        // Spawn arrow
-        let aid = { world.resource_mut::<IdGenerator>().next() };
-        world.spawn((
-            UnitIdComponent(aid), ArrowMarker, LogicalPosition(ad.pos),
-            Arrow {
-                direction, damage, from_faction: ad.faction,
-                shooter: find_unit_id(world, ad.entity),
-                flight_remaining: flight_ticks, decay_remaining: 0,
-                pierce_chance, stuck_to: None, hit_units: Vec::new(),
-                start_pos: ad.pos,
-            },
-        ));
+        for (_t_id, t_pos) in &targets_to_hit {
+            // Compute flight direction with spread (65% dead-on, 35% ±0.1°–10°)
+            let delta = *t_pos - ad.pos;
+            let dist_internal = integer_sqrt(delta.length_squared().0 * FIXED_ONE);
+            if dist_internal <= 0 { continue; }
+            let dist = Fixed(dist_internal);
+            let dir_unit = FixedVec2::new(delta.x / dist, delta.y / dist);
 
-        let mut events = world.resource_mut::<SimulationEvents>();
-        events.spawned.push(UnitSpawned { unit_id: aid, pos: ad.pos, faction: ad.faction, unit_kind: UnitKind::Arrow });
+            // Spread: 10° max in radians ≈ 0.1745 → Fixed(44) with 8-bit precision
+            let spread_angle = {
+                let mut rng = world.resource_mut::<DeterministicRng>();
+                if rng.gen_probability() < 0.65 {
+                    Fixed::ZERO // 65% perfect aim
+                } else {
+                    let angle = Fixed(1 + (rng.next_u64() % 44) as i64); // 0.1°–10°
+                    if rng.gen_probability() < 0.5 { Fixed(-angle.0) } else { angle }
+                }
+            };
+
+            // Apply rotation via small-angle approx: sin(θ)≈θ, cos(θ)≈1
+            let sin_a = spread_angle;
+            let cos_a = Fixed::ONE; // cos(small) ≈ 1
+            let rotated_x = dir_unit.x * cos_a - dir_unit.y * sin_a;
+            let rotated_y = dir_unit.x * sin_a + dir_unit.y * cos_a;
+
+            let direction = FixedVec2::new(rotated_x * speed, rotated_y * speed);
+
+            // Spawn arrow
+            let aid = { world.resource_mut::<IdGenerator>().next() };
+            world.spawn((
+                UnitIdComponent(aid), ArrowMarker, LogicalPosition(ad.pos),
+                Arrow {
+                    direction, damage, from_faction: ad.faction,
+                    shooter: shooter_id,
+                    flight_remaining: flight_ticks, decay_remaining: 0,
+                    pierce_chance, stuck_to: None, hit_units: Vec::new(),
+                    start_pos: ad.pos,
+                },
+            ));
+
+            let mut events = world.resource_mut::<SimulationEvents>();
+            events.spawned.push(UnitSpawned { unit_id: aid, pos: ad.pos, faction: ad.faction, unit_kind: UnitKind::Arrow });
+        }
 
         // Reset cooldown and set Fighting state (prevents movement while shooting)
         world.entity_mut(ad.entity).insert(Attack { damage: ad.dmg, range: ad.range, interval_ticks: ad.interval, cooldown_remaining: ad.interval });
