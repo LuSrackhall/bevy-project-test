@@ -336,6 +336,7 @@ pub fn overlap_resolution_system(world: &mut World) {
 
 pub fn city_spawn_system(world: &mut World) {
     let soldier_config = world.resource::<SoldierConfig>().clone();
+    let combat_config = world.resource::<CombatGlobalConfig>().clone();
     let seek_directives = world.resource::<GlobalSeekDirective>().clone();
 
     // Collect city entities and check spawn conditions
@@ -383,7 +384,7 @@ pub fn city_spawn_system(world: &mut World) {
             // Create soldier
             let cfg = soldier_config.get(spawn_type);
             let origin = find_nearest_city_uid(world, spawn_pos, faction);
-            world.spawn((
+            let soldier_entity = world.spawn((
                 UnitIdComponent(new_id), SoldierMarker, LogicalPosition(spawn_pos),
                 Movement { speed: cfg.speed, target: None, command_target: None, waypoint: None, force_move: false },
                 seek_stance,
@@ -391,10 +392,13 @@ pub fn city_spawn_system(world: &mut World) {
                 Attack { damage: cfg.attack, range: cfg.attack_range, interval_ticks: cfg.attack_interval_ticks, cooldown_remaining: cfg.attack_interval_ticks },
                 FactionComponent(faction), SoldierTypeComponent(spawn_type),
                 Level { level: 1, exp: 0 }, ShieldComponent { state: ShieldState::Normal },
+                ShieldItem { hp: combat_config.shield.initial_hp, max_hp: combat_config.shield.initial_hp },
                 CityOrigin(origin), SoldierStateComponent(SoldierState::Moving),
                 crate::types::FacingDirection { angle: Fixed::ZERO },
+            )).id();
+            world.entity_mut(soldier_entity).insert(
                 crate::types::AttackWindup { remaining_ticks: 0, target: None },
-            ));
+            );
 
             let mut events = world.resource_mut::<SimulationEvents>();
             events.spawned.push(UnitSpawned { unit_id: new_id, pos: spawn_pos, faction, unit_kind: UnitKind::Soldier(spawn_type) });
@@ -651,6 +655,7 @@ mod seek_stance_tests {
     fn spawn_player_soldier(world: &mut World, pos: FixedVec2, stype: SoldierType) -> UnitId {
         let uid = world.resource_mut::<IdGenerator>().next();
         let cfg = world.resource::<SoldierConfig>().get(stype).clone();
+        let shield_hp = world.resource::<CombatGlobalConfig>().shield.initial_hp;
         world.spawn((
             UnitIdComponent(uid), SoldierMarker, LogicalPosition(pos),
             Movement { speed: cfg.speed, target: None, command_target: None, waypoint: None, force_move: false },
@@ -659,6 +664,7 @@ mod seek_stance_tests {
             Attack { damage: cfg.attack, range: cfg.attack_range, interval_ticks: cfg.attack_interval_ticks, cooldown_remaining: 0 },
             FactionComponent(Faction::Player), SoldierTypeComponent(stype),
             Level { level: 1, exp: 0 }, ShieldComponent { state: ShieldState::Normal },
+            ShieldItem { hp: shield_hp, max_hp: shield_hp },
             CityOrigin(UnitId(0)), SoldierStateComponent(SoldierState::Moving),
         ));
         uid
@@ -667,6 +673,7 @@ mod seek_stance_tests {
     /// Spawn an enemy soldier at a position.
     fn spawn_enemy_soldier(world: &mut World, pos: FixedVec2) -> UnitId {
         let uid = world.resource_mut::<IdGenerator>().next();
+        let shield_hp = world.resource::<CombatGlobalConfig>().shield.initial_hp;
         world.spawn((
             UnitIdComponent(uid), SoldierMarker, LogicalPosition(pos),
             Movement { speed: 80, target: None, command_target: None, waypoint: None, force_move: false },
@@ -675,6 +682,7 @@ mod seek_stance_tests {
             Attack { damage: 10, range: 30, interval_ticks: 10, cooldown_remaining: 0 },
             FactionComponent(Faction::Enemy), SoldierTypeComponent(SoldierType::Militia),
             Level { level: 1, exp: 0 }, ShieldComponent { state: ShieldState::Normal },
+            ShieldItem { hp: shield_hp, max_hp: shield_hp },
             CityOrigin(UnitId(0)), SoldierStateComponent(SoldierState::Moving),
         ));
         uid

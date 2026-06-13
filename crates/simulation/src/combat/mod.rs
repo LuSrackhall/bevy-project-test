@@ -115,6 +115,34 @@ pub fn combat_engagement_system(world: &mut World) {
     }
 }
 
+// ══════════ Shield passive block helper ══════════
+
+/// Attempt passive shield block. Returns remaining damage after shield absorption.
+/// Call AFTER cavalry dodge, BEFORE applying damage to Health.
+fn try_passive_block(world: &mut World, target_entity: Entity, mut damage: u32) -> u32 {
+    if damage == 0 { return 0; }
+    if world.get::<ShieldComponent>(target_entity).is_none() { return damage; }
+
+    let passive_block_chance = world.resource::<CombatGlobalConfig>().shield.passive_block_chance;
+    let block_roll = world.resource_mut::<DeterministicRng>().gen_probability();
+
+    if block_roll < passive_block_chance {
+        if let Some(mut shield_item) = world.get_mut::<ShieldItem>(target_entity) {
+            if shield_item.hp <= damage {
+                let shield_damage = shield_item.hp;
+                shield_item.hp = 0;
+                damage -= shield_damage;
+                world.entity_mut(target_entity).remove::<ShieldComponent>();
+                world.entity_mut(target_entity).remove::<ShieldItem>();
+            } else {
+                shield_item.hp -= damage;
+                damage = 0;
+            }
+        }
+    }
+    damage
+}
+
 // ══════════ melee_attack ══════════
 
 pub fn melee_attack_system(world: &mut World) {
@@ -206,6 +234,9 @@ pub fn melee_attack_system(world: &mut World) {
                 world.entity_mut(te).insert(FearlessBuff { remaining_ticks: combat_config.fearless.duration_ticks });
             }
         }
+
+        // Shield passive block check (after dodge, before damage application)
+        damage = try_passive_block(world, te, damage);
 
         if damage > 0 {
             let died = {
@@ -355,6 +386,9 @@ pub fn attack_windup_system(world: &mut World) {
                 world.entity_mut(te).insert(FearlessBuff { remaining_ticks: combat_config.fearless.duration_ticks });
             }
         }
+
+        // Shield passive block check (after dodge, before damage application)
+        damage = try_passive_block(world, te, damage);
 
         if damage > 0 {
             let died = {
@@ -687,14 +721,15 @@ pub fn arrow_movement_system(world: &mut World) {
     for (ae, dmg, stuck_to, _pierced, shooter) in &hits {
         if let Some(sid) = stuck_to {
             if let Some(te) = find_entity_by_unit_id(world, *sid) {
+                // Shield passive block check (before damage application)
+                let remaining_dmg = try_passive_block(world, te, *dmg);
                 let died = {
                     let mut em = world.entity_mut(te);
                     if let Some(mut hp) = em.get_mut::<Health>() {
-                        hp.current = hp.current.saturating_sub(*dmg);
+                        hp.current = hp.current.saturating_sub(remaining_dmg);
                         hp.current == 0
                     } else { false }
                 };
-                // Shield intercept check (simplified — shield handled in melee for now)
                 if died {
                     let uid = find_unit_id(world, te).unwrap_or(UnitId(0));
                     if let Some(origin) = world.entity(te).get::<CityOrigin>().map(|c| c.0) {
