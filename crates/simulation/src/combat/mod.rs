@@ -8,6 +8,7 @@ use crate::types::*;
 use crate::events::*;
 use crate::soldier::*;
 use crate::soldier::config::SoldierConfig;
+use crate::facing;
 use crate::combat::config::CombatGlobalConfig;
 
 // ══════════ Arrow Types ══════════
@@ -115,15 +116,52 @@ pub fn combat_engagement_system(world: &mut World) {
     }
 }
 
-// ══════════ Shield passive block helper ══════════
+// ══════════ Shield block helper (manual + passive) ══════════
 
-/// Attempt passive shield block. Returns remaining damage after shield absorption.
+/// Attempt shield block (manual frontal + passive chance).
+/// Returns remaining damage after shield absorption.
 /// Call AFTER cavalry dodge, BEFORE applying damage to Health.
-fn try_passive_block(world: &mut World, target_entity: Entity, mut damage: u32) -> u32 {
+fn try_passive_block(world: &mut World, target_entity: Entity, mut damage: u32, attacker_pos: Option<FixedVec2>) -> u32 {
     if damage == 0 { return 0; }
+
+    let combat_config = world.resource::<CombatGlobalConfig>().clone();
+
+    // ── Manual block check (infantry in Blocking state) ──
+    let is_blocking = world.get::<ShieldComponent>(target_entity)
+        .map_or(false, |sc| sc.state == ShieldState::Blocking);
+
+    if is_blocking {
+        if let (Some(facing_comp), Some(atk_pos)) = (world.get::<FacingDirection>(target_entity), attacker_pos) {
+            if let Some(target_pos) = world.get::<LogicalPosition>(target_entity).map(|p| p.0) {
+                let attack_angle = facing::compute_angle_between(target_pos, atk_pos);
+                let deviation = facing::angle_distance(facing_comp.angle, attack_angle);
+                let frontal_half = Fixed::from_int(combat_config.shield.frontal_angle_deg as i32 / 2);
+
+                if deviation <= frontal_half {
+                    // Frontal hit — 100% absorbed by shield
+                    if let Some(mut shield_item) = world.get_mut::<ShieldItem>(target_entity) {
+                        if shield_item.hp <= damage {
+                            let absorbed = shield_item.hp;
+                            shield_item.hp = 0;
+                            damage -= absorbed;
+                            world.entity_mut(target_entity).remove::<ShieldComponent>();
+                            world.entity_mut(target_entity).remove::<ShieldItem>();
+                        } else {
+                            shield_item.hp -= damage;
+                            return 0; // all damage absorbed
+                        }
+                    }
+                    return damage;
+                }
+                // Non-frontal: falls through to passive block check below
+            }
+        }
+    }
+
+    // ── Passive block check (40% chance, any direction) ──
     if world.get::<ShieldComponent>(target_entity).is_none() { return damage; }
 
-    let passive_block_chance = world.resource::<CombatGlobalConfig>().shield.passive_block_chance;
+    let passive_block_chance = combat_config.shield.passive_block_chance;
     let block_roll = world.resource_mut::<DeterministicRng>().gen_probability();
 
     if block_roll < passive_block_chance {
@@ -235,8 +273,8 @@ pub fn melee_attack_system(world: &mut World) {
             }
         }
 
-        // Shield passive block check (after dodge, before damage application)
-        damage = try_passive_block(world, te, damage);
+        // Shield block check (after dodge, before damage application)
+        damage = try_passive_block(world, te, damage, Some(ad.pos));
 
         if damage > 0 {
             let died = {
@@ -256,8 +294,13 @@ pub fn melee_attack_system(world: &mut World) {
             }
         }
 
-        // Reset attacker cooldown
-        world.entity_mut(ad.entity).insert(Attack { damage: ad.dmg, range: ad.range, interval_ticks: ad.interval, cooldown_remaining: ad.interval });
+        // Reset attacker cooldown (penalized if blocking)
+        let cooldown = if world.get::<ShieldComponent>(ad.entity).map_or(false, |sc| sc.state == ShieldState::Blocking) {
+            combat_config.shield.attack_speed_penalty
+        } else {
+            ad.interval
+        };
+        world.entity_mut(ad.entity).insert(Attack { damage: ad.dmg, range: ad.range, interval_ticks: ad.interval, cooldown_remaining: cooldown });
     }
 
     // Apply lifesteal & XP
@@ -387,8 +430,8 @@ pub fn attack_windup_system(world: &mut World) {
             }
         }
 
-        // Shield passive block check (after dodge, before damage application)
-        damage = try_passive_block(world, te, damage);
+        // Shield block check (after dodge, before damage application)
+        damage = try_passive_block(world, te, damage, Some(ad_pos));
 
         if damage > 0 {
             let died = {
@@ -408,8 +451,13 @@ pub fn attack_windup_system(world: &mut World) {
             }
         }
 
-        // Reset attacker cooldown
-        world.entity_mut(attacker_entity).insert(Attack { damage: ad_dmg, range: ad_range, interval_ticks: ad_interval, cooldown_remaining: ad_interval });
+        // Reset attacker cooldown (penalized if blocking)
+        let cooldown = if world.get::<ShieldComponent>(attacker_entity).map_or(false, |sc| sc.state == ShieldState::Blocking) {
+            combat_config.shield.attack_speed_penalty
+        } else {
+            ad_interval
+        };
+        world.entity_mut(attacker_entity).insert(Attack { damage: ad_dmg, range: ad_range, interval_ticks: ad_interval, cooldown_remaining: cooldown });
     }
 
     // Apply lifesteal & XP
@@ -648,7 +696,7 @@ pub fn arrow_movement_system(world: &mut World) {
     };
     let mut pierce_idx = 0usize;
 
-    let mut hits: Vec<(Entity, u32, Option<UnitId>, bool, Option<UnitId>)> = Vec::new();
+    let mut hits: Vec<(Entity, u32, Option<UnitId>, bool, Option<UnitId>, FixedVec2)> = Vec::new();
     let mut city_hits: Vec<(Entity, u32)> = Vec::new(); // (city_entity, arrow_damage)
 
     // Process each arrow
@@ -684,11 +732,11 @@ pub fn arrow_movement_system(world: &mut World) {
                         let rolled = pierce_rolls[pierce_idx.min(pierce_rolls.len()-1)];
                         pierce_idx += 1;
                         if rolled < arrow.pierce_chance {
-                            hits.push((ae, arrow.damage, None, true, arrow.shooter));
+                            hits.push((ae, arrow.damage, None, true, arrow.shooter, arrow_pos.0));
                         } else {
                             arrow.stuck_to = Some(*eid);
                             arrow.decay_remaining = ARROW_DECAY_TICKS;
-                            hits.push((ae, arrow.damage, Some(*eid), false, arrow.shooter));
+                            hits.push((ae, arrow.damage, Some(*eid), false, arrow.shooter, arrow_pos.0));
                             stopped_by_soldier = true;
                             break;
                         }
@@ -718,11 +766,11 @@ pub fn arrow_movement_system(world: &mut World) {
     }
 
     // Apply damage from hits
-    for (ae, dmg, stuck_to, _pierced, shooter) in &hits {
+    for (ae, dmg, stuck_to, _pierced, shooter, arrow_hit_pos) in &hits {
         if let Some(sid) = stuck_to {
             if let Some(te) = find_entity_by_unit_id(world, *sid) {
-                // Shield passive block check (before damage application)
-                let remaining_dmg = try_passive_block(world, te, *dmg);
+                // Shield block check (before damage application)
+                let remaining_dmg = try_passive_block(world, te, *dmg, Some(*arrow_hit_pos));
                 let died = {
                     let mut em = world.entity_mut(te);
                     if let Some(mut hp) = em.get_mut::<Health>() {
