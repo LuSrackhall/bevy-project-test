@@ -88,6 +88,9 @@ pub fn run_tick(world: &mut World, tick_number: u32) -> SimulationEvents {
     // Phase 8: Melee attacks
     combat::melee_attack_system(world);
 
+    // Phase 8.5: Attack windup completion (non-cavalry delayed attacks)
+    combat::attack_windup_system(world);
+
     // Phase 9: Archer attacks (direction-based)
     combat::archer_attack_system(world);
 

@@ -156,6 +156,8 @@ pub fn melee_attack_system(world: &mut World) {
     let mut ls_hits: Vec<(Entity, u32, u32, bool)> = Vec::new();
     let mut ls_kills: Vec<(Entity, u32, u32, bool)> = Vec::new();
 
+    let windup_config = combat_config.attack_windup.clone();
+
     for ad in attackers {
         let Some(tid) = ad.target else { continue };
         let Some(&tpos) = positions.get(&tid) else { continue };
@@ -163,6 +165,22 @@ pub fn melee_attack_system(world: &mut World) {
         let range_f = Fixed::from_int(ad.range as i32);
         if (ad.pos - tpos).length_squared() > range_f * range_f { continue; }
 
+        // Non-cavalry: start windup instead of attacking immediately
+        if ad.stype != SoldierType::Cavalry || !windup_config.cavalry_no_windup {
+            // Check if already in a windup — if so, don't start another
+            let already_winding = world.entity(ad.entity)
+                .get::<AttackWindup>()
+                .map_or(false, |w| w.remaining_ticks > 0);
+            if !already_winding {
+                world.entity_mut(ad.entity).insert(AttackWindup {
+                    remaining_ticks: windup_config.windup_ticks,
+                    target: Some(tid),
+                });
+            }
+            continue;
+        }
+
+        // Cavalry with cavalry_no_windup: attack immediately (existing behavior)
         let Some(te) = find_entity_by_unit_id(world, tid) else { continue };
 
         let (thp, tmax, tst, _tfac, city_origin) = {
@@ -246,6 +264,154 @@ pub fn melee_attack_system(world: &mut World) {
 }
 
 // ══════════ melee_attack (end) ══════════
+
+// ══════════ attack_windup ══════════
+
+/// Process attack windups — when windup completes, apply the attack.
+pub fn attack_windup_system(world: &mut World) {
+    let combat_config = world.resource::<CombatGlobalConfig>().clone();
+
+    // Collect entities with active windups (remaining_ticks > 0)
+    let mut windup_entities: Vec<(Entity, u32, Option<UnitId>)> = Vec::new();
+    {
+        let mut q = world.query::<(Entity, &AttackWindup)>();
+        for (entity, windup) in q.iter(world) {
+            if windup.remaining_ticks > 0 {
+                windup_entities.push((entity, windup.remaining_ticks, windup.target));
+            }
+        }
+    }
+
+    // Decrement windups and collect completed ones
+    let mut ready: Vec<(Entity, UnitId)> = Vec::new();
+    for (entity, remaining, target) in windup_entities {
+        let new_remaining = remaining - 1;
+        if new_remaining == 0 {
+            if let Some(target_id) = target {
+                ready.push((entity, target_id));
+            }
+            // Clear windup state
+            world.entity_mut(entity).insert(AttackWindup { remaining_ticks: 0, target: None });
+        } else {
+            world.entity_mut(entity).insert(AttackWindup { remaining_ticks: new_remaining, target });
+        }
+    }
+
+    // Position lookup for range checks
+    let positions: HashMap<UnitId, FixedVec2> = {
+        let mut q = world.query::<(Entity, &UnitIdComponent, &LogicalPosition)>();
+        q.iter(world).map(|(_, id, pos)| (id.0, pos.0)).collect()
+    };
+
+    // Apply attacks for completed windups
+    let mut pending_deaths: Vec<(Entity, Option<UnitId>, Option<UnitId>)> = Vec::new();
+    let mut xp_grants: Vec<(Entity, u32)> = Vec::new();
+    let mut ls_hits: Vec<(Entity, u32, u32, bool)> = Vec::new();
+    let mut ls_kills: Vec<(Entity, u32, u32, bool)> = Vec::new();
+
+    for (attacker_entity, target_id) in ready {
+        // Get attacker data
+        let (ad_uid, ad_pos, ad_dmg, ad_range, ad_level, ad_interval, ad_has_fearless) = {
+            let em = world.entity(attacker_entity);
+            let uid = em.get::<UnitIdComponent>().map(|c| c.0);
+            let pos = em.get::<LogicalPosition>().map(|p| p.0);
+            let atk = em.get::<Attack>();
+            let lvl = em.get::<Level>().map(|l| l.level);
+            let fb = em.get::<FearlessBuff>().is_some();
+            match (uid, pos, atk, lvl) {
+                (Some(u), Some(p), Some(a), Some(l)) => (u, p, a.damage, a.range, l, a.interval_ticks, fb),
+                _ => continue,
+            }
+        };
+
+        // Verify target is still in range
+        let Some(&tpos) = positions.get(&target_id) else { continue };
+        let range_f = Fixed::from_int(ad_range as i32);
+        if (ad_pos - tpos).length_squared() > range_f * range_f { continue; }
+
+        let Some(te) = find_entity_by_unit_id(world, target_id) else { continue };
+
+        let (thp, tmax, tst, _tfac, city_origin) = {
+            let em = world.entity(te);
+            let hp = em.get::<Health>();
+            (hp.map(|h| h.current), hp.map(|h| h.max),
+             em.get::<SoldierTypeComponent>().map(|s| s.0),
+             em.get::<FactionComponent>().map(|f| f.0),
+             em.get::<CityOrigin>().map(|c| c.0))
+        };
+        let Some(hp_cur) = thp else { continue };
+        let Some(hp_max) = tmax else { continue };
+
+        // Compute damage (same formula as melee_attack_system)
+        let mut damage = ad_dmg + ad_level * combat_config.level_up.attack_gain;
+        if ad_has_fearless { damage += combat_config.fearless.attack_bonus; }
+
+        // Cavalry dodge
+        if tst == Some(SoldierType::Cavalry) && hp_max > 0 {
+            let hp_r = hp_cur as f32 / hp_max as f32;
+            let dc = (combat_config.cavalry.dodge_max_chance - (1.0 - hp_r) * combat_config.cavalry.dodge_decay_rate).max(0.0);
+            if world.resource_mut::<DeterministicRng>().gen_probability() < dc {
+                damage = 0;
+                world.entity_mut(te).insert(FearlessBuff { remaining_ticks: combat_config.fearless.duration_ticks });
+            }
+        }
+
+        if damage > 0 {
+            let died = {
+                let mut em = world.entity_mut(te);
+                if let Some(mut hp) = em.get_mut::<Health>() {
+                    hp.current = hp.current.saturating_sub(damage);
+                    hp.current == 0
+                } else { false }
+            };
+
+            if died {
+                pending_deaths.push((te, Some(ad_uid), city_origin));
+                xp_grants.push((attacker_entity, combat_config.level_up.exp_per_kill));
+                ls_kills.push((attacker_entity, damage, ad_level, ad_has_fearless));
+            } else {
+                ls_hits.push((attacker_entity, damage, ad_level, ad_has_fearless));
+            }
+        }
+
+        // Reset attacker cooldown
+        world.entity_mut(attacker_entity).insert(Attack { damage: ad_dmg, range: ad_range, interval_ticks: ad_interval, cooldown_remaining: ad_interval });
+    }
+
+    // Apply lifesteal & XP
+    for (e, dmg, lvl, hf) in ls_kills.iter().chain(ls_hits.iter()) {
+        let ls = if *lvl >= combat_config.level_up.lifesteal_unlock_level { combat_config.level_up.lifesteal_rate } else { 0.0 }
+            + if *hf { combat_config.fearless.lifesteal_bonus } else { 0.0 };
+        if ls > 0.0 {
+            if let Some(mut hp) = world.entity_mut(*e).get_mut::<Health>() {
+                hp.current = (hp.current + (*dmg as f32 * ls) as u32).min(hp.max);
+            }
+        }
+    }
+    for (e, xp) in xp_grants {
+        if let Some(mut lvl) = world.entity_mut(e).get_mut::<Level>() { lvl.exp += xp; }
+    }
+
+    // Process deaths
+    let mut seen = std::collections::HashSet::new();
+    for (te, kid, origin) in pending_deaths {
+        if seen.contains(&te) { continue; }
+        seen.insert(te);
+        let uid = find_unit_id(world, te).unwrap_or(UnitId(0));
+        world.despawn(te);
+        if let Some(origin_id) = origin {
+            if let Some(oe) = find_entity_by_unit_id(world, origin_id) {
+                if let Some(mut c) = world.entity_mut(oe).get_mut::<CityComponent>() {
+                    c.population = c.population.saturating_sub(1);
+                }
+            }
+        }
+        let mut events = world.resource_mut::<SimulationEvents>();
+        events.destroyed.push(UnitDestroyed { unit_id: uid, killer_id: kid });
+    }
+}
+
+// ══════════ attack_windup (end) ══════════
 
 
 // ══════════ archer_attack (direction-based) ══════════
