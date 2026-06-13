@@ -24,6 +24,7 @@ impl Plugin for UiPlugin {
                 hud::toolbar_button_system,
                 hud::seek_panel_mode_system,
                 hud::seek_panel_dropdown_system,
+                hud::seek_panel_count_system,
                 hud::seek_panel_input_system,
                 hud::seek_panel_issue_system,
                 hud::toast_tick_system,
@@ -48,10 +49,9 @@ fn handle_pause_input(
     mut seek_state: ResMut<hud::SeekPanelState>,
 ) {
     if keyboard.just_pressed(KeyCode::Escape) {
-        // If editing range input, cancel edit instead of deselecting/pausing
-        if seek_state.editing {
-            seek_state.editing = false;
-            seek_state.input_buffer.clear();
+        // If input is active, deactivate instead of deselecting/pausing
+        if seek_state.input_active {
+            seek_state.input_active = false;
             return;
         }
         if seek_state.dropdown_open {

@@ -425,8 +425,8 @@ pub fn seek_stance_shortcut_system(
 ) {
     if !keyboard.just_pressed(KeyCode::KeyS) { return; }
     if selection.selected_unit_ids.is_empty() { return; }
-    // Don't trigger when seek panel is in edit mode
-    if seek_state.editing { return; }
+    // Don't trigger when seek panel input is active
+    if seek_state.input_active { return; }
     // Don't trigger when Ctrl/Cmd is held (that would be Ctrl+S etc.)
     if keyboard.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight])
         || keyboard.any_pressed([KeyCode::SuperLeft, KeyCode::SuperRight]) { return; }

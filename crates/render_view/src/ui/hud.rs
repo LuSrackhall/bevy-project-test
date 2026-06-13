@@ -34,6 +34,8 @@ pub(crate) struct HudTexts {
     pub(crate) seek_scope_text: Option<Entity>,
     pub(crate) seek_range_text: Option<Entity>,
     pub(crate) seek_dropdown_container: Option<Entity>,
+    pub(crate) mode_label: Option<Entity>,
+    pub(crate) seek_option_counts: [Option<Entity>; 5], // 全体/民兵/步兵/弓兵/骑兵
 }
 
 /// Seek panel state — drives the dropdown, range input, and mode switching.
@@ -41,10 +43,9 @@ pub(crate) struct HudTexts {
 pub struct SeekPanelState {
     pub scope: SeekScope,
     pub dropdown_open: bool,
-    pub editing: bool,
-    pub input_buffer: String,
+    pub input_active: bool,
     pub range_value: u32,
-    pub has_selection: bool, // tracks previous frame selection for mode-change detection
+    pub has_selection: bool,
 }
 
 impl Default for SeekPanelState {
@@ -52,8 +53,7 @@ impl Default for SeekPanelState {
         Self {
             scope: SeekScope::All,
             dropdown_open: false,
-            editing: false,
-            input_buffer: String::new(),
+            input_active: false,
             range_value: 10,
             has_selection: false,
         }
@@ -227,6 +227,10 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
             // Right: seek panel (scope dropdown + range input + issue button)
             p.spawn((Node { flex_direction: FlexDirection::Row, align_items: AlignItems::Center, column_gap: Val::Px(6.0), ..default() }, SeekPanelRoot))
             .with_children(|p| {
+                // Mode label
+                ht.mode_label = Some(p.spawn((Text::new("索敌"), TextFont { font: font.clone(), font_size: 12.0, ..default() },
+                    TextColor(Color::srgba(0.7, 0.85, 1.0, 1.0)))).id());
+
                 // Scope dropdown (relative container for popup positioning)
                 p.spawn(Node { position_type: PositionType::Relative, ..default() }).with_children(|p| {
                     // Trigger button — store Text child entity ID (not Button parent ID)
@@ -246,12 +250,24 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
                         ..default()
                     }, BackgroundColor(Color::srgba(0.15, 0.15, 0.2, 0.95)), SeekDropdownPopup,
                     )).with_children(|p| {
-                        for (label, scope) in [("全体", SeekScope::All), ("步兵", SeekScope::ByType(SoldierType::Infantry)),
-                            ("弓兵", SeekScope::ByType(SoldierType::Archer)), ("骑兵", SeekScope::ByType(SoldierType::Cavalry))]
-                        {
-                            p.spawn((Button, Node { padding: UiRect::new(Val::Px(12.0), Val::Px(12.0), Val::Px(4.0), Val::Px(4.0)), ..default() },
-                                SeekScopeOption(scope),
-                            )).with_child((Text::new(label), TextFont { font: font.clone(), font_size: 12.0, ..default() }));
+                        let options = [
+                            ("全体", SeekScope::All),
+                            ("民兵", SeekScope::ByType(SoldierType::Militia)),
+                            ("步兵", SeekScope::ByType(SoldierType::Infantry)),
+                            ("弓兵", SeekScope::ByType(SoldierType::Archer)),
+                            ("骑兵", SeekScope::ByType(SoldierType::Cavalry)),
+                        ];
+                        for (i, (label, scope)) in options.iter().enumerate() {
+                            let mut count_id = Entity::PLACEHOLDER;
+                            p.spawn((Button, Node { padding: UiRect::new(Val::Px(12.0), Val::Px(12.0), Val::Px(4.0), Val::Px(4.0)),
+                                justify_content: JustifyContent::SpaceBetween, ..default() },
+                                SeekScopeOption(scope.clone()),
+                            )).with_children(|p| {
+                                p.spawn((Text::new(*label), TextFont { font: font.clone(), font_size: 12.0, ..default() }));
+                                count_id = p.spawn((Text::new("(0)"), TextFont { font: font.clone(), font_size: 11.0, ..default() },
+                                    TextColor(Color::srgba(0.6, 0.6, 0.6, 1.0)))).id();
+                            });
+                            ht.seek_option_counts[i] = Some(count_id);
                         }
                     }).id());
                 });
@@ -469,14 +485,21 @@ pub fn toolbar_button_system(mut q: Query<(&ToolbarButton, &Interaction), Change
 pub fn seek_panel_mode_system(
     selection: Res<SelectionState>,
     mut state: ResMut<SeekPanelState>,
+    ht: Res<HudTexts>,
+    mut tq: Query<&mut Text>,
 ) {
     let now_selected = !selection.selected_unit_ids.is_empty();
     if now_selected != state.has_selection {
         state.has_selection = now_selected;
-        // Don't reset while user is editing the input
-        if state.editing { return; }
+        // Don't reset while user is actively typing in input
+        if state.input_active { return; }
         state.range_value = if now_selected { 30 } else { 10 };
-        state.input_buffer.clear();
+    }
+    // Update mode label
+    if let Some(id) = ht.mode_label {
+        if let Ok(mut t) = tq.get_mut(id) {
+            t.0 = if now_selected { "选中" } else { "索敌" }.into();
+        }
     }
 }
 
@@ -542,9 +565,76 @@ fn scope_label(scope: &SeekScope) -> &'static str {
     }
 }
 
+// ══════════ Seek Panel Count System ══════════
+
+/// Update dropdown option counts when the dropdown is open.
+/// Queries the simulation world for soldier counts by type.
+pub fn seek_panel_count_system(
+    state: Res<SeekPanelState>,
+    ht: Res<HudTexts>,
+    selection: Res<SelectionState>,
+    mut tq: Query<&mut Text>,
+    mut sim_world: bevy::ecs::system::NonSendMut<SimulationWorld>,
+) {
+    if !state.dropdown_open { return; }
+
+    let w = &mut sim_world.0;
+    let has_sel = !selection.selected_unit_ids.is_empty();
+
+    // Count soldiers by type
+    let mut counts = [0usize; 5]; // Militia, Infantry, Archer, Cavalry, Total
+    if has_sel {
+        // Selection mode: count selected units by type
+        let mut q = w.query::<(&UnitIdComponent, &SoldierTypeComponent, &FactionComponent)>();
+        for uid in &selection.selected_unit_ids {
+            for (id, st, fac) in q.iter(w) {
+                if id.0 == *uid && fac.0 == Faction::Player {
+                    match st.0 {
+                        SoldierType::Militia => { counts[0] += 1; counts[4] += 1; }
+                        SoldierType::Infantry => { counts[1] += 1; counts[4] += 1; }
+                        SoldierType::Archer => { counts[2] += 1; counts[4] += 1; }
+                        SoldierType::Cavalry => { counts[3] += 1; counts[4] += 1; }
+                    }
+                    break;
+                }
+            }
+        }
+    } else {
+        // Global mode: count all Player soldiers
+        let mut q = w.query::<(&SoldierTypeComponent, &FactionComponent)>();
+        for (st, fac) in q.iter(w) {
+            if fac.0 == Faction::Player {
+                match st.0 {
+                    SoldierType::Militia => { counts[0] += 1; counts[4] += 1; }
+                    SoldierType::Infantry => { counts[1] += 1; counts[4] += 1; }
+                    SoldierType::Archer => { counts[2] += 1; counts[4] += 1; }
+                    SoldierType::Cavalry => { counts[3] += 1; counts[4] += 1; }
+                }
+            }
+        }
+    }
+
+    // Update count texts: [0]=全体, [1]=民兵, [2]=步兵, [3]=弓兵, [4]=骑兵
+    let count_texts = [
+        format!("({})", counts[4]), // 全体 = total
+        format!("({})", counts[0]), // 民兵
+        format!("({})", counts[1]), // 步兵
+        format!("({})", counts[2]), // 弓兵
+        format!("({})", counts[3]), // 骑兵
+    ];
+    for (i, text) in count_texts.iter().enumerate() {
+        if let Some(id) = ht.seek_option_counts[i] {
+            if let Ok(mut t) = tq.get_mut(id) {
+                t.0 = text.clone();
+            }
+        }
+    }
+}
+
 // ══════════ Seek Panel Input System ══════════
 
-/// Handle range input: click to enter edit mode, keyboard to type, Enter/Esc to confirm/cancel.
+/// Handle range input: click to activate, type digits in real-time, Esc to deactivate.
+/// No Enter confirmation needed — the displayed value is always the current range_value.
 pub fn seek_panel_input_system(
     mouse: Res<ButtonInput<MouseButton>>,
     keyboard: Res<ButtonInput<KeyCode>>,
@@ -553,82 +643,65 @@ pub fn seek_panel_input_system(
     ht: Res<HudTexts>,
     input_btn: Query<&Interaction, With<SeekRangeInput>>,
 ) {
-    // Click on input box → enter edit mode (use just_pressed to prevent re-entry)
+    // Click on input box → activate keyboard capture
     let input_pressed = input_btn.iter().any(|i| *i == Interaction::Pressed);
-    if input_pressed && mouse.just_pressed(MouseButton::Left) && !state.editing {
-        state.editing = true;
-        state.input_buffer = state.range_value.to_string();
+    if input_pressed && mouse.just_pressed(MouseButton::Left) {
+        state.input_active = true;
     }
 
-    if !state.editing {
-        // Display current value
-        if let Some(id) = ht.seek_range_text {
-            if let Ok(mut t) = tq.get_mut(id) { t.0 = state.range_value.to_string(); }
+    // Escape or click elsewhere → deactivate
+    if state.input_active {
+        if keyboard.just_pressed(KeyCode::Escape) {
+            state.input_active = false;
+        } else if mouse.just_pressed(MouseButton::Left) && !input_pressed {
+            state.input_active = false;
         }
-        return;
     }
 
-    // Edit mode: capture keyboard
-    let mut changed = false;
-    let mut exit_edit = false;
-    let mut cancel = false;
+    // Capture keyboard when active
+    if state.input_active {
+        let mut changed = false;
+        let s = state.range_value.to_string();
+        if keyboard.just_pressed(KeyCode::Backspace) {
+            if s.len() > 1 {
+                if let Ok(v) = s[..s.len()-1].parse::<u32>() { state.range_value = v; }
+            } else {
+                state.range_value = 0;
+            }
+            changed = true;
+        } else {
+            let digit = if keyboard.just_pressed(KeyCode::Digit0) || keyboard.just_pressed(KeyCode::Numpad0) { Some(0) }
+            else if keyboard.just_pressed(KeyCode::Digit1) || keyboard.just_pressed(KeyCode::Numpad1) { Some(1) }
+            else if keyboard.just_pressed(KeyCode::Digit2) || keyboard.just_pressed(KeyCode::Numpad2) { Some(2) }
+            else if keyboard.just_pressed(KeyCode::Digit3) || keyboard.just_pressed(KeyCode::Numpad3) { Some(3) }
+            else if keyboard.just_pressed(KeyCode::Digit4) || keyboard.just_pressed(KeyCode::Numpad4) { Some(4) }
+            else if keyboard.just_pressed(KeyCode::Digit5) || keyboard.just_pressed(KeyCode::Numpad5) { Some(5) }
+            else if keyboard.just_pressed(KeyCode::Digit6) || keyboard.just_pressed(KeyCode::Numpad6) { Some(6) }
+            else if keyboard.just_pressed(KeyCode::Digit7) || keyboard.just_pressed(KeyCode::Numpad7) { Some(7) }
+            else if keyboard.just_pressed(KeyCode::Digit8) || keyboard.just_pressed(KeyCode::Numpad8) { Some(8) }
+            else if keyboard.just_pressed(KeyCode::Digit9) || keyboard.just_pressed(KeyCode::Numpad9) { Some(9) }
+            else { None };
 
-    // Check for key presses
-    if keyboard.just_pressed(KeyCode::Enter) || keyboard.just_pressed(KeyCode::NumpadEnter) {
-        exit_edit = true;
-    } else if keyboard.just_pressed(KeyCode::Escape) {
-        cancel = true;
-        exit_edit = true;
-    } else if keyboard.just_pressed(KeyCode::Backspace) {
-        state.input_buffer.pop();
-        changed = true;
+            if let Some(d) = digit {
+                let new_s = format!("{}{}", s, d);
+                if new_s.len() <= 4 {
+                    if let Ok(v) = new_s.parse::<u32>() { state.range_value = v; }
+                    changed = true;
+                }
+            }
+        }
+        if changed {
+            if let Some(id) = ht.seek_range_text {
+                if let Ok(mut t) = tq.get_mut(id) {
+                    t.0 = format!("{}▌", state.range_value);
+                }
+            }
+        }
     } else {
-        // Digit keys
-        let digit = if keyboard.just_pressed(KeyCode::Digit0) || keyboard.just_pressed(KeyCode::Numpad0) { Some('0') }
-        else if keyboard.just_pressed(KeyCode::Digit1) || keyboard.just_pressed(KeyCode::Numpad1) { Some('1') }
-        else if keyboard.just_pressed(KeyCode::Digit2) || keyboard.just_pressed(KeyCode::Numpad2) { Some('2') }
-        else if keyboard.just_pressed(KeyCode::Digit3) || keyboard.just_pressed(KeyCode::Numpad3) { Some('3') }
-        else if keyboard.just_pressed(KeyCode::Digit4) || keyboard.just_pressed(KeyCode::Numpad4) { Some('4') }
-        else if keyboard.just_pressed(KeyCode::Digit5) || keyboard.just_pressed(KeyCode::Numpad5) { Some('5') }
-        else if keyboard.just_pressed(KeyCode::Digit6) || keyboard.just_pressed(KeyCode::Numpad6) { Some('6') }
-        else if keyboard.just_pressed(KeyCode::Digit7) || keyboard.just_pressed(KeyCode::Numpad7) { Some('7') }
-        else if keyboard.just_pressed(KeyCode::Digit8) || keyboard.just_pressed(KeyCode::Numpad8) { Some('8') }
-        else if keyboard.just_pressed(KeyCode::Digit9) || keyboard.just_pressed(KeyCode::Numpad9) { Some('9') }
-        else { None };
-
-        if let Some(ch) = digit {
-            if state.input_buffer.len() < 4 {
-                state.input_buffer.push(ch);
-                changed = true;
-            }
-        }
-    }
-
-    if exit_edit {
-        if cancel {
-            // Restore original value
-            state.input_buffer.clear();
-        } else if !state.input_buffer.is_empty() {
-            // Parse and apply
-            if let Ok(val) = state.input_buffer.parse::<u32>() {
-                state.range_value = val;
-            }
-        }
-        // Empty buffer → keep original value
-        state.editing = false;
-        state.input_buffer.clear();
-        changed = true;
-    }
-
-    // Update display
-    if changed || state.editing {
+        // Not active — just display current value
         if let Some(id) = ht.seek_range_text {
             if let Ok(mut t) = tq.get_mut(id) {
-                t.0 = if state.editing {
-                    format!("{}▌", state.input_buffer)
-                } else {
-                    state.range_value.to_string()
-                };
+                t.0 = state.range_value.to_string();
             }
         }
     }
