@@ -60,10 +60,13 @@ pub fn selection_click_system(
     keyboard: Res<ButtonInput<KeyCode>>,
     q_windows: Query<&Window>,
     camera_query: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
+    interaction_query: Query<&Interaction>,
     mut sim_world: bevy::ecs::system::NonSendMut<SimulationWorld>,
     mut selection: ResMut<SelectionState>,
 ) {
     if !mouse.just_pressed(MouseButton::Left) { return; }
+    // Skip if any UI element is being interacted with (prevents clearing selection on UI clicks)
+    if interaction_query.iter().any(|i| *i != Interaction::None) { return; }
     let Ok(window) = q_windows.single() else { return };
     let Some(cursor) = window.cursor_position() else { return };
     let Ok((camera, cam_t)) = camera_query.single() else { return };

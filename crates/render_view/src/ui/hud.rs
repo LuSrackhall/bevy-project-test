@@ -229,15 +229,20 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
             .with_children(|p| {
                 // Scope dropdown (relative container for popup positioning)
                 p.spawn(Node { position_type: PositionType::Relative, ..default() }).with_children(|p| {
-                    // Trigger button
-                    ht.seek_scope_text = Some(p.spawn((Button, Node { padding: UiRect::new(Val::Px(8.0), Val::Px(8.0), Val::Px(4.0), Val::Px(4.0)), ..default() },
+                    // Trigger button — store Text child entity ID (not Button parent ID)
+                    let mut scope_text_id = Entity::PLACEHOLDER;
+                    p.spawn((Button, Node { padding: UiRect::new(Val::Px(8.0), Val::Px(8.0), Val::Px(4.0), Val::Px(4.0)), ..default() },
                         BackgroundColor(Color::srgba(0.25, 0.25, 0.3, 1.0)), SeekScopeDropdown,
-                    )).with_child((Text::new("全体 ▼"), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id());
-                    // Popup container (always rendered, hidden via off-screen offset)
+                    )).with_children(|p| {
+                        scope_text_id = p.spawn((Text::new("全体 ▼"), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id();
+                    });
+                    ht.seek_scope_text = Some(scope_text_id);
+                    // Popup container (hidden by default via Display::None)
                     ht.seek_dropdown_container = Some(p.spawn((Node {
+                        display: Display::None,
                         flex_direction: FlexDirection::Column,
                         position_type: PositionType::Absolute,
-                        bottom: Val::Px(28.0), left: Val::Px(-9999.0),
+                        bottom: Val::Px(28.0), left: Val::Px(0.0),
                         ..default()
                     }, BackgroundColor(Color::srgba(0.15, 0.15, 0.2, 0.95)), SeekDropdownPopup,
                     )).with_children(|p| {
@@ -251,11 +256,15 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
                     }).id());
                 });
 
-                // Range input box
-                ht.seek_range_text = Some(p.spawn((Button, Node { padding: UiRect::new(Val::Px(8.0), Val::Px(8.0), Val::Px(4.0), Val::Px(4.0)),
+                // Range input box — store Text child entity ID
+                let mut range_text_id = Entity::PLACEHOLDER;
+                p.spawn((Button, Node { padding: UiRect::new(Val::Px(8.0), Val::Px(8.0), Val::Px(4.0), Val::Px(4.0)),
                     min_width: Val::Px(50.0), ..default() },
                     BackgroundColor(Color::srgba(0.15, 0.15, 0.2, 1.0)), SeekRangeInput,
-                )).with_child((Text::new("10"), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id());
+                )).with_children(|p| {
+                    range_text_id = p.spawn((Text::new("10"), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id();
+                });
+                ht.seek_range_text = Some(range_text_id);
 
                 // Issue button
                 p.spawn((Button, Node { padding: UiRect::new(Val::Px(10.0), Val::Px(10.0), Val::Px(4.0), Val::Px(4.0)), ..default() },
@@ -463,11 +472,11 @@ pub fn seek_panel_mode_system(
 ) {
     let now_selected = !selection.selected_unit_ids.is_empty();
     if now_selected != state.has_selection {
-        // Mode transition: reset range default
+        state.has_selection = now_selected;
+        // Don't reset while user is editing the input
+        if state.editing { return; }
         state.range_value = if now_selected { 30 } else { 10 };
         state.input_buffer.clear();
-        state.editing = false;
-        state.has_selection = now_selected;
     }
 }
 
@@ -507,10 +516,10 @@ pub fn seek_panel_dropdown_system(
         }
     }
 
-    // Update popup visibility via position offset (always Display::Flex, hide via off-screen)
+    // Update popup visibility via Display toggle
     if let Some(id) = ht.seek_dropdown_container {
         if let Ok(mut node) = popup_nodes.get_mut(id) {
-            node.left = if state.dropdown_open { Val::Px(0.0) } else { Val::Px(-9999.0) };
+            node.display = if state.dropdown_open { Display::Flex } else { Display::None };
         }
     }
 
