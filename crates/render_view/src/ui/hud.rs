@@ -479,30 +479,30 @@ pub fn seek_panel_dropdown_system(
     mut state: ResMut<SeekPanelState>,
     mut tq: Query<&mut Text>,
     ht: Res<HudTexts>,
-    dropdown_btn: Query<&Interaction, (With<SeekScopeDropdown>, Changed<Interaction>)>,
-    option_btns: Query<(&SeekScopeOption, &Interaction), Changed<Interaction>>,
+    dropdown_btn: Query<&Interaction, With<SeekScopeDropdown>>,
+    option_btns: Query<(&SeekScopeOption, &Interaction), With<SeekScopeOption>>,
     mut popup_nodes: Query<&mut Node, With<SeekDropdownPopup>>,
 ) {
-    // Toggle dropdown on trigger click
-    for interaction in dropdown_btn.iter() {
-        if *interaction == Interaction::Pressed {
-            state.dropdown_open = !state.dropdown_open;
-        }
+    // Toggle dropdown on trigger click (use just_pressed to avoid re-toggle)
+    let trigger_pressed = dropdown_btn.iter().any(|i| *i == Interaction::Pressed);
+    if trigger_pressed && mouse.just_pressed(MouseButton::Left) {
+        state.dropdown_open = !state.dropdown_open;
     }
 
-    // Handle option selection
+    // Handle option selection — check all options for Pressed state
+    let mut option_selected = false;
     for (opt, interaction) in option_btns.iter() {
         if *interaction == Interaction::Pressed {
             state.scope = opt.0.clone();
             state.dropdown_open = false;
+            option_selected = true;
+            break;
         }
     }
 
-    // Close on click outside (if mouse just pressed and no option/trigger was pressed this frame)
-    if mouse.just_pressed(MouseButton::Left) && state.dropdown_open {
-        let clicked_option = option_btns.iter().any(|(_, i)| *i == Interaction::Pressed);
-        let clicked_trigger = dropdown_btn.iter().any(|i| *i == Interaction::Pressed);
-        if !clicked_option && !clicked_trigger {
+    // Close on click outside (only if we didn't just select an option)
+    if !option_selected && mouse.just_pressed(MouseButton::Left) && state.dropdown_open {
+        if !trigger_pressed {
             state.dropdown_open = false;
         }
     }
@@ -542,14 +542,13 @@ pub fn seek_panel_input_system(
     mut state: ResMut<SeekPanelState>,
     mut tq: Query<&mut Text>,
     ht: Res<HudTexts>,
-    input_btn: Query<&Interaction, (With<SeekRangeInput>, Changed<Interaction>)>,
+    input_btn: Query<&Interaction, With<SeekRangeInput>>,
 ) {
-    // Click on input box → enter edit mode
-    for interaction in input_btn.iter() {
-        if *interaction == Interaction::Pressed && !state.editing {
-            state.editing = true;
-            state.input_buffer = state.range_value.to_string();
-        }
+    // Click on input box → enter edit mode (use just_pressed to prevent re-entry)
+    let input_pressed = input_btn.iter().any(|i| *i == Interaction::Pressed);
+    if input_pressed && mouse.just_pressed(MouseButton::Left) && !state.editing {
+        state.editing = true;
+        state.input_buffer = state.range_value.to_string();
     }
 
     if !state.editing {
@@ -630,13 +629,15 @@ pub fn seek_panel_input_system(
 
 /// Handle issue button click: generate command, trigger toast.
 pub fn seek_panel_issue_system(
-    issue_btn: Query<&Interaction, (With<SeekIssueBtn>, Changed<Interaction>)>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    issue_btn: Query<&Interaction, With<SeekIssueBtn>>,
     state: Res<SeekPanelState>,
     selection: Res<SelectionState>,
     mut cmd_buf: ResMut<CommandBuffer>,
     tick_clock: Res<TickClock>,
     mut toast: ResMut<ToastMessage>,
 ) {
+    if !mouse.just_pressed(MouseButton::Left) { return; }
     for interaction in issue_btn.iter() {
         if *interaction != Interaction::Pressed { continue; }
 
