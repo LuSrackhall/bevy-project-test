@@ -2,6 +2,7 @@ pub mod menu;
 pub mod hud;
 pub mod pause;
 pub mod gameover;
+pub mod observer;
 
 use bevy::prelude::*;
 
@@ -10,6 +11,8 @@ pub struct UiPlugin;
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
         app
+            // Phase 1a: Observer mechanism validation
+            .add_observer(observer::menu_click_observer)
             .init_resource::<hud::HudTexts>()
             .init_resource::<hud::SeekPanelState>()
             .init_resource::<hud::ToastMessage>()
