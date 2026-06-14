@@ -1,10 +1,10 @@
 ## 1. Phase 1.5: PickingInteraction 统一迁移
 
-- [ ] 1.1 将 `selection.rs` 中的 `is_any_ui_pressed` 从 `Query<&Interaction>` 迁移到 `Query<&PickingInteraction>`
-- [ ] 1.2 将 `selection_click_system` 和 `command_issue_system` 的参数从 `Query<&Interaction>` 改为 `Query<&PickingInteraction>`
-- [ ] 1.3 将 `hud.rs` 中 `update_bottom_panel` 的悬停检测从 `Interaction::Hovered` 改为 `PickingInteraction::Hovered`
-- [ ] 1.4 删除所有 `Interaction` 相关的 import 和查询
-- [ ] 1.5 编译验证：`cargo build` 无错误
+- [x] 1.1 将 `selection.rs` 中的 `is_any_ui_pressed` 从 `Query<&Interaction>` 迁移到 `Query<&PickingInteraction>`
+- [x] 1.2 将 `selection_click_system` 和 `command_issue_system` 的参数从 `Query<&Interaction>` 改为 `Query<&PickingInteraction>`
+- [x] 1.3 将 `hud.rs` 中 `update_bottom_panel` 的悬停检测从 `Interaction::Hovered` 改为 `PickingInteraction::Hovered`
+- [x] 1.4 删除所有 `Interaction` 相关的 import 和查询
+- [x] 1.5 编译验证：`cargo build` 无错误
 - [ ] 1.6 运行验证：选中、穿透保护、悬停百科功能正常
 
 ## 2. Phase 2a: 简单按钮迁移（menu + pause + gameover）
