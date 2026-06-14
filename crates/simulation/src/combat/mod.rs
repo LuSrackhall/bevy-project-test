@@ -1268,6 +1268,112 @@ mod integration_tests {
         assert_eq!(hp.current, initial_soldier_hp - damage, "Soldier should take full damage from behind");
     }
 
+    /// 测试：手动格挡时非正面伤害跳过被动格挡
+    ///
+    /// 场景：步兵 Blocking 状态，被动格挡 100%，背面受击
+    /// 预期：非正面伤害直接扣士兵 HP，不触发被动格挡
+    /// 验证：Blocking + 非正面 → 跳过被动格挡
+    #[test]
+    fn test_manual_block_non_frontal_skips_passive() {
+        let mut world = init_simulation_world(42);
+
+        // Set passive block to 100% — if it triggers, damage goes to shield
+        {
+            let mut cfg = world.resource_mut::<CombatGlobalConfig>();
+            cfg.shield.passive_block_chance = 1.0;
+        }
+
+        // Infantry facing right (0°) in Blocking state
+        let (_uid, entity) = spawn_test_soldier(
+            &mut world,
+            FixedVec2::new(Fixed::ZERO, Fixed::ZERO),
+            Faction::Player,
+            SoldierType::Infantry,
+            Fixed::ZERO,
+        );
+        {
+            let mut sc = world.get_mut::<ShieldComponent>(entity).unwrap();
+            sc.state = ShieldState::Blocking;
+        }
+
+        let initial_shield_hp = world.get::<ShieldItem>(entity).unwrap().hp;
+        let initial_soldier_hp = world.get::<Health>(entity).unwrap().current;
+        let damage = 50u32;
+
+        // Rear attack (behind the infantry)
+        let rear_attacker = FixedVec2::new(Fixed::from_int(-100), Fixed::ZERO);
+        let remaining = try_passive_block(&mut world, entity, damage, Some(rear_attacker));
+
+        // Damage should pass through to soldier HP (not absorbed by shield)
+        assert_eq!(remaining, damage, "Non-frontal damage should pass through to HP");
+
+        // Apply damage to soldier
+        {
+            let mut hp = world.get_mut::<Health>(entity).unwrap();
+            hp.current = hp.current.saturating_sub(remaining);
+        }
+
+        // Shield HP should be unchanged (passive block was skipped)
+        let shield = world.get::<ShieldItem>(entity).unwrap();
+        assert_eq!(
+            shield.hp, initial_shield_hp,
+            "Shield HP should not change (passive block skipped for non-frontal)"
+        );
+
+        // Soldier HP should decrease
+        let hp = world.get::<Health>(entity).unwrap();
+        assert_eq!(
+            hp.current, initial_soldier_hp - damage,
+            "Soldier should take full damage from behind"
+        );
+    }
+
+    /// 测试：手动格挡时移速变为 15
+    ///
+    /// 场景：步兵 Blocking 状态，基线移速 80
+    /// 预期：移速变为 15（不是 80-15=65）
+    /// 验证：speed_penalty 是设为值，不是减去值
+    #[test]
+    fn test_manual_block_speed_set_to_penalty() {
+        let mut world = init_simulation_world(42);
+
+        // Infantry at origin
+        let (_uid, entity) = spawn_test_soldier(
+            &mut world,
+            FixedVec2::new(Fixed::ZERO, Fixed::ZERO),
+            Faction::Player,
+            SoldierType::Infantry,
+            Fixed::ZERO,
+        );
+
+        // Set waypoint and Blocking state
+        world.entity_mut(entity).insert(Movement {
+            speed: 80, target: None, command_target: None,
+            waypoint: Some(FixedVec2::new(Fixed::from_int(200), Fixed::ZERO)),
+            force_move: false,
+        });
+        {
+            let mut sc = world.get_mut::<ShieldComponent>(entity).unwrap();
+            sc.state = ShieldState::Blocking;
+        }
+
+        // Run one tick of movement
+        crate::run_tick(&mut world, 1);
+
+        // Check position — with speed 15 and tick_duration 0.05:
+        // movement per tick = 15 * 0.05 = 0.75 units
+        let pos = world.get::<LogicalPosition>(entity).unwrap().0;
+        let move_per_tick = Fixed::from_float(15.0 * 0.05); // 0.75
+
+        // Position should be approximately 0.75 (not 80 * 0.05 = 4.0)
+        let diff = (pos.x - move_per_tick).abs();
+        assert!(
+            diff.0 < Fixed::from_float(0.1).0,
+            "Blocking speed should be 15, not 65. Position after 1 tick: {}, expected ~{}",
+            pos.x.to_float(), move_per_tick.to_float()
+        );
+    }
+
     // ── Test 4: Multi-shot spawns multiple arrows ──
 
     #[test]
