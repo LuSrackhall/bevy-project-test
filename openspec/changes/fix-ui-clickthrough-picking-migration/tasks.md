@@ -6,9 +6,11 @@
 - [x] 1.4 删除 `UiFocusBlocker` 资源定义和 `reset_ui_focus_blocker` 系统（hud.rs）
 - [x] 1.5 删除 `UiFocusBlocker` 资源注册和 reset 系统注册（mod.rs）
 - [x] 1.6 删除 `seek_panel_dropdown_system`、`seek_panel_input_system`、`seek_panel_issue_system` 中的 `blocker` 参数
-- [ ] 1.7 验证：选中单位后点击 UI 按钮，选中状态保持
-- [ ] 1.8 验证：右键点击 UI 按钮，不触发游戏命令
-- [ ] 1.9 验证：点击游戏世界空白处，选中状态正常清除
+- [x] 1.7 透明容器（根节点、spacer、底部区域、左右面板容器）添加 `Pickable::IGNORE`
+- [ ] 1.8 验证：选中单位后点击 UI 按钮，选中状态保持
+- [ ] 1.9 验证：右键点击 UI 按钮，不触发游戏命令
+- [ ] 1.10 验证：点击游戏世界空白处，选中状态正常清除
+- [ ] 1.11 验证：左键可正常选中游戏单位
 
 ## 2. Phase 1a: Observer 机制验证
 
