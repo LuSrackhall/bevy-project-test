@@ -222,7 +222,7 @@ pub fn melee_attack_system(world: &mut World, current_tick: u32) {
     };
 
     // Ready attackers
-    struct AtkData { entity: Entity, uid: UnitId, pos: FixedVec2, faction: Faction, dmg: u32, range: u32, stype: SoldierType, level: u32, interval: u32, has_fearless: bool, target: Option<UnitId> }
+    struct AtkData { entity: Entity, uid: UnitId, pos: FixedVec2, faction: Faction, dmg: u32, range: u32, stype: SoldierType, level: u32, interval: u32, has_fearless: bool, target: Option<UnitId>, force_move: bool }
     let attackers: Vec<AtkData> = {
         let mut q = world.query::<(Entity, &UnitIdComponent, &LogicalPosition, &FactionComponent, &Attack, &SoldierTypeComponent, &Level, &Movement, Option<&FearlessBuff>)>();
         q.iter(world)
@@ -231,7 +231,7 @@ pub fn melee_attack_system(world: &mut World, current_tick: u32) {
                 entity: e, uid: id.0, pos: pos.0, faction: fac.0,
                 dmg: atk.damage, range: atk.range, stype: st.0,
                 level: lvl.level, interval: atk.interval_ticks,
-                has_fearless: fb.is_some(), target: mov.target,
+                has_fearless: fb.is_some(), target: mov.target, force_move: mov.force_move,
             }).collect()
     };
 
@@ -248,6 +248,9 @@ pub fn melee_attack_system(world: &mut World, current_tick: u32) {
 
         let range_f = Fixed::from_int(ad.range as i32);
         if (ad.pos - tpos).length_squared() > range_f * range_f { continue; }
+
+        // ForceMove suppression: non-cavalry units skip attack during force_move
+        if ad.force_move && ad.stype != SoldierType::Cavalry { continue; }
 
         // Non-cavalry: start windup instead of attacking immediately
         if ad.stype != SoldierType::Cavalry || !windup_config.cavalry_no_windup {
@@ -366,13 +369,23 @@ pub fn attack_windup_system(world: &mut World, current_tick: u32) {
 
     // Collect entities with active windups (remaining_ticks > 0)
     let mut windup_entities: Vec<(Entity, u32, Option<UnitId>)> = Vec::new();
+    let mut cancel_windups: Vec<Entity> = Vec::new();
     {
-        let mut q = world.query::<(Entity, &AttackWindup)>();
-        for (entity, windup) in q.iter(world) {
+        let mut q = world.query::<(Entity, &AttackWindup, &SoldierTypeComponent, &Movement)>();
+        for (entity, windup, st, mov) in q.iter(world) {
             if windup.remaining_ticks > 0 {
+                // ForceMove suppression: cancel windup for non-cavalry
+                if mov.force_move && st.0 != SoldierType::Cavalry {
+                    cancel_windups.push(entity);
+                    continue;
+                }
                 windup_entities.push((entity, windup.remaining_ticks, windup.target));
             }
         }
+    }
+    // Apply windup cancellations
+    for entity in cancel_windups {
+        world.entity_mut(entity).insert(AttackWindup { remaining_ticks: 0, target: None });
     }
 
     // Decrement windups and collect completed ones
