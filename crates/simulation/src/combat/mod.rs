@@ -171,7 +171,8 @@ fn try_passive_block(world: &mut World, target_entity: Entity, mut damage: u32, 
                     }
                     return damage;
                 }
-                // Non-frontal: falls through to passive block check below
+                // Non-frontal during Blocking: damage goes directly to HP, skip passive block
+                    return damage;
             }
         }
     }
@@ -268,7 +269,21 @@ pub fn melee_attack_system(world: &mut World, current_tick: u32) {
         }
         let Some((tid, tpos, _)) = best_target else { continue };
 
-        // Cavalry with cavalry_no_windup: attack immediately (existing behavior)
+        // Non-cavalry: start windup instead of attacking immediately
+        if ad.stype != SoldierType::Cavalry || !windup_config.cavalry_no_windup {
+            let already_winding = world.entity(ad.entity)
+                .get::<AttackWindup>()
+                .map_or(false, |w| w.remaining_ticks > 0);
+            if !already_winding {
+                world.entity_mut(ad.entity).insert(AttackWindup {
+                    remaining_ticks: windup_config.windup_ticks,
+                    target: Some(tid),
+                });
+            }
+            continue;
+        }
+
+        // Cavalry with cavalry_no_windup: attack immediately
         let Some(te) = find_entity_by_unit_id(world, tid) else { continue };
 
         let (thp, tmax, tst, _tfac, city_origin) = {
@@ -1346,8 +1361,10 @@ mod integration_tests {
         });
         world.entity_mut(rear).insert(SoldierStateComponent(SoldierState::Fighting));
 
-        // Run one tick to trigger attacks
-        crate::run_tick(&mut world, 1);
+        // Run enough ticks for windup to complete (3 ticks) + attack
+        for tick in 1..=5 {
+            crate::run_tick(&mut world, tick);
+        }
 
         // Check cooldowns — frontal should have shorter cooldown than rear
         let frontal_atk = world.get::<Attack>(frontal).unwrap();
@@ -1360,6 +1377,15 @@ mod integration_tests {
         println!("Frontal cooldown: {}", frontal_atk.cooldown_remaining);
         println!("Rear cooldown: {}", rear_atk.cooldown_remaining);
 
+        // Both should have attacked (cooldown > 0 means attack happened)
+        assert!(
+            frontal_atk.cooldown_remaining > 0,
+            "Frontal attacker should have attacked (cooldown > 0)"
+        );
+        assert!(
+            rear_atk.cooldown_remaining > 0,
+            "Rear attacker should have attacked (cooldown > 0)"
+        );
         assert!(
             frontal_atk.cooldown_remaining < rear_atk.cooldown_remaining,
             "Frontal cooldown ({}) should be less than rear cooldown ({})",

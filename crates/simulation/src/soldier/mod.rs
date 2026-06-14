@@ -189,6 +189,12 @@ pub fn soldier_movement_system(world: &mut World) {
     {
         let mut q = world.query::<(Entity, &LogicalPosition, &Movement, &SoldierTypeComponent, &SoldierStateComponent, Option<&SlowDebuff>, Option<&ShieldComponent>, Option<&FacingDirection>)>();
         for (e, pos, mov, st, sst, slow, shield, facing_dir) in q.iter(world) {
+            // Windup pause: non-cavalry units with active windup don't move
+            if let Some(windup) = world.get::<AttackWindup>(e) {
+                if windup.remaining_ticks > 0 {
+                    continue;
+                }
+            }
             if st.0 == SoldierType::Archer && sst.0 == SoldierState::Fighting {
                 // Check if target is in attack range — if so, hold position and keep shooting
                 if let Some(target_id) = mov.target {
@@ -215,7 +221,7 @@ pub fn soldier_movement_system(world: &mut World) {
                 speed *= (sc.base_amount * sc.stack_mult.powi(sl.stacks as i32 - 1)).max(sc.max_reduction);
             }
             if let Some(sh) = shield {
-                if sh.state == ShieldState::Blocking { speed -= combat_config.shield.speed_penalty as f32; }
+                if sh.state == ShieldState::Blocking { speed = combat_config.shield.speed_penalty as f32; }
             }
             if speed <= 0.0 { continue; }
             let mut speed_fixed = Fixed::from_float(speed);
