@@ -26,24 +26,24 @@
 - **WHEN** 玩家右键点击该 UI 按钮
 - **THEN** `command_issue_system` SHALL NOT 生成任何游戏命令
 
-### Requirement: 使用 Picking 系统 HoverMap 检测 UI 状态
+### Requirement: 使用 Interaction::Pressed 检测 UI 交互状态
 
-系统 SHALL 使用 Bevy Picking 系统的 `HoverMap` 资源判断光标是否在 UI 上，替代手动 `UiFocusBlocker` 机制。
+系统 SHALL 使用 `Interaction::Pressed` 组件状态判断是否有 UI 元素正在被按下，替代手动 `UiFocusBlocker` 机制。
 
-#### Scenario: HoverMap 在 selection_click_system 中可用
+#### Scenario: 按钮被按下时 Interaction::Pressed 为 true
+
+- **WHEN** 玩家按下 UI 按钮
+- **THEN** 该按钮的 `Interaction` 组件 SHALL 变为 `Pressed` 状态
+
+#### Scenario: 透明容器不会产生 Interaction::Pressed
+
+- **WHEN** 光标位于透明容器上方（无 BackgroundColor）
+- **THEN** 透明容器的 `Interaction` 组件 SHALL NOT 为 `Pressed`（仅有 `Hovered`）
+
+#### Scenario: 选择系统检查 Interaction::Pressed
 
 - **WHEN** `selection_click_system` 执行
-- **THEN** 系统 SHALL 能够通过 `Res<HoverMap>` 查询当前鼠标指针的 hover 状态
-
-#### Scenario: 光标在 UI 上时 HoverMap 非空
-
-- **WHEN** 光标位于任何可见 UI 节点上方
-- **THEN** `HoverMap` 中 SHALL 包含鼠标指针的实体条目
-
-#### Scenario: 光标在空白处时 HoverMap 为空
-
-- **WHEN** 光标不位于任何 UI 节点上方
-- **THEN** `HoverMap` 中鼠标指针的条目 SHALL 为空或不存在
+- **THEN** 系统 SHALL 通过 `Query<&Interaction>` 检查是否有任何 UI 元素处于 `Pressed` 状态
 
 ### Requirement: 删除 UiFocusBlocker 机制
 
