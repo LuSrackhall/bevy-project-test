@@ -1,6 +1,16 @@
 use bevy::prelude::*;
-use bevy::picking::events::{Pointer, Click};
+use bevy::picking::events::{Pointer, Click, Press, Release};
 use super::menu::MenuButton;
+
+/// 诊断: 监听所有 Pointer<Click> 事件
+pub fn debug_pointer_click_observer(ev: On<Pointer<Click>>) {
+    info!("[DEBUG] Pointer<Click> on entity {:?}", ev.entity);
+}
+
+/// 诊断: 监听所有 Pointer<Press> 事件
+pub fn debug_pointer_press_observer(ev: On<Pointer<Press>>) {
+    info!("[DEBUG] Pointer<Press> on entity {:?}", ev.entity);
+}
 
 /// Phase 1a: 验证 Observer 机制
 /// 全局监听 Pointer<Click>，检查是否命中菜单按钮

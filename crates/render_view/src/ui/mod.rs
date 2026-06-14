@@ -13,6 +13,9 @@ impl Plugin for UiPlugin {
         app
             // Phase 1a: Observer mechanism validation
             .add_observer(observer::menu_click_observer)
+            // Diagnostic: log all pointer events
+            .add_observer(observer::debug_pointer_click_observer)
+            .add_observer(observer::debug_pointer_press_observer)
             .init_resource::<hud::HudTexts>()
             .init_resource::<hud::SeekPanelState>()
             .init_resource::<hud::ToastMessage>()
