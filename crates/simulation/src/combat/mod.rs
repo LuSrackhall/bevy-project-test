@@ -1380,6 +1380,328 @@ mod integration_tests {
         );
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    // 近战自动攻击测试用例
+    //
+    // 测试说明：
+    // 1. 站立不动时自动攻击范围内敌人
+    // 2. 移动过程中自动攻击范围内敌人
+    // 3. ForceMove 时不攻击（非骑兵）
+    // 4. 骑兵 ForceMove 时仍可攻击
+    // 5. 移动中攻击不影响移动进度
+    // ═══════════════════════════════════════════════════════════════
+
+    /// 测试：站立不动的单位自动攻击范围内敌人
+    ///
+    /// 场景：玩家步兵站立不动，敌人步兵进入攻击范围（30 单位）
+    /// 预期：玩家步兵自动攻击敌人，造成伤害
+    /// 验证：近战系统不依赖 Movement.target，直接扫描范围内敌人
+    #[test]
+    fn test_standing_soldier_attacks_enemy_in_range() {
+        let mut world = init_simulation_world(42);
+        let cfg = world.resource::<SoldierConfig>().clone();
+
+        // 玩家步兵站立不动在 (50, 0)
+        let (_player_uid, player) = spawn_test_soldier(
+            &mut world,
+            FixedVec2::new(Fixed::from_int(50), Fixed::ZERO),
+            Faction::Player,
+            SoldierType::Infantry,
+            Fixed::from_int(0),
+        );
+        // 无目标，无移动命令，SeekStance 未激活
+        world.entity_mut(player).insert(Movement {
+            speed: 80, target: None, command_target: None, waypoint: None, force_move: false,
+        });
+
+        // 敌人步兵在 (60, 0)，距离 10，在攻击范围 30 内
+        let (_enemy_uid, enemy) = spawn_test_soldier(
+            &mut world,
+            FixedVec2::new(Fixed::from_int(60), Fixed::ZERO),
+            Faction::Enemy,
+            SoldierType::Infantry,
+            Fixed::from_int(0),
+        );
+
+        let enemy_hp_before = world.get::<Health>(enemy).unwrap().current;
+
+        // 运行多个 tick（等待前摇完成 + 攻击生效）
+        for tick in 1..=10 {
+            crate::run_tick(&mut world, tick);
+        }
+
+        let enemy_hp_after = world.get::<Health>(enemy).unwrap().current;
+        assert!(
+            enemy_hp_after < enemy_hp_before,
+            "Standing soldier should damage enemy. HP before: {}, after: {}",
+            enemy_hp_before, enemy_hp_after
+        );
+    }
+
+    /// 测试：移动中的单位自动攻击范围内敌人
+    ///
+    /// 场景：玩家步兵从 (0,0) 移动到 (200,0)，途中经过敌人 (50,0)
+    /// 预期：步兵在接近敌人时自动攻击，然后继续移动
+    /// 验证：移动过程中攻击不中断移动命令
+    #[test]
+    fn test_moving_soldier_attacks_enemy_in_range() {
+        let mut world = init_simulation_world(42);
+        let cfg = world.resource::<SoldierConfig>().clone();
+
+        // 玩家步兵从 (0,0) 移动到 (200,0)
+        let (_player_uid, player) = spawn_test_soldier(
+            &mut world,
+            FixedVec2::new(Fixed::ZERO, Fixed::ZERO),
+            Faction::Player,
+            SoldierType::Infantry,
+            Fixed::from_int(0),
+        );
+        world.entity_mut(player).insert(Movement {
+            speed: 80, target: None, command_target: None,
+            waypoint: Some(FixedVec2::new(Fixed::from_int(200), Fixed::ZERO)),
+            force_move: false,
+        });
+
+        // 敌人步兵在 (50, 0)
+        let (_enemy_uid, enemy) = spawn_test_soldier(
+            &mut world,
+            FixedVec2::new(Fixed::from_int(50), Fixed::ZERO),
+            Faction::Enemy,
+            SoldierType::Infantry,
+            Fixed::from_int(0),
+        );
+
+        let enemy_hp_before = world.get::<Health>(enemy).unwrap().current;
+
+        // 运行多个 tick
+        for tick in 1..=20 {
+            crate::run_tick(&mut world, tick);
+        }
+
+        let enemy_hp_after = world.get::<Health>(enemy).unwrap().current;
+        let player_pos = world.get::<LogicalPosition>(player).unwrap().0;
+
+        // 敌人应该受到伤害
+        assert!(
+            enemy_hp_after < enemy_hp_before,
+            "Moving soldier should damage enemy. HP before: {}, after: {}",
+            enemy_hp_before, enemy_hp_after
+        );
+
+        // 玩家应该已经移动了一段距离（移动未被中断）
+        assert!(
+            player_pos.x.0 > Fixed::from_int(30).0,
+            "Soldier should have moved past enemy. Position: {}",
+            player_pos.x.to_float()
+        );
+    }
+
+    /// 测试：ForceMove 时不攻击（非骑兵）
+    ///
+    /// 场景：玩家步兵 ForceMove 经过敌人
+    /// 预期：步兵不攻击敌人，纯移动
+    /// 验证：force_move=true 时非骑兵跳过攻击
+    #[test]
+    fn test_force_move_no_attack() {
+        let mut world = init_simulation_world(42);
+
+        // 玩家步兵 ForceMove 从 (0,0) 到 (200,0)
+        let (_player_uid, player) = spawn_test_soldier(
+            &mut world,
+            FixedVec2::new(Fixed::ZERO, Fixed::ZERO),
+            Faction::Player,
+            SoldierType::Infantry,
+            Fixed::from_int(0),
+        );
+        world.entity_mut(player).insert(Movement {
+            speed: 80, target: None, command_target: None,
+            waypoint: Some(FixedVec2::new(Fixed::from_int(200), Fixed::ZERO)),
+            force_move: true, // 强制移动
+        });
+
+        // 敌人在 (50, 0)
+        let (_enemy_uid, enemy) = spawn_test_soldier(
+            &mut world,
+            FixedVec2::new(Fixed::from_int(50), Fixed::ZERO),
+            Faction::Enemy,
+            SoldierType::Infantry,
+            Fixed::from_int(0),
+        );
+
+        let enemy_hp_before = world.get::<Health>(enemy).unwrap().current;
+
+        // 运行多个 tick
+        for tick in 1..=20 {
+            crate::run_tick(&mut world, tick);
+        }
+
+        let enemy_hp_after = world.get::<Health>(enemy).unwrap().current;
+        assert_eq!(
+            enemy_hp_after, enemy_hp_before,
+            "ForceMove should NOT damage enemy. HP before: {}, after: {}",
+            enemy_hp_before, enemy_hp_after
+        );
+    }
+
+    /// 测试：骑兵 ForceMove 时仍可攻击
+    ///
+    /// 场景：骑兵 ForceMove 经过敌人
+    /// 预期：骑兵仍然攻击敌人（骑兵攻击不影响移动）
+    /// 验证：骑兵不受 ForceMove 攻击抑制
+    #[test]
+    fn test_cavalry_force_move_attacks() {
+        let mut world = init_simulation_world(42);
+
+        // 骑兵 ForceMove 从 (0,0) 到 (200,0)
+        let (_cav_uid, cavalry) = spawn_test_soldier(
+            &mut world,
+            FixedVec2::new(Fixed::ZERO, Fixed::ZERO),
+            Faction::Player,
+            SoldierType::Cavalry,
+            Fixed::from_int(0),
+        );
+        world.entity_mut(cavalry).insert(Movement {
+            speed: 200, target: None, command_target: None,
+            waypoint: Some(FixedVec2::new(Fixed::from_int(200), Fixed::ZERO)),
+            force_move: true,
+        });
+
+        // 敌人在 (50, 0)
+        let (_enemy_uid, enemy) = spawn_test_soldier(
+            &mut world,
+            FixedVec2::new(Fixed::from_int(50), Fixed::ZERO),
+            Faction::Enemy,
+            SoldierType::Infantry,
+            Fixed::from_int(0),
+        );
+
+        let enemy_hp_before = world.get::<Health>(enemy).unwrap().current;
+
+        // 运行多个 tick
+        for tick in 1..=20 {
+            crate::run_tick(&mut world, tick);
+        }
+
+        let enemy_hp_after = world.get::<Health>(enemy).unwrap().current;
+        assert!(
+            enemy_hp_after < enemy_hp_before,
+            "Cavalry ForceMove should still damage enemy. HP before: {}, after: {}",
+            enemy_hp_before, enemy_hp_after
+        );
+    }
+
+    /// 测试：移动中攻击后继续移动（不卡住）
+    ///
+    /// 场景：步兵移动到 (200,0)，途中攻击敌人
+    /// 预期：攻击后步兵继续移动，最终超过敌人位置
+    /// 验证：攻击不中断移动命令，攻击完成后继续移动
+    /// 注意：非骑兵有 0.15s 前摇停顿，这是设计行为，不影响移动命令的继续执行
+    #[test]
+    fn test_attack_does_not_interrupt_movement_command() {
+        let mut world = init_simulation_world(42);
+
+        // 玩家步兵从 (0,0) 移动到 (200,0)
+        let (_player_uid, player) = spawn_test_soldier(
+            &mut world,
+            FixedVec2::new(Fixed::ZERO, Fixed::ZERO),
+            Faction::Player,
+            SoldierType::Infantry,
+            Fixed::from_int(0),
+        );
+        world.entity_mut(player).insert(Movement {
+            speed: 80, target: None, command_target: None,
+            waypoint: Some(FixedVec2::new(Fixed::from_int(200), Fixed::ZERO)),
+            force_move: false,
+        });
+
+        // 敌人在 (50, 0) — 路径上
+        let (_enemy_uid, _enemy) = spawn_test_soldier(
+            &mut world,
+            FixedVec2::new(Fixed::from_int(50), Fixed::ZERO),
+            Faction::Enemy,
+            SoldierType::Infantry,
+            Fixed::from_int(0),
+        );
+
+        // 运行足够 tick（步兵速度 80，走 200 距离约需 25 tick，加上攻击停顿）
+        for tick in 1..=50 {
+            crate::run_tick(&mut world, tick);
+        }
+
+        let player_pos = world.get::<LogicalPosition>(player).unwrap().0.x;
+        let player_state = world.get::<SoldierStateComponent>(player).unwrap().0;
+
+        // 步兵应该已经越过敌人（位置 > 50），说明攻击后继续移动了
+        assert!(
+            player_pos.0 > Fixed::from_int(50).0,
+            "Soldier should have moved past enemy after attacking. Position: {}",
+            player_pos.to_float()
+        );
+
+        // 步兵应该还在移动状态（因为 waypoint 还没到）
+        // 如果攻击中断了移动命令，状态会卡在 Fighting
+        assert_eq!(
+            player_state, SoldierState::Moving,
+            "Soldier should be in Moving state after passing enemy"
+        );
+    }
+
+    /// 测试：骑兵移动中攻击且继续移动
+    ///
+    /// 场景：骑兵从 (0,0) 移动到 (500,0)，途中攻击敌人 (50,0)
+    /// 预期：骑兵攻击敌人（造成伤害）且继续移动（越过敌人位置）
+    /// 验证：骑兵攻击不中断移动命令
+    #[test]
+    fn test_cavalry_attacks_while_moving() {
+        let mut world = init_simulation_world(42);
+
+        // 骑兵从 (0,0) 移动到 (500,0)
+        let (_cav_uid, cav) = spawn_test_soldier(
+            &mut world,
+            FixedVec2::new(Fixed::ZERO, Fixed::ZERO),
+            Faction::Player,
+            SoldierType::Cavalry,
+            Fixed::from_int(0),
+        );
+        world.entity_mut(cav).insert(Movement {
+            speed: 200, target: None, command_target: None,
+            waypoint: Some(FixedVec2::new(Fixed::from_int(500), Fixed::ZERO)),
+            force_move: false,
+        });
+
+        // 敌人在 (50, 0)
+        let (_enemy_uid, enemy) = spawn_test_soldier(
+            &mut world,
+            FixedVec2::new(Fixed::from_int(50), Fixed::ZERO),
+            Faction::Enemy,
+            SoldierType::Infantry,
+            Fixed::from_int(0),
+        );
+
+        let enemy_hp_before = world.get::<Health>(enemy).unwrap().current;
+
+        for tick in 1..=30 {
+            crate::run_tick(&mut world, tick);
+        }
+
+        let enemy_hp_after = world.get::<Health>(enemy).unwrap().current;
+        let cav_pos = world.get::<LogicalPosition>(cav).unwrap().0.x;
+
+        // 骑兵应该对敌人造成伤害
+        assert!(
+            enemy_hp_after < enemy_hp_before,
+            "Cavalry should damage enemy while moving. HP before: {}, after: {}",
+            enemy_hp_before, enemy_hp_after
+        );
+
+        // 骑兵应该已经越过敌人（位置 > 50）
+        assert!(
+            cav_pos.0 > Fixed::from_int(50).0,
+            "Cavalry should have moved past enemy. Position: {}",
+            cav_pos.to_float()
+        );
+    }
+
     #[test]
     fn test_archer_chases_target_out_of_range() {
         let mut world = init_simulation_world(42);
