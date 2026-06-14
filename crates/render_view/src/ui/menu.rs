@@ -1,5 +1,4 @@
 use bevy::prelude::*;
-use bevy::picking::hover::PickingInteraction;
 
 #[derive(Component)]
 pub struct MainMenuUI;
@@ -28,11 +27,11 @@ pub fn cleanup_main_menu(mut commands: Commands, query: Query<Entity, With<MainM
 pub enum MenuButton { SinglePlayer }
 
 pub fn menu_button_system(
-    mut interaction_query: Query<(&MenuButton, &PickingInteraction), Changed<PickingInteraction>>,
+    mut interaction_query: Query<(&MenuButton, &Interaction), Changed<Interaction>>,
     mut next_state: ResMut<NextState<crate::GameState>>,
 ) {
     for (btn, interaction) in interaction_query.iter_mut() {
-        if *interaction == PickingInteraction::Pressed {
+        if *interaction == Interaction::Pressed {
             match btn {
                 MenuButton::SinglePlayer => next_state.set(crate::GameState::Playing),
             }
