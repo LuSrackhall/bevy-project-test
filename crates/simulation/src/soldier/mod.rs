@@ -245,8 +245,11 @@ pub fn soldier_movement_system(world: &mut World) {
 
             let delta = target_pos - pos.0;
             let dist_sq = delta.length_squared();
+            // Don't trigger arrival for Fighting units with a target —
+            // they should keep their target for the melee attack system.
+            let in_fighting = sst.0 == SoldierState::Fighting && mov.target.is_some();
             let threshold = Fixed::from_int(5);
-            if dist_sq < threshold * threshold {
+            if !in_fighting && dist_sq < threshold * threshold {
                 arrivals.push((e, mov.speed));
                 continue;
             }
