@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use bevy::ui::Pressed;
 use bevy_prototype_lyon::prelude::*;
 use bevy_prototype_lyon::shapes;
 use bevy_adapter::tick::SimulationWorld;
@@ -11,8 +12,8 @@ use crate::camera::MainCamera;
 
 /// Returns true if any UI element is currently being pressed (clicked).
 /// This prevents game-world click processing when interacting with UI buttons.
-fn is_any_ui_pressed(interactions: &Query<&Interaction>) -> bool {
-    interactions.iter().any(|i| *i == Interaction::Pressed)
+fn is_any_ui_pressed(pressed: &Query<&Pressed>) -> bool {
+    !pressed.is_empty()
 }
 
 // ══════════ Resources ══════════
@@ -66,13 +67,13 @@ pub fn selection_click_system(
     keyboard: Res<ButtonInput<KeyCode>>,
     q_windows: Query<&Window>,
     camera_query: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
-    interactions: Query<&Interaction>,
+    pressed: Query<&Pressed>,
     mut sim_world: bevy::ecs::system::NonSendMut<SimulationWorld>,
     mut selection: ResMut<SelectionState>,
 ) {
     if !mouse.just_pressed(MouseButton::Left) { return; }
     // Skip if any UI element is being pressed (prevents clearing selection on UI clicks)
-    if is_any_ui_pressed(&interactions) { return; }
+    if is_any_ui_pressed(&pressed) { return; }
     let Ok(window) = q_windows.single() else { return };
     let Some(cursor) = window.cursor_position() else { return };
     let Ok((camera, cam_t)) = camera_query.single() else { return };
@@ -290,7 +291,7 @@ pub fn command_issue_system(
     keyboard: Res<ButtonInput<KeyCode>>,
     q_windows: Query<&Window>,
     camera_query: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
-    interactions: Query<&Interaction>,
+    pressed: Query<&Pressed>,
     mut sim_world: bevy::ecs::system::NonSendMut<SimulationWorld>,
     selection: ResMut<SelectionState>,
     mut cmd_buf: ResMut<CommandBuffer>,
@@ -300,7 +301,7 @@ pub fn command_issue_system(
     if !mouse.just_pressed(MouseButton::Right) { return; }
     if selection.selected_unit_ids.is_empty() { return; }
     // Skip if any UI element is being pressed (prevents issuing commands when clicking UI)
-    if is_any_ui_pressed(&interactions) { return; }
+    if is_any_ui_pressed(&pressed) { return; }
 
     let Ok(window) = q_windows.single() else { return };
     let Some(cursor) = window.cursor_position() else { return };

@@ -2,7 +2,6 @@ pub mod menu;
 pub mod hud;
 pub mod pause;
 pub mod gameover;
-pub mod observer;
 
 use bevy::prelude::*;
 
@@ -11,36 +10,29 @@ pub struct UiPlugin;
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
         app
-            // Phase 1a: Observer mechanism validation
-            .add_observer(observer::menu_press_observer)
             .init_resource::<hud::HudTexts>()
             .init_resource::<hud::SeekPanelState>()
             .init_resource::<hud::ToastMessage>()
+            .init_resource::<hud::HoveredSoldierType>()
             .add_systems(OnEnter(crate::GameState::MainMenu), menu::setup_main_menu)
             .add_systems(OnExit(crate::GameState::MainMenu), menu::cleanup_main_menu)
-            .add_systems(Update, menu::menu_button_system.run_if(in_state(crate::GameState::MainMenu)))
             .add_systems(OnEnter(crate::GameState::Playing), hud::setup_hud)
             .add_systems(Update, (
                 hud::update_top_bar,
                 hud::update_bottom_panel,
-                hud::soldier_type_button_system,
-                hud::toolbar_button_system,
                 hud::shield_button_visibility_system,
                 hud::seek_panel_mode_system,
                 hud::seek_panel_dropdown_system,
                 hud::seek_panel_count_system,
                 hud::seek_panel_input_system,
-                hud::seek_panel_issue_system,
                 hud::toast_tick_system,
                 hud::toast_display_system,
                 hud::selection_summary_toast_system,
             ).run_if(in_state(crate::GameState::Playing)))
             .add_systems(OnEnter(crate::GameState::Paused), pause::setup_pause)
             .add_systems(OnExit(crate::GameState::Paused), pause::cleanup_pause)
-            .add_systems(Update, pause::pause_button_system.run_if(in_state(crate::GameState::Paused)))
             .add_systems(OnEnter(crate::GameState::GameOver), gameover::setup_gameover)
             .add_systems(OnExit(crate::GameState::GameOver), gameover::cleanup_gameover)
-            .add_systems(Update, gameover::gameover_button_system.run_if(in_state(crate::GameState::GameOver)))
             // Esc to pause (in Playing state)
             .add_systems(Update, handle_pause_input.run_if(in_state(crate::GameState::Playing)));
     }

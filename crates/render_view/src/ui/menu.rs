@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use bevy::ui_widgets::{Activate, Button as WidgetButton};
 
 #[derive(Component)]
 pub struct MainMenuUI;
@@ -14,8 +15,11 @@ pub fn setup_main_menu(mut commands: Commands, asset_server: Res<AssetServer>) {
     ))
     .with_children(|parent| {
         parent.spawn((Text::new("城池争霸"), TextFont { font: font.clone(), font_size: 48.0, ..default() }));
-        parent.spawn((Button, Node { margin: UiRect::all(Val::Px(10.0)), padding: UiRect::all(Val::Px(20.0)), ..default() }, MenuButton::SinglePlayer))
-            .with_child((Text::new("单人模式"), TextFont { font: font.clone(), font_size: 24.0, ..default() }));
+        parent.spawn((WidgetButton, Node { margin: UiRect::all(Val::Px(10.0)), padding: UiRect::all(Val::Px(20.0)), ..default() }, MenuButton::SinglePlayer))
+            .with_child((Text::new("单人模式"), TextFont { font: font.clone(), font_size: 24.0, ..default() }))
+            .observe(|_ev: On<Activate>, mut next: ResMut<NextState<crate::GameState>>| {
+                next.set(crate::GameState::Playing);
+            });
     });
 }
 
@@ -25,16 +29,3 @@ pub fn cleanup_main_menu(mut commands: Commands, query: Query<Entity, With<MainM
 
 #[derive(Component)]
 pub enum MenuButton { SinglePlayer }
-
-pub fn menu_button_system(
-    mut interaction_query: Query<(&MenuButton, &Interaction), Changed<Interaction>>,
-    mut next_state: ResMut<NextState<crate::GameState>>,
-) {
-    for (btn, interaction) in interaction_query.iter_mut() {
-        if *interaction == Interaction::Pressed {
-            match btn {
-                MenuButton::SinglePlayer => next_state.set(crate::GameState::Playing),
-            }
-        }
-    }
-}
