@@ -13,12 +13,10 @@ impl Plugin for UiPlugin {
             .init_resource::<hud::HudTexts>()
             .init_resource::<hud::SeekPanelState>()
             .init_resource::<hud::ToastMessage>()
-            .init_resource::<hud::UiFocusBlocker>()
             .add_systems(OnEnter(crate::GameState::MainMenu), menu::setup_main_menu)
             .add_systems(OnExit(crate::GameState::MainMenu), menu::cleanup_main_menu)
             .add_systems(Update, menu::menu_button_system.run_if(in_state(crate::GameState::MainMenu)))
             .add_systems(OnEnter(crate::GameState::Playing), hud::setup_hud)
-            .add_systems(Update, hud::reset_ui_focus_blocker.run_if(in_state(crate::GameState::Playing)))
             .add_systems(Update, (
                 hud::update_top_bar,
                 hud::update_bottom_panel,

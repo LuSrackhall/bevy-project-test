@@ -1,4 +1,6 @@
 use bevy::prelude::*;
+use bevy::picking::hover::HoverMap;
+use bevy::picking::pointer::PointerId;
 use bevy_prototype_lyon::prelude::*;
 use bevy_prototype_lyon::shapes;
 use bevy_adapter::tick::SimulationWorld;
@@ -8,6 +10,13 @@ use simulation::types::*;
 use simulation::soldier::*;
 use simulation::command::*;
 use crate::camera::MainCamera;
+
+/// Returns true if the mouse cursor is currently over any UI element.
+fn is_cursor_over_ui(hover_map: &HoverMap) -> bool {
+    hover_map
+        .get(&PointerId::Mouse)
+        .map_or(false, |h| !h.is_empty())
+}
 
 // ══════════ Resources ══════════
 
@@ -60,13 +69,13 @@ pub fn selection_click_system(
     keyboard: Res<ButtonInput<KeyCode>>,
     q_windows: Query<&Window>,
     camera_query: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
-    ui_blocker: Res<crate::ui::hud::UiFocusBlocker>,
+    hover_map: Res<HoverMap>,
     mut sim_world: bevy::ecs::system::NonSendMut<SimulationWorld>,
     mut selection: ResMut<SelectionState>,
 ) {
     if !mouse.just_pressed(MouseButton::Left) { return; }
-    // Skip if UI is being interacted with (prevents clearing selection on UI clicks)
-    if ui_blocker.blocked { return; }
+    // Skip if cursor is over UI (prevents clearing selection on UI clicks)
+    if is_cursor_over_ui(&hover_map) { return; }
     let Ok(window) = q_windows.single() else { return };
     let Some(cursor) = window.cursor_position() else { return };
     let Ok((camera, cam_t)) = camera_query.single() else { return };
@@ -284,6 +293,7 @@ pub fn command_issue_system(
     keyboard: Res<ButtonInput<KeyCode>>,
     q_windows: Query<&Window>,
     camera_query: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
+    hover_map: Res<HoverMap>,
     mut sim_world: bevy::ecs::system::NonSendMut<SimulationWorld>,
     selection: ResMut<SelectionState>,
     mut cmd_buf: ResMut<CommandBuffer>,
@@ -292,6 +302,8 @@ pub fn command_issue_system(
 ) {
     if !mouse.just_pressed(MouseButton::Right) { return; }
     if selection.selected_unit_ids.is_empty() { return; }
+    // Skip if cursor is over UI (prevents issuing commands when clicking UI)
+    if is_cursor_over_ui(&hover_map) { return; }
 
     let Ok(window) = q_windows.single() else { return };
     let Some(cursor) = window.cursor_position() else { return };
