@@ -106,7 +106,7 @@ pub struct UiFocusBlocker {
 pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server: Res<AssetServer>) {
     let font = asset_server.load("fonts/Arial Unicode.ttf");
     commands.spawn((Node { width: Val::Percent(100.0), height: Val::Percent(100.0),
-        flex_direction: FlexDirection::Column, justify_content: JustifyContent::SpaceBetween, ..default() }, HudRoot))
+        flex_direction: FlexDirection::Column, justify_content: JustifyContent::SpaceBetween, ..default() }, HudRoot, Pickable::IGNORE))
     .with_children(|root| {
         // ── Top bar ──
         root.spawn((Node { width: Val::Percent(100.0), height: Val::Px(36.0), flex_direction: FlexDirection::Row,
@@ -125,13 +125,13 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
                 TextColor(Color::srgb(1.0, 0.9, 0.3)))).id());
         });
 
-        root.spawn(Node { flex_grow: 1.0, ..default() }); // spacer
+        root.spawn((Node { flex_grow: 1.0, ..default() }, Pickable::IGNORE)); // spacer
 
         // ── Bottom zone 180px: Left 30% info + Right 70% command+compendium ──
         root.spawn((Node { width: Val::Percent(100.0), height: Val::Px(180.0),
-            flex_direction: FlexDirection::Row, ..default() }, BottomZone))
+            flex_direction: FlexDirection::Row, ..default() }, BottomZone, Pickable::IGNORE))
         .with_children(|bz| {
-            bz.spawn(Node { width: Val::Percent(30.0), height: Val::Percent(100.0), ..default() })
+            bz.spawn((Node { width: Val::Percent(30.0), height: Val::Percent(100.0), ..default() }, Pickable::IGNORE))
               .with_children(|p| {
                 // Soldier panel
                 ht.s_root = Some(p.spawn((Node { width: Val::Percent(100.0), flex_direction: FlexDirection::Column,
@@ -189,7 +189,7 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
                 }).id());
               });
             // Right 70%: command card + compendium
-            bz.spawn(Node { width: Val::Percent(70.0), height: Val::Percent(100.0), flex_direction: FlexDirection::Column, ..default() })
+            bz.spawn((Node { width: Val::Percent(70.0), height: Val::Percent(100.0), flex_direction: FlexDirection::Column, ..default() }, Pickable::IGNORE))
               .with_children(|p| {
                 p.spawn((Node { width: Val::Percent(100.0), flex_direction: FlexDirection::Column,
                     padding: UiRect::all(Val::Px(8.0)), row_gap: Val::Px(4.0), ..default() },
