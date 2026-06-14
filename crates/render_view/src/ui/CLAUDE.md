@@ -1,45 +1,45 @@
-# Bevy UI Guidelines
+# Bevy UI Architecture Guidelines
 
-Follow the official Bevy UI architecture instead of legacy UI patterns.
+Follow the official Bevy UI architecture and favor architectural principles over temporary APIs.
 
 ## Architecture
 
-- Use official widgets as the behavioral foundation.
-- Treat widgets as headless behavior, not visual components.
-- Keep business logic outside widgets.
-- Keep business state in ECS Resources or domain Components.
-- Treat widget state as transient UI state, never as business state.
-- Let widgets reflect application state, never own it.
-- Style belongs to the application layer.
+* Use official widgets as the behavioral foundation.
+* Build UI from reusable, composable widgets.
+* Treat widgets as behavioral building blocks, not business objects.
+* Keep business logic outside widgets.
+* Keep business state in ECS Resources or domain Components.
+* Treat UI state as transient presentation state, never as application state.
+* Widgets reflect application state; they never own the source of truth.
+* Keep behavior, presentation, and business logic decoupled.
 
 ## Interaction
 
-- Prefer the official event-driven interaction model.
-- React to semantic widget events instead of polling visual state.
-- Never build gameplay logic around transient widget state.
-- Prefer the official pointer interaction pipeline over custom input handling.
-- Design UI to support mouse, keyboard, gamepad, touch, and accessibility.
+* Prefer the official event-driven interaction model.
+* React to semantic UI events instead of polling visual state.
+* Never drive gameplay or application logic from transient UI state.
+* Prefer the official input pipeline over custom input handling.
+* Design interaction to support mouse, keyboard, gamepad, touch, and accessibility.
 
 ## Widget Design
 
 Widgets are responsible only for:
 
-- interaction behavior
-- focus
-- accessibility
-- keyboard navigation
-- transient UI state
-- semantic event emission
+* interaction behavior
+* focus and navigation
+* accessibility
+* transient UI state
+* semantic event emission
 
 Widgets must never contain:
 
-- gameplay logic
-- business rules
-- application state
-- project-specific styling
+* gameplay logic
+* business rules
+* application state
+* project-specific behavior
 
-## Compatibility
+## Future Compatibility
 
-Prefer architectural principles over specific APIs.
+Do not couple application architecture to Bevy's current implementation details.
 
-When Bevy evolves (Observers, BSN, Relations, or future UI systems), preserve these architectural principles instead of preserving old implementation details.
+When Bevy evolves (Observers, BSN, Relations, UI runtime, or future UI systems), preserve these architectural principles instead of preserving specific APIs or implementation patterns.
