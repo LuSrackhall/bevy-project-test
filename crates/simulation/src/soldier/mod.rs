@@ -189,21 +189,17 @@ pub fn soldier_movement_system(world: &mut World) {
     {
         let mut q = world.query::<(Entity, &LogicalPosition, &Movement, &SoldierTypeComponent, &SoldierStateComponent, Option<&SlowDebuff>, Option<&ShieldComponent>, Option<&FacingDirection>)>();
         for (e, pos, mov, st, sst, slow, shield, facing_dir) in q.iter(world) {
-            if sst.0 == SoldierState::Fighting {
-                // Check if target is in attack range — if so, hold position and preserve target
+            if st.0 == SoldierType::Archer && sst.0 == SoldierState::Fighting {
+                // Check if target is in attack range — if so, hold position and keep shooting
                 if let Some(target_id) = mov.target {
                     if let Some(target_pos) = positions.get(&target_id) {
-                        let cfg = soldier_config.get(st.0);
-                        let attack_range = if st.0 == SoldierType::Archer {
-                            let level = world.get::<Level>(e).map(|l| l.level).unwrap_or(1);
-                            cfg.compute_attack_range(level)
-                        } else {
-                            cfg.attack_range
-                        };
+                        let archer_cfg = soldier_config.get(SoldierType::Archer);
+                        let level = world.get::<Level>(e).map(|l| l.level).unwrap_or(1);
+                        let attack_range = archer_cfg.compute_attack_range(level);
                         let range_sq = attack_range as i64 * attack_range as i64;
                         let dist_sq = (pos.0 - *target_pos).length_squared();
                         if dist_sq <= Fixed(range_sq) {
-                            // Target in range — don't move, keep target
+                            // Target in range — don't move, keep shooting
                             continue;
                         }
                         // Target out of range — fall through to normal movement (chase)
@@ -245,11 +241,8 @@ pub fn soldier_movement_system(world: &mut World) {
 
             let delta = target_pos - pos.0;
             let dist_sq = delta.length_squared();
-            // Don't trigger arrival for Fighting units with a target —
-            // they should keep their target for the melee attack system.
-            let in_fighting = sst.0 == SoldierState::Fighting && mov.target.is_some();
             let threshold = Fixed::from_int(5);
-            if !in_fighting && dist_sq < threshold * threshold {
+            if dist_sq < threshold * threshold {
                 arrivals.push((e, mov.speed));
                 continue;
             }

@@ -120,8 +120,11 @@ pub fn combat_engagement_system(world: &mut World) {
 
         let mut em = world.entity_mut(sd.entity);
         if let Some((enemy_id, _)) = best {
-            let ct = if sd.cmd_target.is_none() { sd.target } else { sd.cmd_target };
-            em.insert(Movement { speed: sd.speed, target: Some(enemy_id), command_target: ct, waypoint: None, force_move: false });
+            let is_cav = sd.stype == SoldierType::Cavalry;
+            if !is_cav {
+                let ct = if sd.cmd_target.is_none() { sd.target } else { sd.cmd_target };
+                em.insert(Movement { speed: sd.speed, target: Some(enemy_id), command_target: ct, waypoint: None, force_move: false });
+            }
             em.insert(SoldierStateComponent(SoldierState::Fighting));
         } else if sd.state == SoldierState::Fighting {
             let ct = sd.cmd_target;
