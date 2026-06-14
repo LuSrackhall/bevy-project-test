@@ -14,12 +14,21 @@
 
 ## 2. Phase 1a: Observer 机制验证
 
-- [ ] 2.1 创建 `crates/render_view/src/ui/observer.rs` 模块
-- [ ] 2.2 实现 `menu_click_observer` 函数，监听 `Pointer<Click>`，查询 `MenuButton` 组件
-- [ ] 2.3 在 `UiPlugin::build` 中注册全局 Observer
-- [ ] 2.4 在 Observer 中添加 `info!` 日志，验证点击时触发
-- [ ] 2.5 临时禁用 `menu_button_system`，验证 Observer 独立完成状态切换
-- [ ] 2.6 恢复 `menu_button_system`，验证两者并行运行无冲突
+- [x] 2.1 创建 `crates/render_view/src/ui/observer.rs` 模块
+- [x] 2.2 实现 `menu_press_observer` 函数，监听 `Pointer<Press>`，查询 `MenuButton` 组件
+- [x] 2.3 在 `UiPlugin::build` 中注册全局 Observer
+- [x] 2.4 验证 Observer 触发（用户确认控制台出现日志）
+- [x] 2.5 清理诊断代码，保留最终 Observer
+- [ ] 2.6 更新提案，记录 Phase 1a 实证结论
+
+### Phase 1a 实证结论
+
+- ✅ Observer 机制可行（可监听 Pointer 事件）
+- ✅ Observer 可访问 ECS 资源（`ResMut`、`Query`）
+- ✅ 事件冒泡正常工作（Press 事件在 4 个实体上触发）
+- ⚠️ `Pointer<Click>` 在 UI 按钮上不可靠（Press 和 Release 之间有微小移动时 Click 不生成）
+- ✅ `Pointer<Press>` 可靠替代方案
+- 📌 Phase 2 应使用 `Pointer<Press>` 而非 `Pointer<Click>` 作为按钮交互基础
 
 ## 3. 清理与文档
 
