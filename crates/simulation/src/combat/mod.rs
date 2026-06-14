@@ -1305,6 +1305,82 @@ mod integration_tests {
     // ── Test 5: Archer chases target out of attack range ──
 
     #[test]
+    fn test_facing_affects_attack_speed() {
+        // Setup: two militia attacking the same target
+        // One faces the target (frontal), one faces away (rear)
+        let mut world = init_simulation_world(42);
+        let cfg = world.resource::<SoldierConfig>().clone();
+
+        // Spawn enemy target at (100, 0)
+        let (_enemy_uid, _enemy) = spawn_test_soldier(
+            &mut world,
+            FixedVec2::new(Fixed::from_int(100), Fixed::ZERO),
+            Faction::Enemy,
+            SoldierType::Militia,
+            Fixed::ZERO,
+        );
+
+        // Spawn frontal attacker at (75, 0) — facing right (0°) toward enemy
+        let (_frontal_uid, frontal) = spawn_test_soldier(
+            &mut world,
+            FixedVec2::new(Fixed::from_int(75), Fixed::ZERO),
+            Faction::Player,
+            SoldierType::Militia,
+            Fixed::from_int(0), // facing 0° (toward enemy)
+        );
+        world.entity_mut(frontal).insert(Movement {
+            speed: 80, target: Some(_enemy_uid), command_target: None, waypoint: None, force_move: false,
+        });
+        world.entity_mut(frontal).insert(SoldierStateComponent(SoldierState::Fighting));
+
+        // Spawn rear attacker at (75, 0) — facing left (180°) away from enemy
+        let (_rear_uid, rear) = spawn_test_soldier(
+            &mut world,
+            FixedVec2::new(Fixed::from_int(75), Fixed::from_int(1)),
+            Faction::Player,
+            SoldierType::Militia,
+            Fixed::from_int(180), // facing 180° (away from enemy)
+        );
+        world.entity_mut(rear).insert(Movement {
+            speed: 80, target: Some(_enemy_uid), command_target: None, waypoint: None, force_move: false,
+        });
+        world.entity_mut(rear).insert(SoldierStateComponent(SoldierState::Fighting));
+
+        // Run one tick to trigger attacks
+        crate::run_tick(&mut world, 1);
+
+        // Check cooldowns — frontal should have shorter cooldown than rear
+        let frontal_atk = world.get::<Attack>(frontal).unwrap();
+        let rear_atk = world.get::<Attack>(rear).unwrap();
+
+        // Frontal: cooldown ≈ base / 1.3 ≈ 0.77 * base
+        // Rear: cooldown ≈ base / 0.7 ≈ 1.43 * base
+        let base_interval = cfg.get(SoldierType::Militia).attack_interval_ticks;
+        println!("Base interval: {}", base_interval);
+        println!("Frontal cooldown: {}", frontal_atk.cooldown_remaining);
+        println!("Rear cooldown: {}", rear_atk.cooldown_remaining);
+
+        assert!(
+            frontal_atk.cooldown_remaining < rear_atk.cooldown_remaining,
+            "Frontal cooldown ({}) should be less than rear cooldown ({})",
+            frontal_atk.cooldown_remaining,
+            rear_atk.cooldown_remaining
+        );
+        assert!(
+            frontal_atk.cooldown_remaining < base_interval,
+            "Frontal cooldown ({}) should be less than base ({})",
+            frontal_atk.cooldown_remaining,
+            base_interval
+        );
+        assert!(
+            rear_atk.cooldown_remaining > base_interval,
+            "Rear cooldown ({}) should be greater than base ({})",
+            rear_atk.cooldown_remaining,
+            base_interval
+        );
+    }
+
+    #[test]
     fn test_archer_chases_target_out_of_range() {
         let mut world = init_simulation_world(42);
 
