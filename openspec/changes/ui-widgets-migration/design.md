@@ -2,19 +2,13 @@
 
 当前 UI 层使用 Bevy 旧版 `bevy_ui::Button` + `Interaction` 组件轮询模式。Phase 1 已完成穿透修复（`Interaction::Pressed` 替代 `UiFocusBlocker`）和 Observer 机制验证（`Pointer<Press>` 可靠）。代码库中存在 10 个按钮系统，全部使用 `Query<(&Marker, &Interaction), Changed<Interaction>>` 模式。
 
-Bevy 0.18 存在三套并行的交互系统：
-- `Interaction`（旧版，由 `ui_focus_system` 驱动）
-- `PickingInteraction`（Picking 系统自动维护，与 Interaction 同构）
-- `Pressed` + `Activate`（`bevy_ui_widgets` 的 Observer 模式）
-
 ## Goals / Non-Goals
 
 **Goals:**
 
-- 全量迁移到 `bevy_ui_widgets::Button` + `Activate` Observer 模式
-- 用 `PickingInteraction` 统一过渡期的交互检测，消除双真相源
+- 一次性全量迁移到 `bevy_ui_widgets::Button` + `Activate` Observer 模式
+- 同步切换 `is_any_ui_pressed` 口径，消除混合期
 - 为所有按钮提供视觉反馈（hover/pressed 状态）
-- 保持穿透保护（`is_any_ui_pressed`）在迁移期间不中断
 - 符合 `ui/CLAUDE.md` 宪法：事件驱动、语义事件、行为与表现解耦
 
 **Non-Goals:**
@@ -26,16 +20,16 @@ Bevy 0.18 存在三套并行的交互系统：
 
 ## Decisions
 
-### Decision 1: 用 PickingInteraction 替代 Interaction 作为过渡方案
+### Decision 1: 一次性迁移所有按钮（不分 Phase）
 
-**选择**: 在 Phase 1.5 中，将所有 `Query<&Interaction>` 替换为 `Query<&PickingInteraction>`。
+**选择**: 在单个 Phase 中迁移所有 25 个按钮，同步切换 `is_any_ui_pressed` 口径。
 
 **备选方案**:
-- A) 保持 Interaction 直到全量迁移 → 双真相源，bevy_ui_widgets::Button 不提供 Interaction
-- B) 直接迁移到 Pressed → 混合期部分按钮没有 Pressed，穿透保护失效
-- C) 用 Pointer<Over>/Out Observer → 与 is_any_ui_pressed 形成双真相源
+- A) 分步迁移（menu → HUD → Seek Panel）→ `is_any_ui_pressed` 全局守卫无法渐进式迁移，必然产生混合期
+- B) PickingInteraction 过渡层 → 已验证失败（PickingInteraction 无 require，只在 hover 时才插入）
+- C) 双检查方案（同时检查 Interaction 和 Pressed）→ 可行但增加无意义的过渡代码
 
-**理由**: `PickingInteraction` 与 `Interaction` 几乎同构（Hovered/Pressed/None），API 迁移成本极低。它由 Picking 系统自动维护，无需手动管理。`bevy_ui_widgets::Button` 不提供 `Interaction`，但 Picking 系统仍提供 `PickingInteraction`。这是消除双真相源的最安全路径。
+**理由**: `is_any_ui_pressed` 是全局守卫，查询世界中所有 UI 实体的组件状态。只要世界中同时存在两种按钮组件体系，守卫就必须同时理解两者。一次性迁移消除这个矛盾。按钮迁移逻辑高度同质（都是 `Interaction` → `Activate` Observer），拆开不降低复杂度。
 
 ### Decision 2: Activate Observer 替代 Interaction 轮询
 
@@ -59,11 +53,11 @@ Bevy 0.18 存在三套并行的交互系统：
 
 **理由**: 样式是交互状态的纯函数投影，应集中管理。`ButtonTheme` 组件允许不同按钮有不同样式，系统逻辑统一。这符合"presentation 与 behavior 解耦"原则。
 
-### Decision 4: is_any_ui_pressed 分阶段迁移
+### Decision 4: is_any_ui_pressed 一次性切换口径
 
-**选择**: 混合期同时检查 `PickingInteraction::Pressed` 和 `Pressed` 组件，全量迁移后简化为只检查 `Pressed`。
+**选择**: 全量迁移时将 `is_any_ui_pressed` 从 `Query<&Interaction>` 一次性改为 `Query<&Pressed>`。
 
-**理由**: `PickingInteraction` 在混合期覆盖未迁移的按钮，`Pressed` 覆盖已迁移的按钮。全量迁移后所有按钮都有 `Pressed`，可以删除 `PickingInteraction` 依赖。时序验证：`PreUpdate`（Picking 系统更新）先于 `Update`（selection 系统检查），无漏检窗口。
+**理由**: 一次性迁移所有按钮，不存在混合期，`is_any_ui_pressed` 只需切换一次口径。`Pressed` 组件由 `bevy_ui_widgets::Button` 的 Observer 自动管理（Press 时插入，Release 时移除），与 `Interaction` 的生命周期一致。
 
 ### Decision 5: Seek Panel 输入框保留手写逻辑
 
@@ -79,10 +73,6 @@ Bevy 0.18 存在三套并行的交互系统：
 
 **[experimental feature 稳定性]** → `bevy_ui_widgets` 标记为 experimental，API 可能大幅变更。缓解：将 widget 用法封装在独立的 builder/spawner 函数中，便于未来 API 变更时集中修改。
 
-**[PickingInteraction 与 bevy_ui_widgets 的兼容性]** → PickingInteraction 由 Picking 系统自动维护，与 bevy_ui_widgets 使用同一套 Picking 管线，兼容性风险低。
+**[全量迁移失败风险]** → Phase 2a 是单个大变更，如果失败需要 git revert。缓解：Phase 内按文件拆 commit，失败时 revert 到最近的 checkpoint。编译通过后必须运行验证再 merge。
 
 **[MenuPopup 定位策略]** → 当前下拉菜单通过 `PositionType::Absolute` + `bottom: Val::Px(28.0)` 定位在 trigger 上方。需确认 MenuPopup 的默认定位策略是否支持向上弹出。
-
-**[混合期双系统共存]** → Phase 2a-2c 期间，部分按钮使用 bevy_ui_widgets::Button，部分使用旧版 Button。两者使用同一套 Picking 管线，不会互相干扰。
-
-**[button_style_system 与 PickingInteraction 的时序]** → `button_style_system` 需要在 `ui_focus_system` 之后运行，以确保 `PickingInteraction` 已更新。通过系统排序约束解决。
