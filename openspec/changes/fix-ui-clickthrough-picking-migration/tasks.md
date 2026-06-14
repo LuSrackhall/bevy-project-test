@@ -1,11 +1,11 @@
 ## 1. Phase 1b: 穿透修复（HoverMap 替代 UiFocusBlocker）
 
-- [ ] 1.1 在 `selection_click_system` 中添加 `Res<HoverMap>` 参数，临时添加日志验证 HoverMap 行为
-- [ ] 1.2 将 `selection_click_system` 中的 `ui_blocker.blocked` 检查替换为 `HoverMap` 非空检查
-- [ ] 1.3 在 `command_issue_system` 中添加同样的 `HoverMap` 非空检查
-- [ ] 1.4 删除 `UiFocusBlocker` 资源定义和 `reset_ui_focus_blocker` 系统（hud.rs）
-- [ ] 1.5 删除 `UiFocusBlocker` 资源注册和 reset 系统注册（mod.rs）
-- [ ] 1.6 删除 `seek_panel_dropdown_system`、`seek_panel_input_system`、`seek_panel_issue_system` 中的 `blocker` 参数
+- [x] 1.1 在 `selection_click_system` 中添加 `Res<HoverMap>` 参数，临时添加日志验证 HoverMap 行为
+- [x] 1.2 将 `selection_click_system` 中的 `ui_blocker.blocked` 检查替换为 `HoverMap` 非空检查
+- [x] 1.3 在 `command_issue_system` 中添加同样的 `HoverMap` 非空检查
+- [x] 1.4 删除 `UiFocusBlocker` 资源定义和 `reset_ui_focus_blocker` 系统（hud.rs）
+- [x] 1.5 删除 `UiFocusBlocker` 资源注册和 reset 系统注册（mod.rs）
+- [x] 1.6 删除 `seek_panel_dropdown_system`、`seek_panel_input_system`、`seek_panel_issue_system` 中的 `blocker` 参数
 - [ ] 1.7 验证：选中单位后点击 UI 按钮，选中状态保持
 - [ ] 1.8 验证：右键点击 UI 按钮，不触发游戏命令
 - [ ] 1.9 验证：点击游戏世界空白处，选中状态正常清除
@@ -21,6 +21,6 @@
 
 ## 3. 清理与文档
 
-- [ ] 3.1 编译验证：`cargo build` 无错误
+- [x] 3.1 编译验证：`cargo build` 无错误
 - [ ] 3.2 运行验证：`cargo run` 游戏正常运行
 - [ ] 3.3 更新 `ui/CLAUDE.md` 中的架构准则（如需要）
