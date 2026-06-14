@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use bevy::picking::hover::PickingInteraction;
 use bevy_prototype_lyon::prelude::*;
 use bevy_prototype_lyon::shapes;
 use bevy_adapter::tick::SimulationWorld;
@@ -11,8 +12,8 @@ use crate::camera::MainCamera;
 
 /// Returns true if any UI element is currently being pressed (clicked).
 /// This prevents game-world click processing when interacting with UI buttons.
-fn is_any_ui_pressed(interactions: &Query<&Interaction>) -> bool {
-    interactions.iter().any(|i| *i == Interaction::Pressed)
+fn is_any_ui_pressed(interactions: &Query<&PickingInteraction>) -> bool {
+    interactions.iter().any(|i| *i == PickingInteraction::Pressed)
 }
 
 // ══════════ Resources ══════════
@@ -66,7 +67,7 @@ pub fn selection_click_system(
     keyboard: Res<ButtonInput<KeyCode>>,
     q_windows: Query<&Window>,
     camera_query: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
-    interactions: Query<&Interaction>,
+    interactions: Query<&PickingInteraction>,
     mut sim_world: bevy::ecs::system::NonSendMut<SimulationWorld>,
     mut selection: ResMut<SelectionState>,
 ) {
@@ -290,7 +291,7 @@ pub fn command_issue_system(
     keyboard: Res<ButtonInput<KeyCode>>,
     q_windows: Query<&Window>,
     camera_query: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
-    interactions: Query<&Interaction>,
+    interactions: Query<&PickingInteraction>,
     mut sim_world: bevy::ecs::system::NonSendMut<SimulationWorld>,
     selection: ResMut<SelectionState>,
     mut cmd_buf: ResMut<CommandBuffer>,

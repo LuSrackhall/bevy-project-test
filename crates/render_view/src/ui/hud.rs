@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use bevy::picking::hover::PickingInteraction;
 use simulation::types::*;
 use simulation::soldier::*;
 use simulation::city::config::CityGlobalConfig;
@@ -317,7 +318,7 @@ pub fn update_bottom_panel(
         Query<&mut Node, With<SoldierPanelRoot>>,
         Query<&mut Node, With<CityPanelRoot>>,
     )>,
-    spawn_btns: Query<(&SpawnTypeBtn, &Interaction), Changed<Interaction>>,
+    spawn_btns: Query<(&SpawnTypeBtn, &PickingInteraction), Changed<PickingInteraction>>,
     ht: Res<HudTexts>, selection: Res<SelectionState>,
     mut sim: bevy::ecs::system::NonSendMut<SimulationWorld>,
 ) {
@@ -418,7 +419,7 @@ pub fn update_bottom_panel(
     }
 
     // ── Compendium hover ──
-    let hovered_st = spawn_btns.iter().find_map(|(btn,interaction)| if *interaction==Interaction::Hovered { Some(btn.0) } else { None });
+    let hovered_st = spawn_btns.iter().find_map(|(btn,interaction)| if *interaction==PickingInteraction::Hovered { Some(btn.0) } else { None });
     if let Some(st) = hovered_st {
         show_compendium(&mut tq, &ht, st);
     } else if has_city {
@@ -458,11 +459,11 @@ fn clear_compendium(tq: &mut Query<&mut Text>, ht: &HudTexts) {
 
 // ══════════ Button Systems ══════════
 
-pub fn soldier_type_button_system(mut q: Query<(&SpawnTypeBtn, &Interaction), Changed<Interaction>>,
+pub fn soldier_type_button_system(mut q: Query<(&SpawnTypeBtn, &PickingInteraction), Changed<PickingInteraction>>,
     selection: Res<SelectionState>, mut sim: bevy::ecs::system::NonSendMut<SimulationWorld>) {
     let w = &mut sim.0;
     for (btn,interaction) in q.iter_mut() {
-        if *interaction != Interaction::Pressed { continue; }
+        if *interaction != PickingInteraction::Pressed { continue; }
         if let Some(cid) = selection.selected_city {
             let ce = w.query::<(Entity, &UnitIdComponent, &CityMarker)>().iter(w).find(|(_,id,_)| id.0==cid).map(|(e,_,_)| e);
             if let Some(ce) = ce {
@@ -473,7 +474,7 @@ pub fn soldier_type_button_system(mut q: Query<(&SpawnTypeBtn, &Interaction), Ch
 }
 
 pub fn toolbar_button_system(
-    mut q: Query<(&ToolbarButton, &Interaction), Changed<Interaction>>,
+    mut q: Query<(&ToolbarButton, &PickingInteraction), Changed<PickingInteraction>>,
     mut sel: ResMut<SelectionState>,
     mut force: ResMut<ForceMoveNext>,
     mut sim: bevy::ecs::system::NonSendMut<SimulationWorld>,
@@ -481,7 +482,7 @@ pub fn toolbar_button_system(
     tick_clock: Res<TickClock>,
 ) {
     for (btn, interaction) in q.iter_mut() {
-        if *interaction != Interaction::Pressed { continue; }
+        if *interaction != PickingInteraction::Pressed { continue; }
         match btn.0 {
             0 => sel.selection_mode = crate::selection::SelectionMode::Circle,
             1 => sel.selection_mode = crate::selection::SelectionMode::Rect,
@@ -573,12 +574,12 @@ pub fn seek_panel_dropdown_system(
     mut state: ResMut<SeekPanelState>,
     mut tq: Query<&mut Text>,
     ht: Res<HudTexts>,
-    dropdown_btn: Query<&Interaction, With<SeekScopeDropdown>>,
-    option_btns: Query<(&SeekScopeOption, &Interaction), With<SeekScopeOption>>,
+    dropdown_btn: Query<&PickingInteraction, With<SeekScopeDropdown>>,
+    option_btns: Query<(&SeekScopeOption, &PickingInteraction), With<SeekScopeOption>>,
     mut popup_nodes: Query<&mut Node, With<SeekDropdownPopup>>,
 ) {
     // Toggle dropdown on trigger click (use just_pressed to avoid re-toggle)
-    let trigger_pressed = dropdown_btn.iter().any(|i| *i == Interaction::Pressed);
+    let trigger_pressed = dropdown_btn.iter().any(|i| *i == PickingInteraction::Pressed);
     if trigger_pressed && mouse.just_pressed(MouseButton::Left) {
         state.dropdown_open = !state.dropdown_open;
     }
@@ -586,7 +587,7 @@ pub fn seek_panel_dropdown_system(
     // Handle option selection — check all options for Pressed state
     let mut option_selected = false;
     for (opt, interaction) in option_btns.iter() {
-        if *interaction == Interaction::Pressed {
+        if *interaction == PickingInteraction::Pressed {
             state.scope = opt.0.clone();
             state.dropdown_open = false;
             option_selected = true;
@@ -703,10 +704,10 @@ pub fn seek_panel_input_system(
     mut state: ResMut<SeekPanelState>,
     mut tq: Query<&mut Text>,
     ht: Res<HudTexts>,
-    input_btn: Query<&Interaction, With<SeekRangeInput>>,
+    input_btn: Query<&PickingInteraction, With<SeekRangeInput>>,
 ) {
     // Click on input box → activate keyboard capture and show cursor immediately
-    let input_pressed = input_btn.iter().any(|i| *i == Interaction::Pressed);
+    let input_pressed = input_btn.iter().any(|i| *i == PickingInteraction::Pressed);
     if input_pressed && mouse.just_pressed(MouseButton::Left) && !state.input_active {
         state.input_active = true;
         // Show cursor immediately on activation
@@ -780,7 +781,7 @@ pub fn seek_panel_input_system(
 /// Handle issue button click: generate command, trigger toast.
 pub fn seek_panel_issue_system(
     mouse: Res<ButtonInput<MouseButton>>,
-    issue_btn: Query<&Interaction, With<SeekIssueBtn>>,
+    issue_btn: Query<&PickingInteraction, With<SeekIssueBtn>>,
     state: Res<SeekPanelState>,
     selection: Res<SelectionState>,
     mut cmd_buf: ResMut<CommandBuffer>,
@@ -789,7 +790,7 @@ pub fn seek_panel_issue_system(
 ) {
     if !mouse.just_pressed(MouseButton::Left) { return; }
     for interaction in issue_btn.iter() {
-        if *interaction != Interaction::Pressed { continue; }
+        if *interaction != PickingInteraction::Pressed { continue; }
 
         let next_tick = tick_clock.current_tick + 1;
         let has_sel = !selection.selected_unit_ids.is_empty();

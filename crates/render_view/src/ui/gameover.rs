@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use bevy::picking::hover::PickingInteraction;
 
 #[derive(Component)]
 pub struct GameOverUI;
@@ -27,11 +28,11 @@ pub fn cleanup_gameover(mut commands: Commands, query: Query<Entity, With<GameOv
 pub(crate) enum EndBtn { Restart, Menu }
 
 pub fn gameover_button_system(
-    mut interaction_query: Query<(&EndBtn, &Interaction), Changed<Interaction>>,
+    mut interaction_query: Query<(&EndBtn, &PickingInteraction), Changed<PickingInteraction>>,
     mut next_state: ResMut<NextState<crate::GameState>>,
 ) {
     for (btn, interaction) in interaction_query.iter_mut() {
-        if *interaction != Interaction::Pressed { continue; }
+        if *interaction != PickingInteraction::Pressed { continue; }
         match btn {
             EndBtn::Restart => next_state.set(crate::GameState::Playing),
             EndBtn::Menu => next_state.set(crate::GameState::MainMenu),

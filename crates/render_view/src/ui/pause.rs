@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use bevy::picking::hover::PickingInteraction;
 
 #[derive(Component)]
 pub struct PauseUI;
@@ -27,11 +28,11 @@ pub fn cleanup_pause(mut commands: Commands, query: Query<Entity, With<PauseUI>>
 pub(crate) enum PauseBtn { Resume, Restart, Menu }
 
 pub fn pause_button_system(
-    mut interaction_query: Query<(&PauseBtn, &Interaction), Changed<Interaction>>,
+    mut interaction_query: Query<(&PauseBtn, &PickingInteraction), Changed<PickingInteraction>>,
     mut next_state: ResMut<NextState<crate::GameState>>,
 ) {
     for (btn, interaction) in interaction_query.iter_mut() {
-        if *interaction != Interaction::Pressed { continue; }
+        if *interaction != PickingInteraction::Pressed { continue; }
         match btn {
             PauseBtn::Resume => next_state.set(crate::GameState::Playing),
             PauseBtn::Restart => {
