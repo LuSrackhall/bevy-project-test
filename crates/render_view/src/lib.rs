@@ -5,7 +5,7 @@ pub mod ui;
 pub mod unit_info_bar;
 
 use bevy::prelude::*;
-use bevy::ui_widgets::UiWidgetsPlugins;
+use bevy::ui_widgets::ButtonPlugin;
 
 /// Game state enum — shared across the render view.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, States, Default)]
@@ -24,7 +24,7 @@ impl Plugin for RenderViewPlugin {
         app
             .init_state::<GameState>()
             .init_resource::<crate::selection::SelectionState>()
-            .add_plugins(UiWidgetsPlugins)
+            .add_plugins(ButtonPlugin)
             .add_plugins(crate::ui::UiPlugin)
             .add_systems(Startup, crate::camera::setup_camera)
             .init_resource::<crate::unit_info_bar::UnitInfoBarSettings>()
