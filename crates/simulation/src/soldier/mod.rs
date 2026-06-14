@@ -79,7 +79,17 @@ pub fn consume_commands_system(world: &mut World, tick: u32) {
     for cmd in commands {
         match cmd.action {
             Action::MoveTo { unit, target } => apply_movement(world, unit, target, false),
-            Action::ForceMove { unit, target } => apply_movement(world, unit, target, true),
+            Action::ForceMove { unit, target } => {
+                // ForceMove cancels Blocking state (unlocks facing)
+                if let Some(e) = find_entity_by_unit_id(world, unit) {
+                    if let Some(mut shield) = world.get_mut::<ShieldComponent>(e) {
+                        if shield.state == ShieldState::Blocking {
+                            shield.state = ShieldState::Normal;
+                        }
+                    }
+                }
+                apply_movement(world, unit, target, true)
+            },
             Action::Attack { unit, target } => {
                 if let Some(e) = find_entity_by_unit_id(world, unit) {
                     let s = get_speed(world, e);

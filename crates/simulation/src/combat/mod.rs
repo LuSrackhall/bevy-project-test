@@ -255,6 +255,16 @@ pub fn melee_attack_system(world: &mut World, current_tick: u32) {
         if ad.force_move && ad.stype != SoldierType::Cavalry { continue; }
 
         // Scan for nearest enemy in attack range
+        // Blocking units only attack enemies in frontal 120° arc
+        let is_blocking = world.get::<ShieldComponent>(ad.entity)
+            .map_or(false, |sc| sc.state == ShieldState::Blocking);
+        let frontal_half = if is_blocking {
+            let cfg = world.resource::<CombatGlobalConfig>();
+            Fixed::from_int(cfg.shield.frontal_angle_deg as i32 / 2)
+        } else {
+            Fixed::from_int(180) // no restriction
+        };
+
         let range_f = Fixed::from_int(ad.range as i32);
         let range_sq = range_f * range_f;
         let mut best_target: Option<(UnitId, FixedVec2, i64)> = None;
@@ -262,6 +272,12 @@ pub fn melee_attack_system(world: &mut World, current_tick: u32) {
             if efaction == ad.faction { continue; }
             let dist_sq = (ad.pos - epos).length_squared();
             if dist_sq <= range_sq {
+                // Blocking: check frontal angle
+                if is_blocking {
+                    let attack_angle = facing::compute_angle_between(ad.pos, epos);
+                    let deviation = facing::angle_distance(ad.facing, attack_angle);
+                    if deviation > frontal_half { continue; }
+                }
                 if best_target.as_ref().map_or(true, |(_, _, bd)| dist_sq.0 < *bd) {
                     best_target = Some((eid, epos, dist_sq.0));
                 }

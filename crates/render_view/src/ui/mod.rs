@@ -24,6 +24,7 @@ impl Plugin for UiPlugin {
                 hud::update_bottom_panel,
                 hud::soldier_type_button_system,
                 hud::toolbar_button_system,
+                hud::shield_button_visibility_system,
                 hud::seek_panel_mode_system,
                 hud::seek_panel_dropdown_system,
                 hud::seek_panel_count_system,

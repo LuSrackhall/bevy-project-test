@@ -185,8 +185,12 @@ pub fn facing_turn_system(world: &mut World) {
     // Collect facing updates: (entity, new_angle)
     let mut updates: Vec<(Entity, Fixed)> = Vec::new();
     {
-        let mut q = world.query::<(Entity, &LogicalPosition, &Movement, &SoldierMarker, Option<&SoldierTypeComponent>)>();
-        for (e, pos, mov, _, stype) in q.iter(world) {
+        let mut q = world.query::<(Entity, &LogicalPosition, &Movement, &SoldierMarker, Option<&SoldierTypeComponent>, Option<&crate::soldier::ShieldComponent>)>();
+        for (e, pos, mov, _, stype, shield) in q.iter(world) {
+            // Skip Blocking units — facing is locked during manual block
+            if shield.map_or(false, |s| s.state == crate::types::ShieldState::Blocking) {
+                continue;
+            }
             // Determine target position based on unit type
             // Cavalry: command_target first, then target, then waypoint
             // Non-cavalry: target first, then waypoint (no command_target)

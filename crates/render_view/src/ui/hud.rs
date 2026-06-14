@@ -91,6 +91,7 @@ pub struct UiFocusBlocker {
 #[derive(Component)] pub(crate) struct SoldierPanelRoot;
 #[derive(Component, Clone, Copy)] pub(crate) struct SpawnTypeBtn(pub SoldierType);
 #[derive(Component)] pub struct ToolbarButton(pub u8);
+#[derive(Component)] pub struct ShieldButton;
 
 // Seek panel components
 #[derive(Component)] pub(crate) struct SeekPanelRoot;
@@ -226,9 +227,10 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
         )).with_children(|p| {
             // Left: existing toolbar buttons
             p.spawn(Node { flex_direction: FlexDirection::Row, align_items: AlignItems::Center, column_gap: Val::Px(4.0), ..default() }).with_children(|p| {
-                for (label, marker) in [("O框选",0u8),("[ ]框选",1),("盾",2),("[>]优先",3)] {
-                    p.spawn((Button, Node { padding: UiRect::all(Val::Px(6.0)), ..default() }, ToolbarButton(marker)))
-                        .with_child((Text::new(label), TextFont { font: font.clone(), font_size: 13.0, ..default() }));
+                for (label, marker) in [("O框选",0u8),("[ ]框选",1),("盾",2u8),("[>]优先",3)] {
+                    let mut cmd = p.spawn((Button, Node { padding: UiRect::all(Val::Px(6.0)), ..default() }, ToolbarButton(marker)));
+                    if marker == 2 { cmd.insert(ShieldButton); }
+                    cmd.with_child((Text::new(label), TextFont { font: font.clone(), font_size: 13.0, ..default() }));
                 }
             });
 
@@ -481,12 +483,72 @@ pub fn soldier_type_button_system(mut q: Query<(&SpawnTypeBtn, &Interaction), Ch
     }
 }
 
-pub fn toolbar_button_system(mut q: Query<(&ToolbarButton, &Interaction), Changed<Interaction>>,
-    mut sel: ResMut<SelectionState>, mut force: ResMut<ForceMoveNext>) {
-    for (btn,interaction) in q.iter_mut() {
+pub fn toolbar_button_system(
+    mut q: Query<(&ToolbarButton, &Interaction), Changed<Interaction>>,
+    mut sel: ResMut<SelectionState>,
+    mut force: ResMut<ForceMoveNext>,
+    mut sim: bevy::ecs::system::NonSendMut<SimulationWorld>,
+    mut cmd_buf: ResMut<CommandBuffer>,
+    tick_clock: Res<TickClock>,
+) {
+    for (btn, interaction) in q.iter_mut() {
         if *interaction != Interaction::Pressed { continue; }
-        match btn.0 { 0=>sel.selection_mode=crate::selection::SelectionMode::Circle,1=>sel.selection_mode=crate::selection::SelectionMode::Rect,2=>{},3=>force.active=true, _=>{} }
+        match btn.0 {
+            0 => sel.selection_mode = crate::selection::SelectionMode::Circle,
+            1 => sel.selection_mode = crate::selection::SelectionMode::Rect,
+            2 => {
+                // Shield toggle: determine target state based on current selection
+                let world = &mut sim.0;
+                let has_infantry = sel.selected_unit_ids.iter().any(|uid| {
+                    find_entity_by_unit_id(world, *uid)
+                        .and_then(|e| world.get::<simulation::soldier::SoldierTypeComponent>(e))
+                        .map(|st| st.0 == simulation::types::SoldierType::Infantry)
+                        .unwrap_or(false)
+                });
+                if !has_infantry { return; }
+
+                // Check if all selected infantry are already blocking
+                let all_blocking = sel.selected_unit_ids.iter().all(|uid| {
+                    let e = find_entity_by_unit_id(world, *uid);
+                    let is_infantry = e.and_then(|e| world.get::<simulation::soldier::SoldierTypeComponent>(e))
+                        .map(|st| st.0 == simulation::types::SoldierType::Infantry)
+                        .unwrap_or(false);
+                    if !is_infantry { return true; } // non-infantry don't count
+                    e.and_then(|e| world.get::<simulation::soldier::ShieldComponent>(e))
+                        .map(|sc| sc.state == simulation::types::ShieldState::Blocking)
+                        .unwrap_or(false)
+                });
+
+                let target_state = if all_blocking {
+                    simulation::types::ShieldState::Normal
+                } else {
+                    simulation::types::ShieldState::Blocking
+                };
+
+                let next_tick = tick_clock.current_tick + 1;
+                for uid in &sel.selected_unit_ids {
+                    // Only send to infantry
+                    let e = find_entity_by_unit_id(world, *uid);
+                    let is_infantry = e.and_then(|e| world.get::<simulation::soldier::SoldierTypeComponent>(e))
+                        .map(|st| st.0 == simulation::types::SoldierType::Infantry)
+                        .unwrap_or(false);
+                    if !is_infantry { continue; }
+                    cmd_buf.push(GameCommand {
+                        tick: next_tick,
+                        player_id: 0,
+                        action: simulation::command::Action::SetShield { unit: *uid, state: target_state },
+                    });
+                }
+            }
+            3 => force.active = true,
+            _ => {}
+        }
     }
+}
+
+fn find_entity_by_unit_id(world: &mut bevy::prelude::World, uid: simulation::types::UnitId) -> Option<bevy::prelude::Entity> {
+    let mut q = world.query::<(bevy::prelude::Entity, &simulation::soldier::UnitIdComponent)>();
+    q.iter(world).find(|(_, id)| id.0 == uid).map(|(e, _)| e)
 }
 
 // ══════════ Seek Panel Mode System ══════════
@@ -877,4 +939,47 @@ pub fn selection_summary_toast_system(
         toast.text = format!("选中 {} 个单位: {}", now, parts.join(" "));
     }
     toast.remaining_ticks = TOAST_DURATION_TICKS;
+}
+
+/// Update shield button visibility and text based on selection.
+pub fn shield_button_visibility_system(
+    sel: Res<SelectionState>,
+    mut sim: bevy::ecs::system::NonSendMut<SimulationWorld>,
+    mut shield_btns: Query<(&mut Visibility, &Children), With<ShieldButton>>,
+    mut texts: Query<&mut Text>,
+) {
+    let world = &mut sim.0;
+
+    // Check if any selected unit is infantry
+    let mut has_infantry = false;
+    let mut all_blocking = true;
+
+    for uid in &sel.selected_unit_ids {
+        let e = find_entity_by_unit_id(world, *uid);
+        let is_infantry = e.and_then(|e| world.get::<simulation::soldier::SoldierTypeComponent>(e))
+            .map(|st| st.0 == simulation::types::SoldierType::Infantry)
+            .unwrap_or(false);
+
+        if is_infantry {
+            has_infantry = true;
+            let is_blocking = e.and_then(|e| world.get::<simulation::soldier::ShieldComponent>(e))
+                .map(|sc| sc.state == simulation::types::ShieldState::Blocking)
+                .unwrap_or(false);
+            if !is_blocking { all_blocking = false; }
+        }
+    }
+
+    for (mut vis, children) in shield_btns.iter_mut() {
+        if !has_infantry {
+            *vis = Visibility::Hidden;
+        } else {
+            *vis = Visibility::Inherited;
+            // Update text
+            for child in children.iter() {
+                if let Ok(mut text) = texts.get_mut(child) {
+                    text.0 = if all_blocking { "收盾" } else { "举盾" }.to_string();
+                }
+            }
+        }
+    }
 }
