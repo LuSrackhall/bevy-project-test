@@ -2,7 +2,6 @@ pub mod menu;
 pub mod hud;
 pub mod pause;
 pub mod gameover;
-pub mod observer;
 
 use bevy::prelude::*;
 
@@ -14,20 +13,18 @@ impl Plugin for UiPlugin {
             .init_resource::<hud::HudTexts>()
             .init_resource::<hud::SeekPanelState>()
             .init_resource::<hud::ToastMessage>()
+            .init_resource::<hud::HoveredSoldierType>()
             .add_systems(OnEnter(crate::GameState::MainMenu), menu::setup_main_menu)
             .add_systems(OnExit(crate::GameState::MainMenu), menu::cleanup_main_menu)
             .add_systems(OnEnter(crate::GameState::Playing), hud::setup_hud)
             .add_systems(Update, (
                 hud::update_top_bar,
                 hud::update_bottom_panel,
-                hud::soldier_type_button_system,
-                hud::toolbar_button_system,
                 hud::shield_button_visibility_system,
                 hud::seek_panel_mode_system,
                 hud::seek_panel_dropdown_system,
                 hud::seek_panel_count_system,
                 hud::seek_panel_input_system,
-                hud::seek_panel_issue_system,
                 hud::toast_tick_system,
                 hud::toast_display_system,
                 hud::selection_summary_toast_system,

@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use bevy::ui_widgets::{Activate, Button as WidgetButton};
 use simulation::types::*;
 use simulation::soldier::*;
 use simulation::city::config::CityGlobalConfig;
@@ -68,6 +69,10 @@ pub struct ToastMessage {
 }
 
 const TOAST_DURATION_TICKS: u32 = 100; // 5 seconds at 20Hz
+
+/// Tracks which soldier type button is currently being hovered.
+#[derive(Resource, Default)]
+pub(crate) struct HoveredSoldierType(pub Option<SoldierType>);
 
 // ══════════ Marker Components ══════════
 
@@ -171,8 +176,24 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
                     ht.c_spawn = Some(p.spawn((Text::new("当前: 民兵"), TextFont { font: font.clone(), font_size: 13.0, ..default() })).id());
                     p.spawn(Node { flex_direction: FlexDirection::Row, ..default() }).with_children(|p| {
                         for (st, label) in [(SoldierType::Militia,"民兵"),(SoldierType::Infantry,"步兵"),(SoldierType::Archer,"弓兵"),(SoldierType::Cavalry,"骑兵")] {
-                            p.spawn((Button, Node { padding: UiRect::all(Val::Px(6.0)), margin: UiRect::all(Val::Px(3.0)), ..default() }, SpawnTypeBtn(st)))
-                                .with_child((Text::new(label), TextFont { font: font.clone(), font_size: 12.0, ..default() }));
+                            p.spawn((WidgetButton, Node { padding: UiRect::all(Val::Px(6.0)), margin: UiRect::all(Val::Px(3.0)), ..default() }, SpawnTypeBtn(st)))
+                                .with_child((Text::new(label), TextFont { font: font.clone(), font_size: 12.0, ..default() }))
+                                .observe(|ev: On<Activate>, q: Query<&SpawnTypeBtn>, selection: Res<SelectionState>, mut sim: NonSendMut<SimulationWorld>| {
+                                    let Ok(btn) = q.get(ev.entity) else { return };
+                                    let w = &mut sim.0;
+                                    if let Some(cid) = selection.selected_city {
+                                        let ce = w.query::<(Entity, &UnitIdComponent, &CityMarker)>().iter(w).find(|(_,id,_)| id.0==cid).map(|(e,_,_)| e);
+                                        if let Some(ce) = ce {
+                                            if let Some(mut c) = w.entity_mut(ce).get_mut::<CityComponent>() { c.spawn_type = btn.0; }
+                                        }
+                                    }
+                                })
+                                .observe(move |_ev: On<Pointer<Over>>, q: Query<&SpawnTypeBtn>, mut hovered: ResMut<HoveredSoldierType>| {
+                                    if let Ok(btn) = q.get(_ev.entity) { hovered.0 = Some(btn.0); }
+                                })
+                                .observe(|_ev: On<Pointer<Out>>, mut hovered: ResMut<HoveredSoldierType>| {
+                                    hovered.0 = None;
+                                });
                         }
                     });
                 }).id());
@@ -187,7 +208,7 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
                     ht.cmd_info = Some(p.spawn((Text::new("无可用命令 — 请先选择单位"), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id());
                     p.spawn(Node { flex_direction: FlexDirection::Row, column_gap: Val::Px(6.0), ..default() }).with_children(|p| {
                         for label in ["移动","攻击","停止","驻守"] {
-                            p.spawn((Button, Node { padding: UiRect::all(Val::Px(8.0)), ..default() }))
+                            p.spawn((WidgetButton, Node { padding: UiRect::all(Val::Px(8.0)), ..default() }))
                                 .with_child((Text::new(label), TextFont { font: font.clone(), font_size: 14.0, ..default() }));
                         }
                     });
@@ -217,9 +238,48 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
             // Left: existing toolbar buttons
             p.spawn(Node { flex_direction: FlexDirection::Row, align_items: AlignItems::Center, column_gap: Val::Px(4.0), ..default() }).with_children(|p| {
                 for (label, marker) in [("O框选",0u8),("[ ]框选",1),("盾",2u8),("[>]优先",3)] {
-                    let mut cmd = p.spawn((Button, Node { padding: UiRect::all(Val::Px(6.0)), ..default() }, ToolbarButton(marker)));
+                    let mut cmd = p.spawn((WidgetButton, Node { padding: UiRect::all(Val::Px(6.0)), ..default() }, ToolbarButton(marker)));
                     if marker == 2 { cmd.insert(ShieldButton); }
-                    cmd.with_child((Text::new(label), TextFont { font: font.clone(), font_size: 13.0, ..default() }));
+                    cmd.with_child((Text::new(label), TextFont { font: font.clone(), font_size: 13.0, ..default() }))
+                        .observe(|ev: On<Activate>, q: Query<&ToolbarButton>, mut sel: ResMut<SelectionState>, mut force: ResMut<ForceMoveNext>, mut sim: NonSendMut<SimulationWorld>, mut cmd_buf: ResMut<CommandBuffer>, tick_clock: Res<TickClock>| {
+                            let Ok(btn) = q.get(ev.entity) else { return };
+                            match btn.0 {
+                                0 => sel.selection_mode = crate::selection::SelectionMode::Circle,
+                                1 => sel.selection_mode = crate::selection::SelectionMode::Rect,
+                                2 => {
+                                    let world = &mut sim.0;
+                                    let has_infantry = sel.selected_unit_ids.iter().any(|uid| {
+                                        find_entity_by_unit_id(world, *uid)
+                                            .and_then(|e| world.get::<simulation::soldier::SoldierTypeComponent>(e))
+                                            .map(|st| st.0 == simulation::types::SoldierType::Infantry)
+                                            .unwrap_or(false)
+                                    });
+                                    if !has_infantry { return; }
+                                    let all_blocking = sel.selected_unit_ids.iter().all(|uid| {
+                                        let e = find_entity_by_unit_id(world, *uid);
+                                        let is_infantry = e.and_then(|e| world.get::<simulation::soldier::SoldierTypeComponent>(e))
+                                            .map(|st| st.0 == simulation::types::SoldierType::Infantry)
+                                            .unwrap_or(false);
+                                        if !is_infantry { return true; }
+                                        e.and_then(|e| world.get::<simulation::soldier::ShieldComponent>(e))
+                                            .map(|sc| sc.state == simulation::types::ShieldState::Blocking)
+                                            .unwrap_or(false)
+                                    });
+                                    let target_state = if all_blocking { simulation::types::ShieldState::Normal } else { simulation::types::ShieldState::Blocking };
+                                    let next_tick = tick_clock.current_tick + 1;
+                                    for uid in &sel.selected_unit_ids {
+                                        let e = find_entity_by_unit_id(world, *uid);
+                                        let is_infantry = e.and_then(|e| world.get::<simulation::soldier::SoldierTypeComponent>(e))
+                                            .map(|st| st.0 == simulation::types::SoldierType::Infantry)
+                                            .unwrap_or(false);
+                                        if !is_infantry { continue; }
+                                        cmd_buf.push(GameCommand { tick: next_tick, player_id: 0, action: simulation::command::Action::SetShield { unit: *uid, state: target_state } });
+                                    }
+                                }
+                                3 => force.active = true,
+                                _ => {}
+                            }
+                        });
                 }
             });
 
@@ -237,10 +297,13 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
                 p.spawn(Node { position_type: PositionType::Relative, ..default() }).with_children(|p| {
                     // Trigger button — store Text child entity ID (not Button parent ID)
                     let mut scope_text_id = Entity::PLACEHOLDER;
-                    p.spawn((Button, Node { padding: UiRect::new(Val::Px(8.0), Val::Px(8.0), Val::Px(4.0), Val::Px(4.0)), ..default() },
+                    p.spawn((WidgetButton, Node { padding: UiRect::new(Val::Px(8.0), Val::Px(8.0), Val::Px(4.0), Val::Px(4.0)), ..default() },
                         BackgroundColor(Color::srgba(0.25, 0.25, 0.3, 1.0)), SeekScopeDropdown,
                     )).with_children(|p| {
                         scope_text_id = p.spawn((Text::new("全体 ▼"), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id();
+                    })
+                    .observe(|_ev: On<Pointer<Press>>, mut state: ResMut<SeekPanelState>| {
+                        state.dropdown_open = !state.dropdown_open;
                     });
                     ht.seek_scope_text = Some(scope_text_id);
                     // Popup container (hidden by default via Display::None)
@@ -261,13 +324,19 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
                         ];
                         for (i, (label, scope)) in options.iter().enumerate() {
                             let mut count_id = Entity::PLACEHOLDER;
-                            p.spawn((Button, Node { padding: UiRect::new(Val::Px(12.0), Val::Px(12.0), Val::Px(4.0), Val::Px(4.0)),
+                            p.spawn((WidgetButton, Node { padding: UiRect::new(Val::Px(12.0), Val::Px(12.0), Val::Px(4.0), Val::Px(4.0)),
                                 justify_content: JustifyContent::SpaceBetween, ..default() },
                                 SeekScopeOption(scope.clone()),
                             )).with_children(|p| {
                                 p.spawn((Text::new(*label), TextFont { font: font.clone(), font_size: 12.0, ..default() }));
                                 count_id = p.spawn((Text::new("(0)"), TextFont { font: font.clone(), font_size: 11.0, ..default() },
                                     TextColor(Color::srgba(0.6, 0.6, 0.6, 1.0)))).id();
+                            })
+                            .observe(|ev: On<Activate>, q: Query<&SeekScopeOption>, mut state: ResMut<SeekPanelState>| {
+                                if let Ok(opt) = q.get(ev.entity) {
+                                    state.scope = opt.0.clone();
+                                    state.dropdown_open = false;
+                                }
                             });
                             ht.seek_option_counts[i] = Some(count_id);
                         }
@@ -276,18 +345,38 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
 
                 // Range input box — store Text child entity ID
                 let mut range_text_id = Entity::PLACEHOLDER;
-                p.spawn((Button, Node { padding: UiRect::new(Val::Px(8.0), Val::Px(8.0), Val::Px(4.0), Val::Px(4.0)),
+                p.spawn((WidgetButton, Node { padding: UiRect::new(Val::Px(8.0), Val::Px(8.0), Val::Px(4.0), Val::Px(4.0)),
                     min_width: Val::Px(50.0), ..default() },
                     BackgroundColor(Color::srgba(0.15, 0.15, 0.2, 1.0)), SeekRangeInput,
                 )).with_children(|p| {
                     range_text_id = p.spawn((Text::new("10"), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id();
+                })
+                .observe(|_ev: On<Pointer<Press>>, mut state: ResMut<SeekPanelState>| {
+                    if !state.input_active {
+                        state.input_active = true;
+                    }
                 });
                 ht.seek_range_text = Some(range_text_id);
 
                 // Issue button
-                p.spawn((Button, Node { padding: UiRect::new(Val::Px(10.0), Val::Px(10.0), Val::Px(4.0), Val::Px(4.0)), ..default() },
+                p.spawn((WidgetButton, Node { padding: UiRect::new(Val::Px(10.0), Val::Px(10.0), Val::Px(4.0), Val::Px(4.0)), ..default() },
                     BackgroundColor(Color::srgba(0.2, 0.5, 0.3, 1.0)), SeekIssueBtn,
-                )).with_child((Text::new("下发"), TextFont { font: font.clone(), font_size: 12.0, ..default() }));
+                )).with_child((Text::new("下发"), TextFont { font: font.clone(), font_size: 12.0, ..default() }))
+                .observe(|_ev: On<Activate>, state: Res<SeekPanelState>, selection: Res<SelectionState>, mut cmd_buf: ResMut<CommandBuffer>, tick_clock: Res<TickClock>, mut toast: ResMut<ToastMessage>| {
+                    let next_tick = tick_clock.current_tick + 1;
+                    let has_sel = !selection.selected_unit_ids.is_empty();
+                    if has_sel {
+                        cmd_buf.push(GameCommand { tick: next_tick, player_id: 0, action: Action::SetSeekStance { scope: state.scope.clone(), seek_range: state.range_value, unit_ids: selection.selected_unit_ids.clone() } });
+                        let count = count_matching(&selection.selected_unit_ids, &state.scope, &selection);
+                        let scope_name = scope_label(&state.scope);
+                        toast.text = if matches!(state.scope, SeekScope::All) { format!("已下发选中全体({})索敌 范围{}", selection.selected_unit_ids.len(), state.range_value) } else { format!("已下发选中{}({})索敌 范围{}", scope_name, count, state.range_value) };
+                    } else {
+                        cmd_buf.push(GameCommand { tick: next_tick, player_id: 0, action: Action::SetSeekStance { scope: state.scope.clone(), seek_range: state.range_value, unit_ids: vec![] } });
+                        let scope_name = scope_label(&state.scope);
+                        toast.text = format!("已下发{}索敌 范围{}", scope_name, state.range_value);
+                    }
+                    toast.remaining_ticks = TOAST_DURATION_TICKS;
+                });
             });
         });
     });
@@ -317,7 +406,7 @@ pub fn update_bottom_panel(
         Query<&mut Node, With<SoldierPanelRoot>>,
         Query<&mut Node, With<CityPanelRoot>>,
     )>,
-    spawn_btns: Query<(&SpawnTypeBtn, &Interaction), Changed<Interaction>>,
+    hovered_st: Res<HoveredSoldierType>,
     ht: Res<HudTexts>, selection: Res<SelectionState>,
     mut sim: bevy::ecs::system::NonSendMut<SimulationWorld>,
 ) {
@@ -418,8 +507,7 @@ pub fn update_bottom_panel(
     }
 
     // ── Compendium hover ──
-    let hovered_st = spawn_btns.iter().find_map(|(btn,interaction)| if *interaction==Interaction::Hovered { Some(btn.0) } else { None });
-    if let Some(st) = hovered_st {
+    if let Some(st) = hovered_st.0 {
         show_compendium(&mut tq, &ht, st);
     } else if has_city {
         show_compendium(&mut tq, &ht, SoldierType::Militia);
@@ -458,83 +546,6 @@ fn clear_compendium(tq: &mut Query<&mut Text>, ht: &HudTexts) {
 
 // ══════════ Button Systems ══════════
 
-pub fn soldier_type_button_system(mut q: Query<(&SpawnTypeBtn, &Interaction), Changed<Interaction>>,
-    selection: Res<SelectionState>, mut sim: bevy::ecs::system::NonSendMut<SimulationWorld>) {
-    let w = &mut sim.0;
-    for (btn,interaction) in q.iter_mut() {
-        if *interaction != Interaction::Pressed { continue; }
-        if let Some(cid) = selection.selected_city {
-            let ce = w.query::<(Entity, &UnitIdComponent, &CityMarker)>().iter(w).find(|(_,id,_)| id.0==cid).map(|(e,_,_)| e);
-            if let Some(ce) = ce {
-                if let Some(mut c) = w.entity_mut(ce).get_mut::<CityComponent>() { c.spawn_type = btn.0; }
-            }
-        }
-    }
-}
-
-pub fn toolbar_button_system(
-    mut q: Query<(&ToolbarButton, &Interaction), Changed<Interaction>>,
-    mut sel: ResMut<SelectionState>,
-    mut force: ResMut<ForceMoveNext>,
-    mut sim: bevy::ecs::system::NonSendMut<SimulationWorld>,
-    mut cmd_buf: ResMut<CommandBuffer>,
-    tick_clock: Res<TickClock>,
-) {
-    for (btn, interaction) in q.iter_mut() {
-        if *interaction != Interaction::Pressed { continue; }
-        match btn.0 {
-            0 => sel.selection_mode = crate::selection::SelectionMode::Circle,
-            1 => sel.selection_mode = crate::selection::SelectionMode::Rect,
-            2 => {
-                // Shield toggle: determine target state based on current selection
-                let world = &mut sim.0;
-                let has_infantry = sel.selected_unit_ids.iter().any(|uid| {
-                    find_entity_by_unit_id(world, *uid)
-                        .and_then(|e| world.get::<simulation::soldier::SoldierTypeComponent>(e))
-                        .map(|st| st.0 == simulation::types::SoldierType::Infantry)
-                        .unwrap_or(false)
-                });
-                if !has_infantry { return; }
-
-                // Check if all selected infantry are already blocking
-                let all_blocking = sel.selected_unit_ids.iter().all(|uid| {
-                    let e = find_entity_by_unit_id(world, *uid);
-                    let is_infantry = e.and_then(|e| world.get::<simulation::soldier::SoldierTypeComponent>(e))
-                        .map(|st| st.0 == simulation::types::SoldierType::Infantry)
-                        .unwrap_or(false);
-                    if !is_infantry { return true; } // non-infantry don't count
-                    e.and_then(|e| world.get::<simulation::soldier::ShieldComponent>(e))
-                        .map(|sc| sc.state == simulation::types::ShieldState::Blocking)
-                        .unwrap_or(false)
-                });
-
-                let target_state = if all_blocking {
-                    simulation::types::ShieldState::Normal
-                } else {
-                    simulation::types::ShieldState::Blocking
-                };
-
-                let next_tick = tick_clock.current_tick + 1;
-                for uid in &sel.selected_unit_ids {
-                    // Only send to infantry
-                    let e = find_entity_by_unit_id(world, *uid);
-                    let is_infantry = e.and_then(|e| world.get::<simulation::soldier::SoldierTypeComponent>(e))
-                        .map(|st| st.0 == simulation::types::SoldierType::Infantry)
-                        .unwrap_or(false);
-                    if !is_infantry { continue; }
-                    cmd_buf.push(GameCommand {
-                        tick: next_tick,
-                        player_id: 0,
-                        action: simulation::command::Action::SetShield { unit: *uid, state: target_state },
-                    });
-                }
-            }
-            3 => force.active = true,
-            _ => {}
-        }
-    }
-}
-
 fn find_entity_by_unit_id(world: &mut bevy::prelude::World, uid: simulation::types::UnitId) -> Option<bevy::prelude::Entity> {
     let mut q = world.query::<(bevy::prelude::Entity, &simulation::soldier::UnitIdComponent)>();
     q.iter(world).find(|(_, id)| id.0 == uid).map(|(e, _)| e)
@@ -567,38 +578,18 @@ pub fn seek_panel_mode_system(
 
 // ══════════ Seek Panel Dropdown System ══════════
 
-/// Handle scope dropdown: open/close trigger, option selection, click-outside close.
+/// Handle scope dropdown: click-outside close, display toggle, scope text update.
+/// Trigger toggle and option selection are handled by Observers on the buttons.
 pub fn seek_panel_dropdown_system(
     mouse: Res<ButtonInput<MouseButton>>,
     mut state: ResMut<SeekPanelState>,
     mut tq: Query<&mut Text>,
     ht: Res<HudTexts>,
-    dropdown_btn: Query<&Interaction, With<SeekScopeDropdown>>,
-    option_btns: Query<(&SeekScopeOption, &Interaction), With<SeekScopeOption>>,
     mut popup_nodes: Query<&mut Node, With<SeekDropdownPopup>>,
 ) {
-    // Toggle dropdown on trigger click (use just_pressed to avoid re-toggle)
-    let trigger_pressed = dropdown_btn.iter().any(|i| *i == Interaction::Pressed);
-    if trigger_pressed && mouse.just_pressed(MouseButton::Left) {
-        state.dropdown_open = !state.dropdown_open;
-    }
-
-    // Handle option selection — check all options for Pressed state
-    let mut option_selected = false;
-    for (opt, interaction) in option_btns.iter() {
-        if *interaction == Interaction::Pressed {
-            state.scope = opt.0.clone();
-            state.dropdown_open = false;
-            option_selected = true;
-            break;
-        }
-    }
-
-    // Close on click outside (only if we didn't just select an option)
-    if !option_selected && mouse.just_pressed(MouseButton::Left) && state.dropdown_open {
-        if !trigger_pressed {
-            state.dropdown_open = false;
-        }
+    // Close on click outside
+    if mouse.just_pressed(MouseButton::Left) && state.dropdown_open {
+        state.dropdown_open = false;
     }
 
     // Update popup visibility via Display toggle
@@ -695,33 +686,20 @@ pub fn seek_panel_count_system(
 
 // ══════════ Seek Panel Input System ══════════
 
-/// Handle range input: click to activate, type digits in real-time, Esc to deactivate.
-/// No Enter confirmation needed — the displayed value is always the current range_value.
+/// Handle range input: type digits in real-time, Esc to deactivate.
+/// Input activation is handled by Observer on the input button.
 pub fn seek_panel_input_system(
     mouse: Res<ButtonInput<MouseButton>>,
     keyboard: Res<ButtonInput<KeyCode>>,
     mut state: ResMut<SeekPanelState>,
     mut tq: Query<&mut Text>,
     ht: Res<HudTexts>,
-    input_btn: Query<&Interaction, With<SeekRangeInput>>,
 ) {
-    // Click on input box → activate keyboard capture and show cursor immediately
-    let input_pressed = input_btn.iter().any(|i| *i == Interaction::Pressed);
-    if input_pressed && mouse.just_pressed(MouseButton::Left) && !state.input_active {
-        state.input_active = true;
-        // Show cursor immediately on activation
-        if let Some(id) = ht.seek_range_text {
-            if let Ok(mut t) = tq.get_mut(id) {
-                t.0 = format!("{}▌", state.range_value);
-            }
-        }
-    }
-
     // Escape or click elsewhere → deactivate
     if state.input_active {
         if keyboard.just_pressed(KeyCode::Escape) {
             state.input_active = false;
-        } else if mouse.just_pressed(MouseButton::Left) && !input_pressed {
+        } else if mouse.just_pressed(MouseButton::Left) {
             state.input_active = false;
         }
     }
@@ -772,62 +750,6 @@ pub fn seek_panel_input_system(
                 t.0 = state.range_value.to_string();
             }
         }
-    }
-}
-
-// ══════════ Seek Panel Issue System ══════════
-
-/// Handle issue button click: generate command, trigger toast.
-pub fn seek_panel_issue_system(
-    mouse: Res<ButtonInput<MouseButton>>,
-    issue_btn: Query<&Interaction, With<SeekIssueBtn>>,
-    state: Res<SeekPanelState>,
-    selection: Res<SelectionState>,
-    mut cmd_buf: ResMut<CommandBuffer>,
-    tick_clock: Res<TickClock>,
-    mut toast: ResMut<ToastMessage>,
-) {
-    if !mouse.just_pressed(MouseButton::Left) { return; }
-    for interaction in issue_btn.iter() {
-        if *interaction != Interaction::Pressed { continue; }
-
-        let next_tick = tick_clock.current_tick + 1;
-        let has_sel = !selection.selected_unit_ids.is_empty();
-
-        if has_sel {
-            // Selection mode
-            cmd_buf.push(GameCommand {
-                tick: next_tick,
-                player_id: 0,
-                action: Action::SetSeekStance {
-                    scope: state.scope.clone(),
-                    seek_range: state.range_value,
-                    unit_ids: selection.selected_unit_ids.clone(),
-                },
-            });
-            // Toast: count by scope
-            let count = count_matching(&selection.selected_unit_ids, &state.scope, &selection);
-            let scope_name = scope_label(&state.scope);
-            toast.text = if matches!(state.scope, SeekScope::All) {
-                format!("已下发选中全体({})索敌 范围{}", selection.selected_unit_ids.len(), state.range_value)
-            } else {
-                format!("已下发选中{}({})索敌 范围{}", scope_name, count, state.range_value)
-            };
-        } else {
-            // Global mode
-            cmd_buf.push(GameCommand {
-                tick: next_tick,
-                player_id: 0,
-                action: Action::SetSeekStance {
-                    scope: state.scope.clone(),
-                    seek_range: state.range_value,
-                    unit_ids: vec![],
-                },
-            });
-            let scope_name = scope_label(&state.scope);
-            toast.text = format!("已下发{}索敌 范围{}", scope_name, state.range_value);
-        }
-        toast.remaining_ticks = TOAST_DURATION_TICKS;
     }
 }
 
