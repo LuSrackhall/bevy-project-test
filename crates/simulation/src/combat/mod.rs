@@ -221,18 +221,25 @@ pub fn melee_attack_system(world: &mut World, current_tick: u32) {
         q.iter(world).map(|(_, id, pos)| (id.0, pos.0)).collect()
     };
 
-    // Ready attackers
-    struct AtkData { entity: Entity, uid: UnitId, pos: FixedVec2, faction: Faction, dmg: u32, range: u32, stype: SoldierType, level: u32, interval: u32, has_fearless: bool, target: Option<UnitId>, force_move: bool }
+    // Ready attackers — scan for nearest enemy in range (no dependency on Movement.target)
+    struct AtkData { entity: Entity, uid: UnitId, pos: FixedVec2, faction: Faction, dmg: u32, range: u32, stype: SoldierType, level: u32, interval: u32, has_fearless: bool, force_move: bool, facing: Fixed }
     let attackers: Vec<AtkData> = {
-        let mut q = world.query::<(Entity, &UnitIdComponent, &LogicalPosition, &FactionComponent, &Attack, &SoldierTypeComponent, &Level, &Movement, Option<&FearlessBuff>)>();
+        let mut q = world.query::<(Entity, &UnitIdComponent, &LogicalPosition, &FactionComponent, &Attack, &SoldierTypeComponent, &Level, &Movement, Option<&FearlessBuff>, Option<&FacingDirection>)>();
         q.iter(world)
-            .filter(|(_, _, _, _, atk, st, _, _, _)| atk.cooldown_remaining == 0 && st.0 != SoldierType::Archer)
-            .map(|(e, id, pos, fac, atk, st, lvl, mov, fb)| AtkData {
+            .filter(|(_, _, _, _, atk, st, _, _, _, _)| atk.cooldown_remaining == 0 && st.0 != SoldierType::Archer)
+            .map(|(e, id, pos, fac, atk, st, lvl, mov, fb, facing)| AtkData {
                 entity: e, uid: id.0, pos: pos.0, faction: fac.0,
                 dmg: atk.damage, range: atk.range, stype: st.0,
                 level: lvl.level, interval: atk.interval_ticks,
-                has_fearless: fb.is_some(), target: mov.target, force_move: mov.force_move,
+                has_fearless: fb.is_some(), force_move: mov.force_move,
+                facing: facing.map(|f| f.angle).unwrap_or(Fixed::ZERO),
             }).collect()
+    };
+
+    // Collect enemy soldier positions for target scanning
+    let enemy_positions: HashMap<UnitId, (FixedVec2, Faction)> = {
+        let mut q = world.query::<(&UnitIdComponent, &LogicalPosition, &FactionComponent, &SoldierMarker)>();
+        q.iter(world).map(|(id, pos, fac, _)| (id.0, (pos.0, fac.0))).collect()
     };
 
     let mut pending_deaths: Vec<(Entity, Option<UnitId>, Option<UnitId>)> = Vec::new(); // (target, killer, city_origin)
@@ -243,29 +250,23 @@ pub fn melee_attack_system(world: &mut World, current_tick: u32) {
     let windup_config = combat_config.attack_windup.clone();
 
     for ad in attackers {
-        let Some(tid) = ad.target else { continue };
-        let Some(&tpos) = positions.get(&tid) else { continue };
-
-        let range_f = Fixed::from_int(ad.range as i32);
-        if (ad.pos - tpos).length_squared() > range_f * range_f { continue; }
-
         // ForceMove suppression: non-cavalry units skip attack during force_move
         if ad.force_move && ad.stype != SoldierType::Cavalry { continue; }
 
-        // Non-cavalry: start windup instead of attacking immediately
-        if ad.stype != SoldierType::Cavalry || !windup_config.cavalry_no_windup {
-            // Check if already in a windup — if so, don't start another
-            let already_winding = world.entity(ad.entity)
-                .get::<AttackWindup>()
-                .map_or(false, |w| w.remaining_ticks > 0);
-            if !already_winding {
-                world.entity_mut(ad.entity).insert(AttackWindup {
-                    remaining_ticks: windup_config.windup_ticks,
-                    target: Some(tid),
-                });
+        // Scan for nearest enemy in attack range
+        let range_f = Fixed::from_int(ad.range as i32);
+        let range_sq = range_f * range_f;
+        let mut best_target: Option<(UnitId, FixedVec2, i64)> = None;
+        for (&eid, &(epos, efaction)) in &enemy_positions {
+            if efaction == ad.faction { continue; }
+            let dist_sq = (ad.pos - epos).length_squared();
+            if dist_sq <= range_sq {
+                if best_target.as_ref().map_or(true, |(_, _, bd)| dist_sq.0 < *bd) {
+                    best_target = Some((eid, epos, dist_sq.0));
+                }
             }
-            continue;
         }
+        let Some((tid, tpos, _)) = best_target else { continue };
 
         // Cavalry with cavalry_no_windup: attack immediately (existing behavior)
         let Some(te) = find_entity_by_unit_id(world, tid) else { continue };
@@ -315,11 +316,24 @@ pub fn melee_attack_system(world: &mut World, current_tick: u32) {
             }
         }
 
-        // Reset attacker cooldown (penalized if blocking)
-        let cooldown = if world.get::<ShieldComponent>(ad.entity).map_or(false, |sc| sc.state == ShieldState::Blocking) {
+        // Reset attacker cooldown (penalized if blocking, affected by facing)
+        let base_cooldown = if world.get::<ShieldComponent>(ad.entity).map_or(false, |sc| sc.state == ShieldState::Blocking) {
             combat_config.shield.attack_speed_penalty
         } else {
             ad.interval
+        };
+        // Apply facing attack speed factor (not for cavalry instant attacks)
+        let cooldown = if ad.stype == SoldierType::Cavalry && windup_config.cavalry_no_windup {
+            base_cooldown
+        } else {
+            let target_angle = facing::compute_angle_between(ad.pos, tpos);
+            let factor = facing::facing_atk_speed_factor(ad.facing, target_angle);
+            // effective_cooldown = base / factor
+            // factor is Fixed with 8 fractional bits
+            // base / factor = base * 256 / factor.0
+            let factor_i64 = factor.0.max(1); // avoid division by zero
+            let effective = (base_cooldown as i64 * 256) / factor_i64;
+            effective.max(1) as u32
         };
         world.entity_mut(ad.entity).insert(Attack { damage: ad.dmg, range: ad.range, interval_ticks: ad.interval, cooldown_remaining: cooldown });
     }
@@ -483,11 +497,21 @@ pub fn attack_windup_system(world: &mut World, current_tick: u32) {
             }
         }
 
-        // Reset attacker cooldown (penalized if blocking)
-        let cooldown = if world.get::<ShieldComponent>(attacker_entity).map_or(false, |sc| sc.state == ShieldState::Blocking) {
+        // Reset attacker cooldown (penalized if blocking, affected by facing)
+        let base_cooldown = if world.get::<ShieldComponent>(attacker_entity).map_or(false, |sc| sc.state == ShieldState::Blocking) {
             combat_config.shield.attack_speed_penalty
         } else {
             ad_interval
+        };
+        // Apply facing attack speed factor
+        let cooldown = {
+            let attacker_facing = world.get::<FacingDirection>(attacker_entity).map(|f| f.angle).unwrap_or(Fixed::ZERO);
+            let target_pos = positions.get(&target_id).copied().unwrap_or(ad_pos);
+            let target_angle = facing::compute_angle_between(ad_pos, target_pos);
+            let factor = facing::facing_atk_speed_factor(attacker_facing, target_angle);
+            let factor_i64 = factor.0.max(1);
+            let effective = (base_cooldown as i64 * 256) / factor_i64;
+            effective.max(1) as u32
         };
         world.entity_mut(attacker_entity).insert(Attack { damage: ad_dmg, range: ad_range, interval_ticks: ad_interval, cooldown_remaining: cooldown });
     }

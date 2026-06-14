@@ -3,7 +3,7 @@
 use bevy_ecs::entity::Entity;
 use bevy_ecs::world::World;
 use std::collections::HashMap;
-use crate::types::{FacingDirection, Fixed, FixedVec2, SoldierType, UnitId};
+use crate::types::{FacingDirection, Fixed, FixedVec2, FIXED_ONE, SoldierType, UnitId};
 use crate::soldier::{LogicalPosition, Movement, SoldierMarker, SoldierTypeComponent, UnitIdComponent};
 use crate::combat::config::CombatGlobalConfig;
 
@@ -105,6 +105,62 @@ pub fn turn_toward(current: Fixed, target: Fixed, max_turn: Fixed) -> Fixed {
             normalize_angle(current - max_turn)
         }
     }
+}
+
+/// Cosine approximation using Bhaskara I's formula (degree-based, no π needed).
+/// Input: angle in degrees (Fixed, [0, 180]). Output: cos(angle) in [-1, 1] as Fixed.
+/// Formula: cos(x°) ≈ (32400 - 4x²) / (32400 + 4x²) for x in [0, 90]
+/// For x in (90, 180]: cos(x) = -cos(180 - x)
+pub fn cos_approx(angle_deg: Fixed) -> Fixed {
+    // Normalize to [0, 360)
+    let a = normalize_angle(angle_deg);
+    // Use symmetry: cos(x) = cos(-x) = cos(360-x)
+    let a_abs = if a.0 > Fixed::from_int(180).0 {
+        Fixed::from_int(360) - a
+    } else {
+        a
+    };
+    // Now a_abs is in [0, 180]
+    let half_circle = Fixed::from_int(180);
+    let a_rad = if a_abs.0 > half_circle.0 {
+        // Shouldn't happen after normalization, but guard
+        a_abs - half_circle
+    } else {
+        a_abs
+    };
+    // For [0, 90]: use Bhaskara formula
+    // For (90, 180]: cos(x) = -cos(180 - x)
+    let x = if a_rad.0 > Fixed::from_int(90).0 {
+        half_circle - a_rad
+    } else {
+        a_rad
+    };
+    // x is now in [0, 90]
+    // cos(x°) ≈ (32400 - 4x²) / (32400 + 4x²)
+    // In fixed-point: multiply numerator and denominator by 256 to avoid division issues
+    let x_int = x.0 / 256; // convert to integer degrees
+    let x_sq = x_int * x_int;
+    let num = 32400 - 4 * x_sq;
+    let den = 32400 + 4 * x_sq;
+    if den == 0 { return Fixed::ONE; }
+    let result = Fixed(num * FIXED_ONE / den);
+    // Apply sign for (90, 180]
+    if a_rad.0 > Fixed::from_int(90).0 {
+        Fixed(-result.0)
+    } else {
+        result
+    }
+}
+
+/// Compute attack speed factor based on facing deviation.
+/// factor = 1 + 0.3 * cos(deviation_angle)
+/// Returns a factor in [0.7, 1.3].
+pub fn facing_atk_speed_factor(facing: Fixed, target_angle: Fixed) -> Fixed {
+    let deviation = angle_distance(facing, target_angle);
+    let cos_val = cos_approx(deviation);
+    // 0.3 in fixed-point = 0.3 * 256 ≈ 77
+    let boost = cos_val * Fixed(77) / Fixed(FIXED_ONE);
+    Fixed::ONE + boost
 }
 
 /// Update each soldier's facing direction toward their movement target each tick.
@@ -240,5 +296,47 @@ mod tests {
         // From 355° toward 5° with max_turn=10 → should reach 5°
         let result = turn_toward(Fixed::from_int(355), Fixed::from_int(5), Fixed::from_int(10));
         assert_eq!(result, Fixed::from_int(5));
+    }
+
+    #[test]
+    fn test_cos_approx_0() {
+        let val = cos_approx(Fixed::from_int(0));
+        // cos(0°) = 1.0
+        assert!((val.0 - FIXED_ONE).abs() < 10, "cos(0) ≈ 1.0, got {}", val.to_float());
+    }
+
+    #[test]
+    fn test_cos_approx_90() {
+        let val = cos_approx(Fixed::from_int(90));
+        // cos(90°) ≈ 0.0
+        assert!(val.0.abs() < 20, "cos(90) ≈ 0.0, got {}", val.to_float());
+    }
+
+    #[test]
+    fn test_cos_approx_180() {
+        let val = cos_approx(Fixed::from_int(180));
+        // cos(180°) ≈ -1.0
+        assert!((val.0 + FIXED_ONE).abs() < 50, "cos(180) ≈ -1.0, got {}", val.to_float());
+    }
+
+    #[test]
+    fn test_facing_atk_speed_factor_front() {
+        let factor = facing_atk_speed_factor(Fixed::from_int(0), Fixed::from_int(0));
+        // factor ≈ 1.3 for frontal
+        assert!(factor.to_float() > 1.2, "frontal factor > 1.2, got {}", factor.to_float());
+    }
+
+    #[test]
+    fn test_facing_atk_speed_factor_side() {
+        let factor = facing_atk_speed_factor(Fixed::from_int(0), Fixed::from_int(90));
+        // factor ≈ 1.0 for side
+        assert!((factor.to_float() - 1.0).abs() < 0.1, "side factor ≈ 1.0, got {}", factor.to_float());
+    }
+
+    #[test]
+    fn test_facing_atk_speed_factor_rear() {
+        let factor = facing_atk_speed_factor(Fixed::from_int(0), Fixed::from_int(180));
+        // factor ≈ 0.7 for rear
+        assert!(factor.to_float() < 0.8, "rear factor < 0.8, got {}", factor.to_float());
     }
 }
