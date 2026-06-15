@@ -137,12 +137,18 @@ pub fn drag_select_system(
     mouse: Res<ButtonInput<MouseButton>>,
     q_windows: Query<&Window>,
     camera_query: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
+    pressed: Query<&Pressed>,
     mut sim_world: bevy::ecs::system::NonSendMut<SimulationWorld>,
     mut selection: ResMut<SelectionState>,
 ) {
     let Ok(window) = q_windows.single() else { return };
     let Some(cursor) = window.cursor_position() else { return };
     let Ok((camera, cam_t)) = camera_query.single() else { return };
+
+    // Don't start drag when clicking on UI elements
+    if is_any_ui_pressed(&pressed) {
+        return;
+    }
 
     if mouse.pressed(MouseButton::Left) {
         let Some(world_pos) = screen_to_world(cursor, window, camera, cam_t) else { return };

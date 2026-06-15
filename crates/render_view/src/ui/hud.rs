@@ -287,7 +287,7 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
             p.spawn(Node { width: Val::Px(1.0), height: Val::Percent(80.0), ..default() });
 
             // Right: seek panel (scope dropdown + range input + issue button)
-            p.spawn((Node { flex_direction: FlexDirection::Row, align_items: AlignItems::Center, column_gap: Val::Px(6.0), ..default() }, SeekPanelRoot))
+            p.spawn((Node { flex_direction: FlexDirection::Row, align_items: AlignItems::Center, column_gap: Val::Px(6.0), ..default() }, SeekPanelRoot, Pickable::IGNORE))
             .with_children(|p| {
                 // Mode label
                 ht.mode_label = Some(p.spawn((Text::new("索敌"), TextFont { font: font.clone(), font_size: 12.0, ..default() },
