@@ -14,6 +14,8 @@ impl Plugin for UiPlugin {
             .init_resource::<hud::SeekPanelState>()
             .init_resource::<hud::ToastMessage>()
             .init_resource::<hud::HoveredSoldierType>()
+            // Button visual feedback — runs in all states
+            .add_systems(Update, hud::button_style_system)
             .add_systems(OnEnter(crate::GameState::MainMenu), menu::setup_main_menu)
             .add_systems(OnExit(crate::GameState::MainMenu), menu::cleanup_main_menu)
             .add_systems(OnEnter(crate::GameState::Playing), hud::setup_hud)
