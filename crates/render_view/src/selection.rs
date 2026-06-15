@@ -13,11 +13,7 @@ use crate::camera::MainCamera;
 /// Returns true if any UI element is currently being pressed (clicked).
 /// This prevents game-world click processing when interacting with UI buttons.
 fn is_any_ui_pressed(pressed: &Query<&Pressed>) -> bool {
-    let count = pressed.iter().count();
-    if count > 0 {
-        info!("[Selection] is_any_ui_pressed: {} Pressed entities found!", count);
-    }
-    count > 0
+    !pressed.is_empty()
 }
 
 // ══════════ Resources ══════════
