@@ -1,5 +1,8 @@
 use bevy::prelude::*;
-use bevy::ui_widgets::{Activate, Button as WidgetButton};
+use bevy::ui_widgets::{Activate, Button as WidgetButton, MenuButton, MenuEvent, MenuAction, MenuItem, MenuPopup};
+use bevy::ui_widgets::popover::{Popover, PopoverPlacement, PopoverSide, PopoverAlign};
+use bevy::picking::hover::Hovered;
+use bevy::input_focus::tab_navigation::TabIndex;
 use simulation::types::*;
 use simulation::soldier::*;
 use simulation::city::config::CityGlobalConfig;
@@ -34,7 +37,6 @@ pub(crate) struct HudTexts {
     // seek panel
     pub(crate) seek_scope_text: Option<Entity>,
     pub(crate) seek_range_text: Option<Entity>,
-    pub(crate) seek_dropdown_container: Option<Entity>,
     pub(crate) mode_label: Option<Entity>,
     pub(crate) seek_option_counts: [Option<Entity>; 5], // 全体/民兵/步兵/弓兵/骑兵
 }
@@ -43,22 +45,18 @@ pub(crate) struct HudTexts {
 #[derive(Resource)]
 pub struct SeekPanelState {
     pub scope: SeekScope,
-    pub dropdown_open: bool,
     pub input_active: bool,
     pub range_value: u32,
     pub has_selection: bool,
-    pub trigger_clicked: bool,
 }
 
 impl Default for SeekPanelState {
     fn default() -> Self {
         Self {
             scope: SeekScope::All,
-            dropdown_open: false,
             input_active: false,
             range_value: 0,
             has_selection: false,
-            trigger_clicked: false,
         }
     }
 }
@@ -93,7 +91,6 @@ pub(crate) struct HoveredSoldierType(pub Option<SoldierType>);
 #[derive(Component)] pub(crate) struct SeekPanelRoot;
 #[derive(Component)] pub(crate) struct SeekScopeDropdown; // the trigger button showing current scope
 #[derive(Component, Clone)] pub(crate) struct SeekScopeOption(pub SeekScope); // dropdown option
-#[derive(Component)] pub(crate) struct SeekDropdownPopup; // the popup container
 #[derive(Component)] pub(crate) struct SeekRangeInput; // the range input box
 #[derive(Component)] pub(crate) struct SeekIssueBtn; // the issue button
 
@@ -295,58 +292,87 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
                 ht.mode_label = Some(p.spawn((Text::new("索敌"), TextFont { font: font.clone(), font_size: 12.0, ..default() },
                     TextColor(Color::srgba(0.7, 0.85, 1.0, 1.0)))).id());
 
-                // Scope dropdown (relative container for popup positioning)
-                p.spawn(Node { position_type: PositionType::Relative, ..default() }).with_children(|p| {
-                    // Trigger button — store Text child entity ID (not Button parent ID)
-                    let mut scope_text_id = Entity::PLACEHOLDER;
-                    p.spawn((WidgetButton, Node { padding: UiRect::new(Val::Px(8.0), Val::Px(8.0), Val::Px(4.0), Val::Px(4.0)), ..default() },
-                        BackgroundColor(Color::srgba(0.25, 0.25, 0.3, 1.0)), SeekScopeDropdown,
+                // Scope dropdown using MenuPopup
+                let mut scope_text_id = Entity::PLACEHOLDER;
+                let font_clone = font.clone();
+                p.spawn(Node { position_type: PositionType::Relative, ..default() })
+                .observe(move |ev: On<MenuEvent>, q_anchor: Query<&Children>, q_popup: Query<Entity, With<MenuPopup>>, q_text: Query<&Text>, mut state: ResMut<SeekPanelState>, mut commands: Commands| {
+                    let popup = q_anchor.get(ev.source).ok()
+                        .and_then(|children| children.iter().find_map(|c| q_popup.get(c).ok()));
+                    match ev.action {
+                        MenuAction::Toggle => {
+                            if popup.is_none() {
+                                let options = [
+                                    ("全体", SeekScope::All),
+                                    ("民兵", SeekScope::ByType(SoldierType::Militia)),
+                                    ("步兵", SeekScope::ByType(SoldierType::Infantry)),
+                                    ("弓兵", SeekScope::ByType(SoldierType::Archer)),
+                                    ("骑兵", SeekScope::ByType(SoldierType::Cavalry)),
+                                ];
+                                let f = font_clone.clone();
+                                let popup_entity = commands.spawn((
+                                    Node {
+                                        display: Display::Flex,
+                                        flex_direction: FlexDirection::Column,
+                                        min_width: Val::Percent(100.0),
+                                        ..default()
+                                    },
+                                    MenuPopup::default(),
+                                    Visibility::Hidden,
+                                    BackgroundColor(Color::srgba(0.15, 0.15, 0.2, 0.95)),
+                                    GlobalZIndex(100),
+                                    Popover {
+                                        positions: vec![
+                                            PopoverPlacement { side: PopoverSide::Top, align: PopoverAlign::Start, gap: 2.0 },
+                                            PopoverPlacement { side: PopoverSide::Bottom, align: PopoverAlign::Start, gap: 2.0 },
+                                        ],
+                                        window_margin: 10.0,
+                                    },
+                                    OverrideClip,
+                                )).with_children(|p| {
+                                    for (label, scope) in options {
+                                        p.spawn((
+                                            Node { padding: UiRect::new(Val::Px(12.0), Val::Px(12.0), Val::Px(4.0), Val::Px(4.0)), ..default() },
+                                            MenuItem,
+                                            SeekScopeOption(scope),
+                                            Hovered::default(),
+                                            TabIndex(0),
+                                            BackgroundColor(Color::srgba(0.2, 0.2, 0.25, 1.0)),
+                                        )).with_child((Text::new(label), TextFont { font: f.clone(), font_size: 12.0, ..default() }))
+                                        .observe(|ev: On<Activate>, q: Query<&SeekScopeOption>, mut state: ResMut<SeekPanelState>, mut tq: Query<&mut Text>, ht: Res<HudTexts>| {
+                                            if let Ok(opt) = q.get(ev.entity) {
+                                                state.scope = opt.0.clone();
+                                                if let Some(text_id) = ht.seek_scope_text {
+                                                    if let Ok(mut t) = tq.get_mut(text_id) {
+                                                        t.0 = format!("{} ▼", scope_label(&state.scope));
+                                                    }
+                                                }
+                                            }
+                                        });
+                                    }
+                                }).id();
+                                commands.entity(ev.source).add_child(popup_entity);
+                            } else {
+                                commands.entity(popup.unwrap()).despawn();
+                            }
+                        }
+                        MenuAction::Close | MenuAction::CloseAll => {
+                            if let Some(popup) = popup {
+                                commands.entity(popup).despawn();
+                            }
+                        }
+                        _ => {}
+                    }
+                })
+                .with_children(|p| {
+                    // Trigger button
+                    p.spawn((MenuButton, Node { padding: UiRect::new(Val::Px(8.0), Val::Px(8.0), Val::Px(4.0), Val::Px(4.0)), ..default() },
+                        BackgroundColor(Color::srgba(0.25, 0.25, 0.3, 1.0)),
                     )).with_children(|p| {
                         scope_text_id = p.spawn((Text::new("全体 ▼"), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id();
-                    })
-                    .observe(|_ev: On<Activate>, mut state: ResMut<SeekPanelState>| {
-                        state.dropdown_open = !state.dropdown_open;
-                        state.trigger_clicked = true;
                     });
-                    ht.seek_scope_text = Some(scope_text_id);
-                    // Popup container (hidden by default via Display::None)
-                    ht.seek_dropdown_container = Some(p.spawn((Node {
-                        display: Display::None,
-                        flex_direction: FlexDirection::Column,
-                        position_type: PositionType::Absolute,
-                        bottom: Val::Px(28.0), left: Val::Px(0.0),
-                        ..default()
-                    }, BackgroundColor(Color::srgba(0.15, 0.15, 0.2, 0.95)), SeekDropdownPopup, Pickable::IGNORE,
-                    )).with_children(|p| {
-                        let options = [
-                            ("全体", SeekScope::All),
-                            ("民兵", SeekScope::ByType(SoldierType::Militia)),
-                            ("步兵", SeekScope::ByType(SoldierType::Infantry)),
-                            ("弓兵", SeekScope::ByType(SoldierType::Archer)),
-                            ("骑兵", SeekScope::ByType(SoldierType::Cavalry)),
-                        ];
-                        for (i, (label, scope)) in options.iter().enumerate() {
-                            let mut count_id = Entity::PLACEHOLDER;
-                            p.spawn((Node { padding: UiRect::new(Val::Px(12.0), Val::Px(12.0), Val::Px(4.0), Val::Px(4.0)),
-                                justify_content: JustifyContent::SpaceBetween, ..default() },
-                                SeekScopeOption(scope.clone()),
-                            )).with_children(|p| {
-                                p.spawn((Text::new(*label), TextFont { font: font.clone(), font_size: 12.0, ..default() }));
-                                count_id = p.spawn((Text::new("(0)"), TextFont { font: font.clone(), font_size: 11.0, ..default() },
-                                    TextColor(Color::srgba(0.6, 0.6, 0.6, 1.0)))).id();
-                            })
-                            .observe(|ev: On<Pointer<Click>>, q: Query<&SeekScopeOption>, mut state: ResMut<SeekPanelState>| {
-                                info!("[Dropdown] Option Pointer<Click> on entity {:?}", ev.entity);
-                                if let Ok(opt) = q.get(ev.entity) {
-                                    info!("[Dropdown] Setting scope to {:?}", opt.0);
-                                    state.scope = opt.0.clone();
-                                    state.dropdown_open = false;
-                                }
-                            });
-                            ht.seek_option_counts[i] = Some(count_id);
-                        }
-                    }).id());
                 });
+                ht.seek_scope_text = Some(scope_text_id);
 
                 // Range input box — store Text child entity ID
                 let mut range_text_id = Entity::PLACEHOLDER;
@@ -585,36 +611,6 @@ pub fn seek_panel_mode_system(
 // ══════════ Seek Panel Dropdown System ══════════
 
 /// Handle scope dropdown: click-outside close, display toggle, scope text update.
-/// Trigger toggle and option selection are handled by Observers on the buttons.
-pub fn seek_panel_dropdown_system(
-    mouse: Res<ButtonInput<MouseButton>>,
-    mut state: ResMut<SeekPanelState>,
-    mut tq: Query<&mut Text>,
-    ht: Res<HudTexts>,
-    mut popup_nodes: Query<&mut Node, With<SeekDropdownPopup>>,
-) {
-    // Close on click outside (but not if trigger was just clicked)
-    if mouse.just_pressed(MouseButton::Left) && state.dropdown_open && !state.trigger_clicked {
-        state.dropdown_open = false;
-    }
-    state.trigger_clicked = false;
-
-    // Update popup visibility via Display toggle
-    if let Some(id) = ht.seek_dropdown_container {
-        if let Ok(mut node) = popup_nodes.get_mut(id) {
-            node.display = if state.dropdown_open { Display::Flex } else { Display::None };
-        }
-    }
-
-    // Update scope text
-    let label = scope_label(&state.scope);
-    if let Some(id) = ht.seek_scope_text {
-        if let Ok(mut t) = tq.get_mut(id) {
-            t.0 = format!("{} ▼", label);
-        }
-    }
-}
-
 fn scope_label(scope: &SeekScope) -> &'static str {
     match scope {
         SeekScope::All => "全体",
@@ -636,8 +632,6 @@ pub fn seek_panel_count_system(
     mut tq: Query<&mut Text>,
     mut sim_world: bevy::ecs::system::NonSendMut<SimulationWorld>,
 ) {
-    if !state.dropdown_open { return; }
-
     let w = &mut sim_world.0;
     let has_sel = !selection.selected_unit_ids.is_empty();
 

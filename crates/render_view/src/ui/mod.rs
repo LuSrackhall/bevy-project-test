@@ -22,7 +22,6 @@ impl Plugin for UiPlugin {
                 hud::update_bottom_panel,
                 hud::shield_button_visibility_system,
                 hud::seek_panel_mode_system,
-                hud::seek_panel_dropdown_system,
                 hud::seek_panel_count_system,
                 hud::seek_panel_input_system,
                 hud::toast_tick_system,
@@ -48,10 +47,6 @@ fn handle_pause_input(
         // If input is active, deactivate instead of deselecting/pausing
         if seek_state.input_active {
             seek_state.input_active = false;
-            return;
-        }
-        if seek_state.dropdown_open {
-            seek_state.dropdown_open = false;
             return;
         }
         if !selection.selected_unit_ids.is_empty() || selection.selected_city.is_some() {
