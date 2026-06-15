@@ -47,6 +47,7 @@ pub struct SeekPanelState {
     pub input_active: bool,
     pub range_value: u32,
     pub has_selection: bool,
+    pub trigger_clicked: bool,
 }
 
 impl Default for SeekPanelState {
@@ -57,6 +58,7 @@ impl Default for SeekPanelState {
             input_active: false,
             range_value: 0,
             has_selection: false,
+            trigger_clicked: false,
         }
     }
 }
@@ -302,8 +304,9 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
                     )).with_children(|p| {
                         scope_text_id = p.spawn((Text::new("全体 ▼"), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id();
                     })
-                    .observe(|_ev: On<Pointer<Press>>, mut state: ResMut<SeekPanelState>| {
+                    .observe(|_ev: On<Activate>, mut state: ResMut<SeekPanelState>| {
                         state.dropdown_open = !state.dropdown_open;
+                        state.trigger_clicked = true;
                     });
                     ht.seek_scope_text = Some(scope_text_id);
                     // Popup container (hidden by default via Display::None)
@@ -351,7 +354,7 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
                 )).with_children(|p| {
                     range_text_id = p.spawn((Text::new("10"), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id();
                 })
-                .observe(|_ev: On<Pointer<Press>>, mut state: ResMut<SeekPanelState>| {
+                .observe(|_ev: On<Activate>, mut state: ResMut<SeekPanelState>| {
                     if !state.input_active {
                         state.input_active = true;
                     }
@@ -587,10 +590,11 @@ pub fn seek_panel_dropdown_system(
     ht: Res<HudTexts>,
     mut popup_nodes: Query<&mut Node, With<SeekDropdownPopup>>,
 ) {
-    // Close on click outside
-    if mouse.just_pressed(MouseButton::Left) && state.dropdown_open {
+    // Close on click outside (but not if trigger was just clicked)
+    if mouse.just_pressed(MouseButton::Left) && state.dropdown_open && !state.trigger_clicked {
         state.dropdown_open = false;
     }
+    state.trigger_clicked = false;
 
     // Update popup visibility via Display toggle
     if let Some(id) = ht.seek_dropdown_container {
