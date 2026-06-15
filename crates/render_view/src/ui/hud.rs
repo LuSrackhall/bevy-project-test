@@ -335,8 +335,8 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
                                 count_id = p.spawn((Text::new("(0)"), TextFont { font: font.clone(), font_size: 11.0, ..default() },
                                     TextColor(Color::srgba(0.6, 0.6, 0.6, 1.0)))).id();
                             })
-                            .observe(|ev: On<Activate>, q: Query<&SeekScopeOption>, mut state: ResMut<SeekPanelState>| {
-                                info!("[Dropdown] Option Activate fired on entity {:?}", ev.entity);
+                            .observe(|ev: On<Pointer<Click>>, q: Query<&SeekScopeOption>, mut state: ResMut<SeekPanelState>| {
+                                info!("[Dropdown] Option Pointer<Click> on entity {:?}", ev.entity);
                                 if let Ok(opt) = q.get(ev.entity) {
                                     info!("[Dropdown] Setting scope to {:?}", opt.0);
                                     state.scope = opt.0.clone();
