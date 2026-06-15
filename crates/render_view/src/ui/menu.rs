@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use bevy::ui_widgets::{Activate, Button as WidgetButton};
+use bevy::picking::hover::Hovered;
 use crate::ui::hud::ButtonTheme;
 
 #[derive(Component)]
@@ -16,7 +17,7 @@ pub fn setup_main_menu(mut commands: Commands, asset_server: Res<AssetServer>) {
     ))
     .with_children(|parent| {
         parent.spawn((Text::new("城池争霸"), TextFont { font: font.clone(), font_size: 48.0, ..default() }));
-        parent.spawn((WidgetButton, Node { margin: UiRect::all(Val::Px(10.0)), padding: UiRect::all(Val::Px(20.0)), ..default() }, MenuButton::SinglePlayer, ButtonTheme::default()))
+        parent.spawn((WidgetButton, Node { margin: UiRect::all(Val::Px(10.0)), padding: UiRect::all(Val::Px(20.0)), ..default() }, MenuButton::SinglePlayer, ButtonTheme::default(), Hovered::default()))
             .with_child((Text::new("单人模式"), TextFont { font: font.clone(), font_size: 24.0, ..default() }))
             .observe(|_ev: On<Activate>, mut next: ResMut<NextState<crate::GameState>>| {
                 next.set(crate::GameState::Playing);
