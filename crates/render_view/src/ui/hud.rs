@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use bevy::ui_widgets::{Activate, Button as WidgetButton, MenuButton, MenuEvent, MenuAction, MenuItem, MenuPopup};
 use bevy::ui_widgets::popover::{Popover, PopoverPlacement, PopoverSide, PopoverAlign};
-use bevy::picking::hover::Hovered;
+use bevy::picking::hover::{Hovered, PickingInteraction};
 use bevy::input_focus::tab_navigation::TabIndex;
 use simulation::types::*;
 use simulation::soldier::*;
@@ -75,6 +75,24 @@ const TOAST_DURATION_TICKS: u32 = 100; // 5 seconds at 20Hz
 pub(crate) struct HoveredSoldierType(pub Option<SoldierType>);
 
 // ══════════ Marker Components ══════════
+
+/// Visual theme for buttons — drives hover/pressed color feedback.
+#[derive(Component, Clone)]
+pub struct ButtonTheme {
+    pub normal: Color,
+    pub hovered: Color,
+    pub pressed: Color,
+}
+
+impl Default for ButtonTheme {
+    fn default() -> Self {
+        Self {
+            normal: Color::srgba(0.25, 0.25, 0.30, 1.0),
+            hovered: Color::srgba(0.35, 0.35, 0.45, 1.0),
+            pressed: Color::srgba(0.20, 0.20, 0.25, 1.0),
+        }
+    }
+}
 
 #[derive(Component)] struct HudRoot;
 #[derive(Component)] struct BottomZone;
@@ -175,7 +193,7 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
                     ht.c_spawn = Some(p.spawn((Text::new("当前: 民兵"), TextFont { font: font.clone(), font_size: 13.0, ..default() })).id());
                     p.spawn(Node { flex_direction: FlexDirection::Row, ..default() }).with_children(|p| {
                         for (st, label) in [(SoldierType::Militia,"民兵"),(SoldierType::Infantry,"步兵"),(SoldierType::Archer,"弓兵"),(SoldierType::Cavalry,"骑兵")] {
-                            p.spawn((WidgetButton, Node { padding: UiRect::all(Val::Px(6.0)), margin: UiRect::all(Val::Px(3.0)), ..default() }, SpawnTypeBtn(st)))
+                            p.spawn((WidgetButton, Node { padding: UiRect::all(Val::Px(6.0)), margin: UiRect::all(Val::Px(3.0)), ..default() }, SpawnTypeBtn(st), ButtonTheme::default()))
                                 .with_child((Text::new(label), TextFont { font: font.clone(), font_size: 12.0, ..default() }))
                                 .observe(|ev: On<Activate>, q: Query<&SpawnTypeBtn>, selection: Res<SelectionState>, mut sim: NonSendMut<SimulationWorld>| {
                                     let Ok(btn) = q.get(ev.entity) else { return };
@@ -207,7 +225,7 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
                     ht.cmd_info = Some(p.spawn((Text::new("无可用命令 — 请先选择单位"), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id());
                     p.spawn(Node { flex_direction: FlexDirection::Row, column_gap: Val::Px(6.0), ..default() }).with_children(|p| {
                         for label in ["移动","攻击","停止","驻守"] {
-                            p.spawn((WidgetButton, Node { padding: UiRect::all(Val::Px(8.0)), ..default() }))
+                            p.spawn((WidgetButton, Node { padding: UiRect::all(Val::Px(8.0)), ..default() }, ButtonTheme::default()))
                                 .with_child((Text::new(label), TextFont { font: font.clone(), font_size: 14.0, ..default() }));
                         }
                     });
@@ -237,7 +255,7 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
             // Left: existing toolbar buttons
             p.spawn(Node { flex_direction: FlexDirection::Row, align_items: AlignItems::Center, column_gap: Val::Px(4.0), ..default() }).with_children(|p| {
                 for (label, marker) in [("O框选",0u8),("[ ]框选",1),("盾",2u8),("[>]优先",3)] {
-                    let mut cmd = p.spawn((WidgetButton, Node { padding: UiRect::all(Val::Px(6.0)), ..default() }, ToolbarButton(marker)));
+                    let mut cmd = p.spawn((WidgetButton, Node { padding: UiRect::all(Val::Px(6.0)), ..default() }, ToolbarButton(marker), ButtonTheme::default()));
                     if marker == 2 { cmd.insert(ShieldButton); }
                     cmd.with_child((Text::new(label), TextFont { font: font.clone(), font_size: 13.0, ..default() }))
                         .observe(|ev: On<Activate>, q: Query<&ToolbarButton>, mut sel: ResMut<SelectionState>, mut force: ResMut<ForceMoveNext>, mut sim: NonSendMut<SimulationWorld>, mut cmd_buf: ResMut<CommandBuffer>, tick_clock: Res<TickClock>| {
@@ -368,6 +386,11 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
                     // Trigger button
                     p.spawn((MenuButton, Node { padding: UiRect::new(Val::Px(8.0), Val::Px(8.0), Val::Px(4.0), Val::Px(4.0)), ..default() },
                         BackgroundColor(Color::srgba(0.25, 0.25, 0.3, 1.0)),
+                        ButtonTheme {
+                            normal: Color::srgba(0.25, 0.25, 0.3, 1.0),
+                            hovered: Color::srgba(0.35, 0.35, 0.45, 1.0),
+                            pressed: Color::srgba(0.20, 0.20, 0.25, 1.0),
+                        },
                     )).with_children(|p| {
                         scope_text_id = p.spawn((Text::new("全体 ▼"), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id();
                     });
@@ -379,6 +402,11 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
                 p.spawn((WidgetButton, Node { padding: UiRect::new(Val::Px(8.0), Val::Px(8.0), Val::Px(4.0), Val::Px(4.0)),
                     min_width: Val::Px(50.0), ..default() },
                     BackgroundColor(Color::srgba(0.15, 0.15, 0.2, 1.0)), SeekRangeInput,
+                    ButtonTheme {
+                        normal: Color::srgba(0.15, 0.15, 0.2, 1.0),
+                        hovered: Color::srgba(0.25, 0.25, 0.3, 1.0),
+                        pressed: Color::srgba(0.10, 0.10, 0.15, 1.0),
+                    },
                 )).with_children(|p| {
                     range_text_id = p.spawn((Text::new("10"), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id();
                 })
@@ -393,6 +421,11 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
                 // Issue button
                 p.spawn((WidgetButton, Node { padding: UiRect::new(Val::Px(10.0), Val::Px(10.0), Val::Px(4.0), Val::Px(4.0)), ..default() },
                     BackgroundColor(Color::srgba(0.2, 0.5, 0.3, 1.0)), SeekIssueBtn,
+                    ButtonTheme {
+                        normal: Color::srgba(0.2, 0.5, 0.3, 1.0),
+                        hovered: Color::srgba(0.3, 0.6, 0.4, 1.0),
+                        pressed: Color::srgba(0.15, 0.4, 0.2, 1.0),
+                    },
                 )).with_child((Text::new("下发"), TextFont { font: font.clone(), font_size: 12.0, ..default() }))
                 .observe(|_ev: On<Activate>, state: Res<SeekPanelState>, selection: Res<SelectionState>, mut cmd_buf: ResMut<CommandBuffer>, tick_clock: Res<TickClock>, mut toast: ResMut<ToastMessage>| {
                     let next_tick = tick_clock.current_tick + 1;
@@ -412,6 +445,22 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
             });
         });
     });
+}
+
+// ══════════ Button Visual Feedback ══════════
+
+/// Update button background colors based on hover/press state.
+/// Uses PickingInteraction (auto-maintained by Bevy's picking system) to detect state.
+pub fn button_style_system(
+    mut q: Query<(&mut BackgroundColor, &PickingInteraction, &ButtonTheme), Changed<PickingInteraction>>,
+) {
+    for (mut bg, interaction, theme) in q.iter_mut() {
+        bg.0 = match interaction {
+            PickingInteraction::Pressed => theme.pressed,
+            PickingInteraction::Hovered => theme.hovered,
+            PickingInteraction::None => theme.normal,
+        };
+    }
 }
 
 // ══════════ Update Systems ══════════

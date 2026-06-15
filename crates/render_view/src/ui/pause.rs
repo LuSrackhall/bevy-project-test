@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use bevy::ui_widgets::{Activate, Button as WidgetButton};
+use crate::ui::hud::ButtonTheme;
 
 #[derive(Component)]
 pub struct PauseUI;
@@ -14,7 +15,7 @@ pub fn setup_pause(mut commands: Commands, asset_server: Res<AssetServer>) {
     .with_children(|parent| {
         parent.spawn((Text::new("游戏暂停"), TextFont { font: font.clone(), font_size: 36.0, ..default() }));
         for (label, btn) in [("继续", PauseBtn::Resume), ("重新开始", PauseBtn::Restart), ("主菜单", PauseBtn::Menu)] {
-            parent.spawn((WidgetButton, Node { margin: UiRect::all(Val::Px(10.0)), padding: UiRect::all(Val::Px(20.0)), ..default() }, btn))
+            parent.spawn((WidgetButton, Node { margin: UiRect::all(Val::Px(10.0)), padding: UiRect::all(Val::Px(20.0)), ..default() }, btn, ButtonTheme::default()))
                 .with_child((Text::new(label), TextFont { font: font.clone(), font_size: 24.0, ..default() }))
                 .observe(move |_ev: On<Activate>, q: Query<&PauseBtn>, mut next: ResMut<NextState<crate::GameState>>| {
                     if let Ok(pause_btn) = q.get(_ev.entity) {
