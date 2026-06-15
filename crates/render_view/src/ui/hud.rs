@@ -394,12 +394,12 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
                 p.spawn((WidgetButton, Node { padding: UiRect::new(Val::Px(10.0), Val::Px(10.0), Val::Px(4.0), Val::Px(4.0)), ..default() },
                     BackgroundColor(Color::srgba(0.2, 0.5, 0.3, 1.0)), SeekIssueBtn,
                 )).with_child((Text::new("下发"), TextFont { font: font.clone(), font_size: 12.0, ..default() }))
-                .observe(|_ev: On<Activate>, state: Res<SeekPanelState>, selection: Res<SelectionState>, mut cmd_buf: ResMut<CommandBuffer>, tick_clock: Res<TickClock>, mut toast: ResMut<ToastMessage>| {
+                .observe(|_ev: On<Activate>, state: Res<SeekPanelState>, selection: Res<SelectionState>, mut cmd_buf: ResMut<CommandBuffer>, tick_clock: Res<TickClock>, mut toast: ResMut<ToastMessage>, mut sim: NonSendMut<SimulationWorld>| {
                     let next_tick = tick_clock.current_tick + 1;
                     let has_sel = !selection.selected_unit_ids.is_empty();
                     if has_sel {
                         cmd_buf.push(GameCommand { tick: next_tick, player_id: 0, action: Action::SetSeekStance { scope: state.scope.clone(), seek_range: state.range_value, unit_ids: selection.selected_unit_ids.clone() } });
-                        let count = count_matching(&selection.selected_unit_ids, &state.scope, &selection);
+                        let count = count_matching(&selection.selected_unit_ids, &state.scope, &mut sim);
                         let scope_name = scope_label(&state.scope);
                         toast.text = if matches!(state.scope, SeekScope::All) { format!("已下发选中全体({})索敌 范围{}", selection.selected_unit_ids.len(), state.range_value) } else { format!("已下发选中{}({})索敌 范围{}", scope_name, count, state.range_value) };
                     } else {
@@ -696,11 +696,9 @@ pub fn seek_panel_input_system(
     mut tq: Query<&mut Text>,
     ht: Res<HudTexts>,
 ) {
-    // Escape or click elsewhere → deactivate
+    // Click elsewhere → deactivate (Escape handled by handle_pause_input)
     if state.input_active {
-        if keyboard.just_pressed(KeyCode::Escape) {
-            state.input_active = false;
-        } else if mouse.just_pressed(MouseButton::Left) {
+        if mouse.just_pressed(MouseButton::Left) {
             state.input_active = false;
         }
     }
@@ -755,15 +753,15 @@ pub fn seek_panel_input_system(
 }
 
 /// Count how many selected units match the given scope.
-fn count_matching(unit_ids: &[UnitId], scope: &SeekScope, selection: &SelectionState) -> usize {
-    // For All scope, all selected match
+fn count_matching(unit_ids: &[UnitId], scope: &SeekScope, sim: &mut SimulationWorld) -> usize {
     match scope {
         SeekScope::All => unit_ids.len(),
-        SeekScope::ByType(_) => {
-            // We need to check the simulation world, but we don't have access here.
-            // Approximate: if single type selected, show that count.
-            // For now, just return total count — the toast will still be informative.
-            unit_ids.len()
+        SeekScope::ByType(target_type) => {
+            let w = &mut sim.0;
+            let mut q = w.query::<(&UnitIdComponent, &SoldierTypeComponent)>();
+            unit_ids.iter().filter(|uid| {
+                q.iter(w).any(|(id, st)| id.0 == **uid && st.0 == *target_type)
+            }).count()
         }
     }
 }
