@@ -316,7 +316,7 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
                         position_type: PositionType::Absolute,
                         bottom: Val::Px(28.0), left: Val::Px(0.0),
                         ..default()
-                    }, BackgroundColor(Color::srgba(0.15, 0.15, 0.2, 0.95)), SeekDropdownPopup,
+                    }, BackgroundColor(Color::srgba(0.15, 0.15, 0.2, 0.95)), SeekDropdownPopup, Pickable::IGNORE,
                     )).with_children(|p| {
                         let options = [
                             ("全体", SeekScope::All),
