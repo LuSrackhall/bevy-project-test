@@ -1,5 +1,6 @@
 use bevy::prelude::*;
-use bevy::ui::Pressed;
+use bevy::picking::hover::HoverMap;
+use bevy::picking::pointer::PointerId;
 use bevy_prototype_lyon::prelude::*;
 use bevy_prototype_lyon::shapes;
 use bevy_adapter::tick::SimulationWorld;
@@ -10,10 +11,13 @@ use simulation::soldier::*;
 use simulation::command::*;
 use crate::camera::MainCamera;
 
-/// Returns true if any UI element is currently being pressed (clicked).
-/// This prevents game-world click processing when interacting with UI buttons.
-fn is_any_ui_pressed(pressed: &Query<&Pressed>) -> bool {
-    !pressed.is_empty()
+/// Returns true if the mouse cursor is currently over any UI element.
+/// Uses HoverMap from Bevy's picking system, which is automatically maintained.
+/// Transparent containers have Pickable::IGNORE so they don't appear in HoverMap.
+fn is_cursor_over_ui(hover_map: &HoverMap, nodes: &Query<&Node>) -> bool {
+    hover_map
+        .get(&PointerId::Mouse)
+        .map_or(false, |h| h.keys().any(|e| nodes.get(*e).is_ok()))
 }
 
 // ══════════ Resources ══════════
@@ -67,13 +71,14 @@ pub fn selection_click_system(
     keyboard: Res<ButtonInput<KeyCode>>,
     q_windows: Query<&Window>,
     camera_query: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
-    pressed: Query<&Pressed>,
+    hover_map: Res<HoverMap>,
+    nodes: Query<&Node>,
     mut sim_world: bevy::ecs::system::NonSendMut<SimulationWorld>,
     mut selection: ResMut<SelectionState>,
 ) {
     if !mouse.just_pressed(MouseButton::Left) { return; }
     // Skip if any UI element is being pressed (prevents clearing selection on UI clicks)
-    if is_any_ui_pressed(&pressed) { return; }
+    if is_cursor_over_ui(&hover_map, &nodes) { return; }
     let Ok(window) = q_windows.single() else { return };
     let Some(cursor) = window.cursor_position() else { return };
     let Ok((camera, cam_t)) = camera_query.single() else { return };
@@ -137,7 +142,8 @@ pub fn drag_select_system(
     mouse: Res<ButtonInput<MouseButton>>,
     q_windows: Query<&Window>,
     camera_query: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
-    pressed: Query<&Pressed>,
+    hover_map: Res<HoverMap>,
+    nodes: Query<&Node>,
     mut sim_world: bevy::ecs::system::NonSendMut<SimulationWorld>,
     mut selection: ResMut<SelectionState>,
 ) {
@@ -146,7 +152,7 @@ pub fn drag_select_system(
     let Ok((camera, cam_t)) = camera_query.single() else { return };
 
     // Don't start drag when clicking on UI elements
-    if is_any_ui_pressed(&pressed) {
+    if is_cursor_over_ui(&hover_map, &nodes) {
         return;
     }
 
@@ -297,7 +303,8 @@ pub fn command_issue_system(
     keyboard: Res<ButtonInput<KeyCode>>,
     q_windows: Query<&Window>,
     camera_query: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
-    pressed: Query<&Pressed>,
+    hover_map: Res<HoverMap>,
+    nodes: Query<&Node>,
     mut sim_world: bevy::ecs::system::NonSendMut<SimulationWorld>,
     selection: ResMut<SelectionState>,
     mut cmd_buf: ResMut<CommandBuffer>,
@@ -307,7 +314,7 @@ pub fn command_issue_system(
     if !mouse.just_pressed(MouseButton::Right) { return; }
     if selection.selected_unit_ids.is_empty() { return; }
     // Skip if any UI element is being pressed (prevents issuing commands when clicking UI)
-    if is_any_ui_pressed(&pressed) { return; }
+    if is_cursor_over_ui(&hover_map, &nodes) { return; }
 
     let Ok(window) = q_windows.single() else { return };
     let Some(cursor) = window.cursor_position() else { return };
