@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use bevy::ui_widgets::{Activate, Button as WidgetButton};
+use bevy::picking::hover::Hovered;
 use crate::ui::hud::ButtonTheme;
 
 #[derive(Component)]
@@ -15,7 +16,7 @@ pub fn setup_gameover(mut commands: Commands, asset_server: Res<AssetServer>) {
     .with_children(|parent| {
         parent.spawn((Text::new("游戏结束"), TextFont { font: font.clone(), font_size: 48.0, ..default() }));
         for (label, btn) in [("再来一局", EndBtn::Restart), ("主菜单", EndBtn::Menu)] {
-            parent.spawn((WidgetButton, Node { margin: UiRect::all(Val::Px(10.0)), padding: UiRect::all(Val::Px(20.0)), ..default() }, btn, ButtonTheme::default()))
+            parent.spawn((WidgetButton, Node { margin: UiRect::all(Val::Px(10.0)), padding: UiRect::all(Val::Px(20.0)), ..default() }, btn, ButtonTheme::default(), Hovered::default()))
                 .with_child((Text::new(label), TextFont { font: font.clone(), font_size: 24.0, ..default() }))
                 .observe(move |_ev: On<Activate>, q: Query<&EndBtn>, mut next: ResMut<NextState<crate::GameState>>| {
                     if let Ok(end_btn) = q.get(_ev.entity) {
