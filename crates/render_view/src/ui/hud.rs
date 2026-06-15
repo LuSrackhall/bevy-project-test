@@ -336,7 +336,9 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
                                     TextColor(Color::srgba(0.6, 0.6, 0.6, 1.0)))).id();
                             })
                             .observe(|ev: On<Activate>, q: Query<&SeekScopeOption>, mut state: ResMut<SeekPanelState>| {
+                                info!("[Dropdown] Option Activate fired on entity {:?}", ev.entity);
                                 if let Ok(opt) = q.get(ev.entity) {
+                                    info!("[Dropdown] Setting scope to {:?}", opt.0);
                                     state.scope = opt.0.clone();
                                     state.dropdown_open = false;
                                 }
@@ -355,6 +357,7 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
                     range_text_id = p.spawn((Text::new("10"), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id();
                 })
                 .observe(|_ev: On<Activate>, mut state: ResMut<SeekPanelState>| {
+                    info!("[Input] Activate fired, input_active={}", state.input_active);
                     if !state.input_active {
                         state.input_active = true;
                     }
