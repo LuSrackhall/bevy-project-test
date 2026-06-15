@@ -327,7 +327,7 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
                         ];
                         for (i, (label, scope)) in options.iter().enumerate() {
                             let mut count_id = Entity::PLACEHOLDER;
-                            p.spawn((WidgetButton, Node { padding: UiRect::new(Val::Px(12.0), Val::Px(12.0), Val::Px(4.0), Val::Px(4.0)),
+                            p.spawn((Node { padding: UiRect::new(Val::Px(12.0), Val::Px(12.0), Val::Px(4.0), Val::Px(4.0)),
                                 justify_content: JustifyContent::SpaceBetween, ..default() },
                                 SeekScopeOption(scope.clone()),
                             )).with_children(|p| {
