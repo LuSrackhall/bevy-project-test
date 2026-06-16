@@ -53,11 +53,18 @@
 
 **理由**: 样式是交互状态的纯函数投影，应集中管理。`ButtonTheme` 组件允许不同按钮有不同样式，系统逻辑统一。这符合"presentation 与 behavior 解耦"原则。
 
-### Decision 4: is_any_ui_pressed 一次性切换口径
+### Decision 4: 穿透保护使用 HoverMap
 
-**选择**: 全量迁移时将 `is_any_ui_pressed` 从 `Query<&Interaction>` 一次性改为 `Query<&Pressed>`。
+**选择**: 将 `is_any_ui_pressed` 替换为 `is_cursor_over_ui`，使用 `HoverMap` 查询光标是否在 UI 上。
 
-**理由**: 一次性迁移所有按钮，不存在混合期，`is_any_ui_pressed` 只需切换一次口径。`Pressed` 组件由 `bevy_ui_widgets::Button` 的 Observer 自动管理（Press 时插入，Release 时移除），与 `Interaction` 的生命周期一致。
+**实际实现**: `is_cursor_over_ui` 遍历 `HoverMap` 中鼠标指针下的所有实体，检查是否有任何实体带有 `Node` 组件。
+
+**备选方案**:
+- A) `Query<&Pressed>` → `Pressed` 只在 `bevy_ui_widgets::Button` 上存在，`MenuButton`/`MenuItem` 不使用
+- B) `Query<&PickingInteraction>` → 不自动插入到未被 hover 的实体，时序不可靠
+- C) `Query<&Interaction>` → `bevy_ui_widgets::Button` 不提供 `Interaction` 组件
+
+**理由**: `HoverMap` 由 Picking 系统自动维护，覆盖所有 UI 节点。透明容器添加 `Pickable::IGNORE` 后不阻挡下层，`HoverMap` 只包含实际的 UI 元素。这是最通用的方案，不依赖特定组件类型。
 
 ### Decision 5: Seek Panel 输入框保留手写逻辑
 

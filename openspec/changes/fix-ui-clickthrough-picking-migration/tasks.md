@@ -19,7 +19,7 @@
 - [x] 2.3 在 `UiPlugin::build` 中注册全局 Observer
 - [x] 2.4 验证 Observer 触发（用户确认控制台出现日志）
 - [x] 2.5 清理诊断代码，保留最终 Observer
-- [ ] 2.6 更新提案，记录 Phase 1a 实证结论
+- [x] 2.6 更新提案，记录 Phase 1a 实证结论
 
 ### Phase 1a 实证结论
 

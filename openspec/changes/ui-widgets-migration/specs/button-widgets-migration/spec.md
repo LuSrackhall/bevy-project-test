@@ -38,19 +38,14 @@
 - **WHEN** 玩家点击兵种选择按钮
 - **THEN** `Activate` 事件 SHALL 触发，Observer 设置城市产出兵种类型
 
-### Requirement: 穿透保护在混合期不中断
+### Requirement: 穿透保护使用 HoverMap
 
-迁移期间，`is_any_ui_pressed` SHALL 同时检查 `PickingInteraction::Pressed` 和 `Pressed` 组件。
+迁移完成后，`is_cursor_over_ui` SHALL 使用 `HoverMap` 检测光标是否在 UI 上，替代 `Interaction::Pressed` 查询。
 
-#### Scenario: 混合期穿透保护
+#### Scenario: 穿透保护正常工作
 
-- **WHEN** 玩家点击已迁移到 bevy_ui_widgets 的按钮
-- **THEN** `is_any_ui_pressed` SHALL 通过 `Pressed` 组件检测到按钮被按下
-
-#### Scenario: 混合期旧按钮穿透保护
-
-- **WHEN** 玩家点击未迁移的旧版按钮
-- **THEN** `is_any_ui_pressed` SHALL 通过 `PickingInteraction::Pressed` 检测到按钮被按下
+- **WHEN** 玩家点击 UI 按钮
+- **THEN** `is_cursor_over_ui` SHALL 通过 `HoverMap` 检测到光标在 UI 上，阻止游戏世界的点击处理
 
 ### Requirement: Phase 1a Observer 清理
 

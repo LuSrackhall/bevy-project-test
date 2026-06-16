@@ -1,10 +1,10 @@
 ## Context
 
-当前项目使用 `Input<MouseButton>` + 手动 `UiFocusBlocker` 资源处理 UI 点击穿透。`UiFocusBlocker` 每帧重置为 `false`，各 UI 系统在检测到 `Interaction::Pressed` 时设置 `blocked = true`，`selection_click_system` 检查该标志后决定是否处理游戏世界点击。
+项目使用 `Input<MouseButton>` + 手动 `UiFocusBlocker` 资源处理 UI 点击穿透。`UiFocusBlocker` 每帧重置为 `false`，各 UI 系统在检测到 `Interaction::Pressed` 时设置 `blocked = true`，`selection_click_system` 检查该标志后决定是否处理游戏世界点击。
 
 问题：`soldier_type_button_system`、`toolbar_button_system` 等系统未设置 `blocked`，导致点击这些按钮时穿透到游戏世界。`command_issue_system`（右键命令）完全没有 blocker 检查。
 
-Bevy 0.18 的 `ui_focus_system` 在 `PreUpdate` 阶段自动维护所有 UI 节点的 `Interaction` 组件状态。当按钮被按下时，`Interaction` 变为 `Pressed`；透明容器只有 `Hovered`（被按钮阻挡）。这提供了区分"点击 UI 按钮"和"点击游戏世界"的天然机制。
+Bevy 0.18 的 Picking 系统已默认启用，UI 节点天然参与 picking 并阻止下层被 hover。`HoverMap` 资源由 Picking 系统在 `PreUpdate` 阶段自动维护，记录每个指针当前 hover 的实体。
 
 ## Goals / Non-Goals
 
@@ -24,66 +24,44 @@ Bevy 0.18 的 `ui_focus_system` 在 `PreUpdate` 阶段自动维护所有 UI 节�
 
 ## Decisions
 
-### Decision 1: 用 Interaction::Pressed 替代 UiFocusBlocker
+### Decision 1: 用 HoverMap 替代 UiFocusBlocker
 
-**选择**: 在 `selection_click_system` 和 `command_issue_system` 中查询 `Query<&Interaction>`，检查是否有任何 UI 元素处于 `Interaction::Pressed` 状态。
+**选择**: 在 `selection_click_system` 和 `command_issue_system` 中查询 `Res<HoverMap>`，通过 `is_cursor_over_ui` 函数判断光标是否在 UI 上。
+
+**实现**: `is_cursor_over_ui` 遍历 `HoverMap` 中鼠标指针下的所有实体，检查是否有任何实体带有 `Node` 组件（UI 节点标识）。
 
 **备选方案**:
 - A) 为每个 UI 系统手动补 blocker → 维护成本高，容易遗漏
-- B) 查询 `Res<HoverMap>` 判断光标是否在 UI 上 → 无法区分"空白处"和"游戏实体上"（两者 HoverMap 均为空）
-- C) 把 selection 系统也改为 Pointer 事件 → 需要游戏实体 pickable，改动大
+- B) 查询 `Query<&Interaction>` 判断是否有 UI 被 pressed → `MenuButton`/`MenuItem` 不自动插入 `Interaction` 组件
+- C) 查询 `Query<&PickingInteraction>` → `PickingInteraction` 不自动插入到未被 hover 的实体，首次 hover 时通过 commands 延迟插入，时序不可靠
+- D) 查询 `Query<&Pressed>` → `Pressed` 只在 `bevy_ui_widgets::Button` 上存在，`MenuButton`/`MenuItem` 不使用
 
-**理由**: `Interaction::Pressed` 只在按钮被实际按下时为 true。透明容器只有 `Interaction::Hovered`（被按钮阻挡），不会误判。`ui_focus_system` 在 `PreUpdate` 运行，`selection_click_system` 在 `Update` 运行，时序正确。不需要修改透明容器的 Pickable 设置。
+**理由**: `HoverMap` 由 Picking 系统自动维护，覆盖所有 UI 节点。透明容器添加 `Pickable::IGNORE` 后不阻挡下层，`HoverMap` 只包含实际的 UI 元素（按钮、面板等）。这是最通用的方案，不依赖特定组件类型。
 
-**HoverMap 方案失败原因**: HoverMap 在光标位于空白处和游戏实体上时均为空，无法区分两种情况。即使给透明容器添加 `Pickable::IGNORE`，仍然无法解决"点击空白处应清除选中"和"点击游戏实体应选中"的矛盾。
+### Decision 2: 透明容器添加 Pickable::IGNORE
 
-### Decision 1b: 透明容器添加 Pickable::IGNORE
+**选择**: 在 HUD 布局中的透明容器节点（根节点、spacer、底部区域容器、左右面板容器、SeekPanelRoot）上添加 `Pickable::IGNORE`。
 
-**选择**: 在 HUD 布局中的透明容器节点（根节点、spacer、底部区域容器、左右面板容器）上添加 `Pickable::IGNORE`。
+**问题**: Bevy 的 Picking 命中检测基于布局边界（`ComputedNode::contains_point`），不检查视觉属性。没有 `Pickable` 组件的节点默认 `should_block_lower: true`，即使节点是透明的也会阻挡下层。
 
-**问题**: Bevy 的 Picking 命中检测基于布局边界（`ComputedNode::contains_point`），不检查视觉属性。没有 `Pickable` 组件的节点默认 `should_block_lower: true`，即使节点是透明的也会阻挡下层。这导致 HoverMap 在光标位于透明容器上时非空，`is_cursor_over_ui` 误判为"光标在 UI 上"。
+**理由**: `Pickable::IGNORE` 告诉 Picking 系统忽略该节点，不阻挡下层。透明容器本身不需要接收点击事件，它们的子节点（按钮、面板）仍保持默认 Pickable 行为。
 
-**备选方案**:
-- A) 在 `is_cursor_over_ui` 中检查 HoverMap 条目的具体类型 → 需要额外查询，复杂度高
-- B) 重构 HUD 布局，消除透明容器 → 改动大，影响布局结构
-- C) 透明容器添加 `Pickable::IGNORE` → 最简单，不改变布局
+### Decision 3: Observer 验证采用 Pointer<Press>
 
-**理由**: `Pickable::IGNORE` 告诉 Picking 系统忽略该节点，不阻挡下层。透明容器（根节点、spacer、底部区域）本身不需要接收点击事件，它们的子节点（按钮、面板）仍保持默认 Pickable 行为。这是 Bevy 推荐的处理透明容器的方式。
+**选择**: 用 `app.add_observer(|ev: On<Pointer<Press>>| {...})` 监听 Press 事件，验证 Observer 机制在当前项目中的可行性。
 
-### Decision 2: Observer 验证采用全局 Observer + Pointer<Press>
+**实证发现**: `Pointer<Click>` 在 UI 按钮上不可靠（Press 和 Release 之间有微小移动时 Click 不生成）。`Pointer<Press>` 可靠触发。`bevy_ui_widgets::Button` 内部也使用 `Pointer<Press>` + `Pointer<Release>` 而非 `Pointer<Click>`。
 
-**选择**: 用 `app.add_observer(|ev: On<Pointer<Press>>| {...})` 监听所有 Press 事件，在 Observer 内通过 Query 判断是否命中目标按钮。
-
-**实证发现**: `Pointer<Click>` 在 UI 按钮上不可靠。诊断测试显示 `Pointer<Press>` 正常触发（在 4 个实体上冒泡），但 `Pointer<Click>` 完全不触发。原因：Click 要求 Press 和 Release 都在同一实体上，鼠标微小移动会导致 Click 不生成。`bevy_ui_widgets::Button` 内部也使用 `Pointer<Press>` + `Pointer<Release>` 而非 `Pointer<Click>`。
-
-**理由**: `Pointer<Press>` 是更可靠的 UI 交互事件。Observer 机制本身验证通过——可监听 Pointer 事件、可访问 ECS 资源、事件冒泡正常工作。
-
-### Decision 1b: 透明容器添加 Pickable::IGNORE（预防性措施）
-
-**选择**: 在 HUD 布局中的透明容器节点（根节点、spacer、底部区域容器、左右面板容器）上添加 `Pickable::IGNORE`。
-
-**当前状态**: 由于改用 `Interaction::Pressed` 方案，透明容器不再影响穿透检测。`Pickable::IGNORE` 作为预防性措施保留，确保 Picking 系统的行为符合预期（透明容器不阻挡下层），为未来可能的 Picking 相关功能打下基础。
-
-### Decision 2: Observer 验证采用全局 Observer + Pointer<Click>
-
-**选择**: 用 `app.add_observer(|ev: On<Pointer<Click>>| {...})` 监听所有点击事件，在 Observer 内通过 Query 判断是否命中目标按钮。
-
-**理由**: 全局 Observer 最简单，不需要修改 spawn 代码。`Pointer<Click>` 在 UI 按钮上会正确触发（已从源码确认），`ev.entity()` 返回被点击的按钮实体。Observer 可访问 `ResMut`、`Query` 等标准系统参数（已从源码确认）。
-
-### Decision 3: Phase 1a 和 Phase 1b 作为独立验证步骤
-
-**选择**: Phase 1a 验证 Observer 机制（menu 按钮），Phase 1b 验证穿透修复（Interaction::Pressed 替代 blocker）。
-
-**理由**: 两个验证目标独立。Phase 1a 不涉及穿透修复，Phase 1b 不涉及 Observer。分开验证降低单步风险，失败时可独立回滚。Phase 1a 的 Observer 验证为 Phase 2 的 bevy_ui_widgets 迁移提供实证数据。
+**验证结论**: Observer 机制可行——可监听 Pointer 事件、可访问 ECS 资源、事件冒泡正常工作。验证代码（`observer.rs`）在 Phase 1a 完成后删除。
 
 ## Risks / Trade-offs
 
-**[Interaction::Pressed 时序依赖]** → 概率低。`ui_focus_system` 在 `PreUpdate` 运行，`selection_click_system` 在 `Update` 运行，时序正确。如果未来 Bevy 改变 `ui_focus_system` 的执行阶段，可能需要调整。
+**[HoverMap 在 Update 阶段未更新]** → 概率极低。Picking 在 `PreUpdate` 阶段运行，`selection_click_system` 在 `Update` 阶段运行，时序正确。
 
-**[透明容器误判]** → 已解决。透明容器只有 `Interaction::Hovered`（被按钮阻挡），不会产生 `Interaction::Pressed`。`Pickable::IGNORE` 作为额外保障。
+**[HoverMap 包含非 UI 实体导致误判]** → 概率低。游戏实体无 `Pickable` 组件，UI 节点默认 `should_block_lower: true`，光标在 UI 上时游戏实体不会出现在 HoverMap 中。`is_cursor_over_ui` 通过检查 `Node` 组件进一步过滤。
 
 **[Observer 闭包调试困难]** → 可接受。Phase 1a 仅用于验证，Observer 内业务逻辑抽离为独立函数，闭包只做事件转发。
 
-**[bevy_ui_widgets 仍为 experimental]** → 不影响。Phase 1a 使用原生 Observer + `Pointer<Click>`，不引入 `bevy_ui_widgets`。Phase 2 是否引入取决于 Phase 1a 的实证结果。
+**[bevy_ui_widgets 仍为 experimental]** → 不影响。Phase 1a 使用原生 Observer + `Pointer<Press>`，不引入 `bevy_ui_widgets`。Phase 2 是否引入取决于 Phase 1a 的实证结果。
 
-**[删除 blocker 后 seek panel 行为变化]** → 无影响。seek panel 系统的 blocker 参数仅用于防止穿透，删除后 `Interaction::Pressed` 检查在 selection 层面统一处理，seek panel 功能不受影响。
+**[删除 blocker 后 seek panel 行为变化]** → 无影响。seek panel 系统的 blocker 参数仅用于防止穿透，删除后 HoverMap 检查在 selection 层面统一处理，seek panel 功能不受影响。
