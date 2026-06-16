@@ -1,125 +1,84 @@
 ## Context
 
-`hud.rs` 中的 SeekScopeDropdown 使用 Bevy 的 `MenuButton` + `MenuPopup` + `Popover` 系统实现下拉菜单。按下按钮时动态 spawn 一个弹出面板（popup entity）。
+`hud.rs` 中的 SeekScopeDropdown 原本使用 Bevy 的 `MenuButton` + `MenuPopup` + `Popover` 系统实现下拉菜单定位。展开时 popup 出现位置跳变闪烁（从按钮下方快速跳到上方）。
 
-Bevy Popover 系统（`bevy_ui_widgets::popover::position_popover`）运行在 `UiSystems::Prepare`（`PostUpdate` 阶段），它直接调用 `visibility.set_if_neq(Visibility::Visible)` 覆盖了 popup 的 `Visibility::Hidden`。此时 `ComputedNode.size` 尚未计算（为 `Vec2::ZERO`），Popover 用零尺寸计算位置——选择下方（Bottom）。下一帧布局计算完成后尺寸真实，Popover 重新计算位置可能选择上方（Top）→ 位置跳变 = 闪烁。
+根因是 Bevy Popover 系统在 `UiSystems::Prepare` 阶段设置 `Visibility::Visible` 并计算位置，但此时 `ComputedNode.size` 尚未计算（为 `Vec2::ZERO`），导致位置基于零尺寸计算。下一帧布局完成后位置跳变。
 
-系统执行顺序：
-```
-PostUpdate:
-  Prepare   ← Popover 运行（覆盖 visibility，用旧尺寸计算位置）
-  Propagate
-  Content
-  Layout    ← ComputedNode 在此被赋予真实尺寸
-  PostLayout ← 延迟显示系统运行点（尺寸已知，可决定是否显示）
-```
+经过 5 轮修复尝试，发现 Bevy 的 visibility/display 控制存在无法绕过的系统时序冲突：
+- `Visibility::Hidden` 被 Popover 覆盖为 `Visible`
+- `Display::None` 导致 Popover 无法处理实体
+- `alpha=0` 仍有半透明渲染伪影
+- `CheckVisibility` 在 `PostLayout` 之前运行，无法在渲染前拦截
+
+最终方案：放弃 Popover 系统，改为手动计算 popup 位置。
 
 ## Goals / Non-Goals
 
 **Goals:**
-- 阻止 SeekScopeDropdown 的 popup 在尺寸未知时显示
-- 只在 Popover 用真实尺寸正确定位后才让 popup 可见
-- 消除"从按钮下方快速上移"的视觉闪烁
+- 消除 SeekScopeDropdown 展开时的位置跳变闪烁
+- 保持下拉菜单的展开/收起功能正常
+- 保持合适的菜单宽度
 
 **Non-Goals:**
-- 不修改 Bevy 的 Popover 系统本身
-- 不改变其他下拉菜单或面板的行为
+- 不使用 Bevy 的 Popover 系统（已证明无法可靠控制显示时机）
 - 不添加动画或过渡效果
 
 ## Decisions
 
-### 决策 1：使用 `PopoverReady` 标记组件 + 延迟显示系统
+### 决策 1：放弃 Popover，改为手动计算位置
 
-**选择**：添加 `PopoverReady` 标记组件到 popup 实体，新增 `reveal_popover` 系统在 `PostLayout` 阶段检查条件后移除标记。
-
-**理由**：
-- Bevy Popover 在 `Prepare` 阶段覆盖 `Visibility::Hidden` 为 `Visibility::Visible`，无法通过简单的 visibility 设置阻止显示
-- 需要在 Popover 完成定位后、渲染前的窗口期介入
-- `PostLayout` 阶段 `ComputedNode.size` 已有真实值，可以可靠地判断布局是否完成
-
-**替代方案**：
-- 方案 B（禁用 Popover 手动定位）：需自己处理窗口边缘、多显示器边界，且需重新实现点击外部关闭等行为
-- 方案 C（预计算尺寸）：依赖字体度量精度，实现复杂度高，不能保证所有场景无闪烁
-
-### 决策 2：使用 `ComputedNode.size != Vec2::ZERO` 作为布局完成判断
-
-**选择**：检查 `ComputedNode.size()` 是否非零来判断布局是否已计算。
+**选择**：在 observer 中通过 `ChildOf` 找到 anchor 父节点，查询 `UiGlobalTransform` 获取屏幕位置，根据窗口高度手动计算 popup 的 `top` 位置。
 
 **理由**：
-- `ComputedNode.size` 默认为 `Vec2::ZERO`，在 `UiSystems::Layout` 阶段由 `ui_layout_system` 赋予真实尺寸
-- popup 包含文本子节点，布局计算后尺寸必然非零
-- 使用公开 API，不依赖 Bevy 内部实现细节
+- Bevy 的 Popover 系统与 UI 渲染管线存在无法绕过的时序冲突
+- 所有基于 Visibility/Display/alpha 的延迟显示方案均失败
+- 手动定位完全绕过这些时序问题
 
-### 决策 3：使用 `Visibility::Inherited` 状态过滤
+**替代方案**（均已失败）：
+- 方案 A：`PopoverReady` 标记 + `reveal_popover` 系统 + `Visibility::Hidden` → 被 Popover 覆盖
+- 方案 B：`Display::None` + 标记 → Popover 无法处理 Display::None 的实体
+- 方案 C：alpha=0 透明颜色 → 仍有半透明渲染伪影
+- 方案 D：两步标记（PopoverPositioned + PopoverReady）→ 仍有时序问题
 
-**选择**：`reveal_popover` 系统只处理 `Visibility::Inherited` 的实体，跳过仍在 `Visibility::Visible`（Popover 设置）或 `Visibility::Hidden`（初始状态）的实体。
+### 决策 2：popup 添加到触发按钮子节点
 
-**理由**：
-- Popover 在 `Prepare` 阶段设置 `Visibility::Visible`
-- 如果在 `PostLayout` 将其改回 `Inherited`，下一帧 Popover 发现已是 `Visible` 不再设置，但我们的系统需要等 Popover 自然将 visibility 改为 `Inherited`（变化检测触发时）
-- 实际上，`set_if_neq` 只在值不同时触发变化，所以 Popover 每帧都会设置 `Visible` 直到我们的系统介入
+**选择**：`commands.entity(ev.source).add_child(popup_entity)`。
 
-**修正说明**：实际上 `reveal_popover` 系统只需检查 `ComputedNode.size != Vec2::ZERO`，当条件满足时移除标记。此时 Popover 已用真实尺寸正确定位，popup 可安全显示。visibility 状态过滤是额外的安全保障。
+**理由**：关闭逻辑通过 `q_trigger.get(ev.source)` 查找触发按钮的子节点定位已有 popup。
+
+### 决策 3：使用估算高度计算位置
+
+**选择**：`est_popup_h = 5.0 * 24.0`（5 个选项 × 每项约 24px）。
+
+**理由**：popup 尚未布局时无法获取真实高度，使用估算值。选项数量固定，估算足够准确。
 
 ## Risks / Trade-offs
 
-**[一帧延迟]** popup 在按下按钮后 ~16ms（@60fps）才显示。
-→ 缓解：比闪烁好得多，用户无法感知这一帧延迟。
+**[估算高度不精确]** 如果菜单项数量或字体大小变化，估算高度可能不准。
+→ 缓解：当前选项数量固定（5 个），估算值合理。
 
-**[Popover API 兼容性]** 如果 Bevy 未来版本改变 Popover 的 visibility 管理方式，可能需要调整。
-→ 缓解：我们只使用公开 API（`ComputedNode.size()`、`Visibility`、`UiSystems::Layout`），不依赖内部实现。
+**[丢失 Popover 的边缘裁剪]** Popover 会自动避免 popup 超出窗口边缘。
+→ 缓解：通过上方/下方选择逻辑已处理主要场景。
 
-**[快速点击边界情况]** 用户快速打开/关闭下拉菜单时，`PopoverReady` 组件随 entity 生命周期自动清理，不影响正确性。
-→ 无需额外处理。
+**[丢失 Popover 的点击外部关闭]** 原本依赖 Popover + MenuPopup 的自动关闭机制。
+→ 缓解：`menu_on_lose_focus` 系统仍然处理焦点丢失时的关闭。
 
 ## 实施方案
 
 ### 修改文件
-- `crates/render_view/src/ui/hud.rs`：添加组件 + 修改 spawn + 新增系统
-- `crates/render_view/src/ui/mod.rs`：注册系统
+- `crates/render_view/src/ui/hud.rs`：重写 observer 为手动定位，移除 Popover 相关代码
+- `crates/render_view/src/ui/mod.rs`：移除 reveal_popover 注册和 UiSystems 导入
 
 ### 具体修改
 
-**1. `hud.rs` 标记组件区域（~line 150）添加：**
-```rust
-#[derive(Component)]
-struct PopoverReady;
-```
+**1. observer 重写（`hud.rs`）：**
+- 查询参数：`q_trigger: Query<(&ChildOf, &Children)>`、`q_anchor: Query<(&UiGlobalTransform, &ComputedNode)>`、`q_popup`、`q_window`
+- 通过 `ChildOf` 从 `ev.source`（触发按钮）找到 anchor 父节点
+- 查询 anchor 的 `UiGlobalTransform.affine().translation.y` 和 `ComputedNode.size()`
+- 查询 `ComputedUiRenderTargetInfo` 获取窗口高度
+- 根据空间计算 `top` 值（上方优先）
 
-**2. `hud.rs` observer 的 popup spawn tuple（~line 362）添加 `PopoverReady`：**
-```rust
-let popup_entity = commands.spawn((
-    Node { ... },
-    MenuPopup::default(),
-    Visibility::Hidden,
-    PopoverReady,  // 新增
-    BackgroundColor(...),
-    GlobalZIndex(100),
-    Popover { ... },
-    OverrideClip,
-))
-```
-
-**3. `hud.rs` 末尾新增系统：**
-```rust
-fn reveal_popover(
-    mut commands: Commands,
-    q: Query<(Entity, &ComputedNode), With<PopoverReady>>,
-) {
-    for (entity, node) in &q {
-        if node.size() != Vec2::ZERO {
-            commands.entity(entity).remove::<PopoverReady>();
-        }
-    }
-}
-```
-
-**4. `mod.rs` 注册系统：**
-```rust
-.add_systems(PostUpdate, hud::reveal_popover.after(UiSystems::Layout))
-```
-
-需要在 `mod.rs` 中添加导入：
-```rust
-use bevy::ui::UiSystems;
-```
+**2. 移除的代码：**
+- `PopoverReady`、`MenuTextMarker` 标记组件
+- `reveal_popover` 系统及其注册
+- Popover 相关导入（`PopoverPlacement`、`PopoverSide`、`PopoverAlign`）
