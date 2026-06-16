@@ -481,31 +481,33 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
 
 // ══════════ Button Visual Feedback ══════════
 
-/// Update button background colors based on hover/press state.
+/// Update button background and border colors based on hover/press state.
 /// Uses Hovered (immutable, command-inserted) + Pressed (managed by Button widget).
-/// Also handles Pressed component removal (Changed<Pressed> doesn't fire on removal).
+/// Also handles Pressed component removal via RemovedComponents.
 pub fn button_style_system(
-    mut q: Query<(&mut BackgroundColor, &mut BorderColor, &Hovered, Has<Pressed>, &ButtonTheme), Or<(Changed<Hovered>, Changed<Pressed>)>>,
+    mut q: Query<(&mut BackgroundColor, &mut BorderColor, &Hovered, Has<Pressed>, &ButtonTheme)>,
+    changed: Query<Entity, Or<(Changed<Hovered>, Changed<Pressed>)>>,
     mut removed_pressed: RemovedComponents<Pressed>,
-    mut q_fallback: Query<(&mut BackgroundColor, &mut BorderColor, &Hovered, &ButtonTheme), Without<Pressed>>,
 ) {
-    // Handle normal state changes (hover/press detected by Changed filter)
-    for (mut bg, mut border, hovered, pressed, theme) in q.iter_mut() {
-        if pressed {
-            bg.0 = theme.pressed_bg;
-            *border = BorderColor::all(theme.pressed_border);
-        } else if hovered.get() {
-            bg.0 = theme.hovered_bg;
-            *border = BorderColor::all(theme.hovered_border);
-        } else {
-            bg.0 = theme.normal_bg;
-            *border = BorderColor::all(theme.normal_border);
+    // Update entities where Hovered or Pressed changed
+    for entity in changed.iter() {
+        if let Ok((mut bg, mut border, hovered, pressed, theme)) = q.get_mut(entity) {
+            if pressed {
+                bg.0 = theme.pressed_bg;
+                *border = BorderColor::all(theme.pressed_border);
+            } else if hovered.get() {
+                bg.0 = theme.hovered_bg;
+                *border = BorderColor::all(theme.hovered_border);
+            } else {
+                bg.0 = theme.normal_bg;
+                *border = BorderColor::all(theme.normal_border);
+            }
         }
     }
 
     // Handle Pressed component removal (button released)
     for entity in removed_pressed.read() {
-        if let Ok((mut bg, mut border, hovered, theme)) = q_fallback.get_mut(entity) {
+        if let Ok((mut bg, mut border, hovered, _pressed, theme)) = q.get_mut(entity) {
             if hovered.get() {
                 bg.0 = theme.hovered_bg;
                 *border = BorderColor::all(theme.hovered_border);
