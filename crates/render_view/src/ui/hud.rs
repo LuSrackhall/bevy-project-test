@@ -49,6 +49,8 @@ pub struct SeekPanelState {
     pub input_active: bool,
     pub range_value: u32,
     pub has_selection: bool,
+    pub input_cursor_visible: bool,
+    pub input_blink_timer: f32,
 }
 
 impl Default for SeekPanelState {
@@ -58,6 +60,8 @@ impl Default for SeekPanelState {
             input_active: false,
             range_value: 0,
             has_selection: false,
+            input_cursor_visible: false,
+            input_blink_timer: 0.0,
         }
     }
 }
@@ -224,12 +228,6 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
                     BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.6)),
                 )).with_children(|p| {
                     ht.cmd_info = Some(p.spawn((Text::new("无可用命令 — 请先选择单位"), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id());
-                    p.spawn(Node { flex_direction: FlexDirection::Row, column_gap: Val::Px(6.0), ..default() }).with_children(|p| {
-                        for label in ["移动","攻击","停止","驻守"] {
-                            p.spawn((WidgetButton, Node { padding: UiRect::all(Val::Px(8.0)), ..default() }, ButtonTheme::default(), Hovered::default()))
-                                .with_child((Text::new(label), TextFont { font: font.clone(), font_size: 14.0, ..default() }));
-                        }
-                    });
                 });
                 p.spawn((Node { width: Val::Percent(100.0), flex_direction: FlexDirection::Column,
                     padding: UiRect::all(Val::Px(8.0)), row_gap: Val::Px(3.0), ..default() },
@@ -413,10 +411,17 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
                 )).with_children(|p| {
                     range_text_id = p.spawn((Text::new("10"), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id();
                 })
-                .observe(|_ev: On<Activate>, mut state: ResMut<SeekPanelState>| {
-                    info!("[Input] Activate fired, input_active={}", state.input_active);
+                .observe(|_ev: On<Activate>, mut state: ResMut<SeekPanelState>, mut tq: Query<&mut Text>, ht: Res<HudTexts>| {
                     if !state.input_active {
                         state.input_active = true;
+                        state.input_cursor_visible = true;
+                        state.input_blink_timer = 0.0;
+                        // Show cursor immediately on activation
+                        if let Some(id) = ht.seek_range_text {
+                            if let Ok(mut t) = tq.get_mut(id) {
+                                t.0 = format!("{}▌", state.range_value);
+                            }
+                        }
                     }
                 });
                 ht.seek_range_text = Some(range_text_id);
@@ -742,11 +747,12 @@ pub fn seek_panel_count_system(
 
 // ══════════ Seek Panel Input System ══════════
 
-/// Handle range input: type digits in real-time, Esc to deactivate.
+/// Handle range input: type digits in real-time, blinking cursor, Esc to deactivate.
 /// Input activation is handled by Observer on the input button.
 pub fn seek_panel_input_system(
     mouse: Res<ButtonInput<MouseButton>>,
     keyboard: Res<ButtonInput<KeyCode>>,
+    time: Res<Time>,
     mut state: ResMut<SeekPanelState>,
     mut tq: Query<&mut Text>,
     ht: Res<HudTexts>,
@@ -755,11 +761,36 @@ pub fn seek_panel_input_system(
     if state.input_active {
         if mouse.just_pressed(MouseButton::Left) {
             state.input_active = false;
+            state.input_cursor_visible = false;
+            // Show final value without cursor
+            if let Some(id) = ht.seek_range_text {
+                if let Ok(mut t) = tq.get_mut(id) {
+                    t.0 = state.range_value.to_string();
+                }
+            }
+            return;
         }
     }
 
-    // Capture keyboard when active
+    // Blink cursor when active
     if state.input_active {
+        state.input_blink_timer += time.delta_secs();
+        if state.input_blink_timer >= 0.5 {
+            state.input_blink_timer = 0.0;
+            state.input_cursor_visible = !state.input_cursor_visible;
+            // Update display
+            if let Some(id) = ht.seek_range_text {
+                if let Ok(mut t) = tq.get_mut(id) {
+                    if state.input_cursor_visible {
+                        t.0 = format!("{}▌", state.range_value);
+                    } else {
+                        t.0 = format!("{} ", state.range_value);
+                    }
+                }
+            }
+        }
+
+        // Capture keyboard when active
         let mut changed = false;
         let s = state.range_value.to_string();
         if keyboard.just_pressed(KeyCode::Backspace) {
@@ -791,6 +822,9 @@ pub fn seek_panel_input_system(
             }
         }
         if changed {
+            // Reset blink timer and show cursor on input
+            state.input_blink_timer = 0.0;
+            state.input_cursor_visible = true;
             if let Some(id) = ht.seek_range_text {
                 if let Ok(mut t) = tq.get_mut(id) {
                     t.0 = format!("{}▌", state.range_value);

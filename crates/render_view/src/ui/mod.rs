@@ -49,6 +49,7 @@ fn handle_pause_input(
         // If input is active, deactivate instead of deselecting/pausing
         if seek_state.input_active {
             seek_state.input_active = false;
+            seek_state.input_cursor_visible = false;
             return;
         }
         if !selection.selected_unit_ids.is_empty() || selection.selected_city.is_some() {
