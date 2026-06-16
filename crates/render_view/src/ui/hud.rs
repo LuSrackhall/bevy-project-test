@@ -1,6 +1,5 @@
 use bevy::prelude::*;
 use bevy::ui_widgets::{Activate, Button as WidgetButton, MenuButton, MenuEvent, MenuAction, MenuItem, MenuPopup};
-use bevy::ui_widgets::popover::{Popover, PopoverPlacement, PopoverSide, PopoverAlign};
 use bevy::picking::hover::Hovered;
 use bevy::ui::Pressed;
 use bevy::input_focus::tab_navigation::TabIndex;
@@ -345,9 +344,16 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
                 let mut scope_text_id = Entity::PLACEHOLDER;
                 let font_clone = font.clone();
                 p.spawn(Node { position_type: PositionType::Relative, ..default() })
-                .observe(move |ev: On<MenuEvent>, q_anchor: Query<&Children>, q_popup: Query<Entity, With<MenuPopup>>, q_text: Query<&Text>, mut state: ResMut<SeekPanelState>, mut commands: Commands| {
-                    let popup = q_anchor.get(ev.source).ok()
-                        .and_then(|children| children.iter().find_map(|c| q_popup.get(c).ok()));
+                .observe(move |ev: On<MenuEvent>,
+                    q_trigger: Query<(&ChildOf, &Children)>,
+                    q_anchor: Query<(&UiGlobalTransform, &ComputedNode)>,
+                    q_popup: Query<Entity, With<MenuPopup>>,
+                    q_window: Query<&ComputedUiRenderTargetInfo>,
+                    mut state: ResMut<SeekPanelState>, mut commands: Commands| {
+                    let Ok((trigger_cof, trigger_children)) = q_trigger.get(ev.source) else { return };
+                    let anchor = trigger_cof.parent();
+                    let Ok((anchor_gt, anchor_cn)) = q_anchor.get(anchor) else { return };
+                    let popup = trigger_children.iter().find_map(|c| q_popup.get(c).ok());
                     match ev.action {
                         MenuAction::Toggle => {
                             if popup.is_none() {
@@ -359,25 +365,31 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
                                     ("骑兵", SeekScope::ByType(SoldierType::Cavalry)),
                                 ];
                                 let f = font_clone.clone();
+                                // 手动计算位置：优先放在按钮上方
+                                let est_popup_h = 5.0 * 24.0; // 5 items * ~24px each
+                                let gap = 2.0;
+                                let trigger_top = anchor_gt.affine().translation.y;
+                                let window_h = q_window.iter().next().map(|w| w.logical_size().y).unwrap_or(800.0);
+                                let space_below = window_h - trigger_top - anchor_cn.size().y;
+                                let top = if trigger_top > est_popup_h + gap {
+                                    Val::Px(-(est_popup_h + gap))
+                                } else if space_below > est_popup_h + gap {
+                                    Val::Px(anchor_cn.size().y + gap)
+                                } else {
+                                    Val::Px(-(est_popup_h + gap))
+                                };
                                 let popup_entity = commands.spawn((
                                     Node {
                                         display: Display::Flex,
                                         flex_direction: FlexDirection::Column,
-                                        min_width: Val::Percent(100.0),
+                                        position_type: PositionType::Absolute,
+                                        top,
+                                        min_width: Val::Auto,
                                         ..default()
                                     },
                                     MenuPopup::default(),
-                                    Visibility::Hidden,
                                     BackgroundColor(Color::srgba(0.15, 0.15, 0.2, 0.95)),
                                     GlobalZIndex(100),
-                                    Popover {
-                                        positions: vec![
-                                            PopoverPlacement { side: PopoverSide::Top, align: PopoverAlign::Start, gap: 2.0 },
-                                            PopoverPlacement { side: PopoverSide::Bottom, align: PopoverAlign::Start, gap: 2.0 },
-                                        ],
-                                        window_margin: 10.0,
-                                    },
-                                    OverrideClip,
                                 )).with_children(|p| {
                                     for (label, scope) in options {
                                         p.spawn((
