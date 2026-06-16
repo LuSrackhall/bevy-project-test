@@ -153,22 +153,30 @@ pub fn drag_select_system(
     // Get cursor position; if outside window and not dragging, skip
     let cursor = window.cursor_position();
 
-    // Don't start drag when clicking on UI elements
+    // Don't start drag when clicking on UI elements, but once dragging
+    // is in progress (past threshold), continue tracking regardless of UI overlap.
+    // This matches the window-escape fix pattern: active drags must not freeze.
     if let Some(cursor_pos) = cursor {
-        if is_cursor_over_ui(&hover_map, &nodes) {
-            return;
-        }
-
-        if mouse.pressed(MouseButton::Left) {
-            let Some(world_pos) = screen_to_world(cursor_pos, window, camera, cam_t) else { return };
-            selection.drag_current = Some(world_pos);
-            if let Some(start) = selection.drag_start {
-                if start.distance(world_pos) > DRAG_THRESHOLD {
-                    selection.is_dragging = true;
+        if selection.drag_start.is_some() && selection.is_dragging {
+            // Active drag: always update position, ignore UI overlap
+            if mouse.pressed(MouseButton::Left) {
+                if let Some(world_pos) = screen_to_world(cursor_pos, window, camera, cam_t) {
+                    selection.drag_current = Some(world_pos);
                 }
             }
-            if selection.drag_start.is_none() {
-                selection.drag_start = Some(world_pos);
+        } else if !is_cursor_over_ui(&hover_map, &nodes) {
+            // No active drag: check UI guard as before
+            if mouse.pressed(MouseButton::Left) {
+                let Some(world_pos) = screen_to_world(cursor_pos, window, camera, cam_t) else { return };
+                selection.drag_current = Some(world_pos);
+                if let Some(start) = selection.drag_start {
+                    if start.distance(world_pos) > DRAG_THRESHOLD {
+                        selection.is_dragging = true;
+                    }
+                }
+                if selection.drag_start.is_none() {
+                    selection.drag_start = Some(world_pos);
+                }
             }
         }
     }
