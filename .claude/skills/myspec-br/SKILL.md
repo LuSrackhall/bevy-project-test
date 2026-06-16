@@ -180,24 +180,70 @@ Ask the user: **"是否创建工作树隔离这次变更？"**
 **如果使用 myspec-driven schema：**
 > "设计文档已写入 `<path>`。运行 `/opsx:propose` 或 `/opsx:ff` 生成实施 artifact。如果 openspec 提示 'change 已存在'，选择继续已有 change。"
 >
-> 实施和验证完成后，收尾步骤（工作树路径）：
+> 实施完成后的收尾步骤（工作树路径）：
+>
+> HARD-GATE: 以下步骤必须严格按顺序执行，不可跳步。
+>
 > ```bash
-> # 从工作树中退出，回到 main：
+> # 1. 验证实施结果（必须在工作树中完成）
+> # 运行 /opsx:verify
+>
+> # 2. 用户验收（必须等待用户明确确认）
+> # 展示变更摘要（修改内容 + verify 结果 + build 状态）
+> # 询问用户："这个变更是否满足你的需求？"
+> # 用户不通过 → 进入迭代循环（见下方）
+>
+> # 3. 反哺文档（确保 artifacts 匹配最终代码）
+> # 更新 brainstorm-spec.md, proposal.md, specs/, design.md, tasks.md
+>
+> # 4. 回到 main
 > cd <repo-root>
 > git checkout main
-> # 合并分支（必须先询问用户确认，合并冲突时帮助解决或 git merge --abort）：
+>
+> # 5. 合并分支（必须先询问用户确认，合并冲突时帮助解决或 git merge --abort）
 > git merge change/<name>
-> # 归档变更（基于 main 的权威 specs 做 delta sync）：
+>
+> # HARD-GATE: merge 完成后，禁止 build/test/编辑 task 等任何操作。
+> # 唯一的下一步是 /opsx:archive。
+>
+> # 6. 归档变更（基于 main 的权威 specs 做 delta sync）
 > # 运行 /opsx:archive
 > # 提交 archive 产生的变更（spec sync + 目录移动）：
 > git add -A && git commit -m "archive: sync specs and archive change/<name>"
-> # 确保 archive 成功后再清理工作树：
+>
+> # HARD-GATE: archive 完成后，唯一的下一步是 git worktree remove。
+>
+> # 7. 清理工作树
 > git worktree remove .worktrees/change/<name>
 > ```
 >
+> 迭代循环（用户验收不通过时）：
+> HARD-GATE: 不可合并。必须进入迭代：
+> 1. 分析问题根因
+> 2. 推荐迭代策略（附理由）：
+>    - 策略 1: 原地修复（默认，适合实现细节/边界条件问题）
+>    - 策略 2: 同工作树开新 change（适合需要重新规划，代码可参考）
+>    - 策略 3: git reset + stash 参考（适合需要干净 baseline 但想保留参考）
+>    - 策略 4: git reset 完全重来（适合根本性方案错误）
+>    - 策略 5: 废弃变更（适合需求需要重新定义）
+> 3. 用户选择（可选其他策略）
+> 4. 执行策略
+> 5. 回到 apply → verify → 用户验收循环
+>
 > 收尾步骤（无工作树路径）：
+>
+> HARD-GATE: 以下步骤必须严格按顺序执行，不可跳步。
+>
 > ```bash
-> # 已在 main 上，直接归档：
+> # 1. 验证实施结果
+> # 运行 /opsx:verify
+>
+> # 2. 用户验收
+> # 展示变更摘要，询问用户确认
+>
+> # 3. 反哺文档
+>
+> # 4. 归档（已在 main 上）
 > # 运行 /opsx:archive
 > git add -A && git commit -m "archive: sync specs and archive change/<name>"
 > ```
