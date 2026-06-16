@@ -84,17 +84,49 @@ pub(crate) struct HoveredSoldierType(pub Option<SoldierType>);
 /// Visual theme for buttons — drives hover/pressed color feedback.
 #[derive(Component, Clone)]
 pub struct ButtonTheme {
-    pub normal: Color,
-    pub hovered: Color,
-    pub pressed: Color,
+    pub normal_bg: Color,
+    pub hovered_bg: Color,
+    pub pressed_bg: Color,
+    pub normal_border: Color,
+    pub hovered_border: Color,
+    pub pressed_border: Color,
 }
 
 impl Default for ButtonTheme {
     fn default() -> Self {
         Self {
-            normal: Color::srgba(0.25, 0.25, 0.30, 1.0),
-            hovered: Color::srgba(0.35, 0.35, 0.45, 1.0),
-            pressed: Color::srgba(0.20, 0.20, 0.25, 1.0),
+            normal_bg: Color::srgba(0.18, 0.18, 0.22, 1.0),
+            hovered_bg: Color::srgba(0.28, 0.32, 0.42, 1.0),
+            pressed_bg: Color::srgba(0.12, 0.12, 0.16, 1.0),
+            normal_border: Color::srgba(0.35, 0.35, 0.40, 1.0),
+            hovered_border: Color::srgba(0.50, 0.60, 0.80, 1.0),
+            pressed_border: Color::srgba(0.25, 0.25, 0.30, 1.0),
+        }
+    }
+}
+
+impl ButtonTheme {
+    /// Green theme for action buttons (issue, confirm)
+    pub fn green() -> Self {
+        Self {
+            normal_bg: Color::srgba(0.15, 0.35, 0.20, 1.0),
+            hovered_bg: Color::srgba(0.20, 0.50, 0.28, 1.0),
+            pressed_bg: Color::srgba(0.10, 0.25, 0.15, 1.0),
+            normal_border: Color::srgba(0.25, 0.55, 0.30, 1.0),
+            hovered_border: Color::srgba(0.35, 0.70, 0.45, 1.0),
+            pressed_border: Color::srgba(0.15, 0.40, 0.20, 1.0),
+        }
+    }
+
+    /// Dark theme for toolbar buttons
+    pub fn dark() -> Self {
+        Self {
+            normal_bg: Color::srgba(0.15, 0.15, 0.18, 1.0),
+            hovered_bg: Color::srgba(0.25, 0.28, 0.38, 1.0),
+            pressed_bg: Color::srgba(0.10, 0.10, 0.12, 1.0),
+            normal_border: Color::srgba(0.30, 0.30, 0.35, 1.0),
+            hovered_border: Color::srgba(0.45, 0.55, 0.75, 1.0),
+            pressed_border: Color::srgba(0.20, 0.20, 0.25, 1.0),
         }
     }
 }
@@ -383,13 +415,10 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
                 })
                 .with_children(|p| {
                     // Trigger button
-                    p.spawn((MenuButton, Node { padding: UiRect::new(Val::Px(8.0), Val::Px(8.0), Val::Px(4.0), Val::Px(4.0)), ..default() },
-                        BackgroundColor(Color::srgba(0.25, 0.25, 0.3, 1.0)),
-                        ButtonTheme {
-                            normal: Color::srgba(0.25, 0.25, 0.3, 1.0),
-                            hovered: Color::srgba(0.35, 0.35, 0.45, 1.0),
-                            pressed: Color::srgba(0.20, 0.20, 0.25, 1.0),
-                        },
+                    p.spawn((MenuButton, Node { padding: UiRect::new(Val::Px(8.0), Val::Px(8.0), Val::Px(4.0), Val::Px(4.0)), border: UiRect::all(Val::Px(1.0)), ..default() },
+                        BackgroundColor(Color::srgba(0.18, 0.18, 0.22, 1.0)),
+                        BorderColor::all(Color::srgba(0.35, 0.35, 0.40, 1.0)),
+                        ButtonTheme::dark(),
                         Hovered::default(),
                     )).with_children(|p| {
                         scope_text_id = p.spawn((Text::new("全体 ▼"), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id();
@@ -400,13 +429,10 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
                 // Range input box — store Text child entity ID
                 let mut range_text_id = Entity::PLACEHOLDER;
                 p.spawn((WidgetButton, Node { padding: UiRect::new(Val::Px(8.0), Val::Px(8.0), Val::Px(4.0), Val::Px(4.0)),
-                    min_width: Val::Px(50.0), ..default() },
-                    BackgroundColor(Color::srgba(0.15, 0.15, 0.2, 1.0)), SeekRangeInput,
-                    ButtonTheme {
-                        normal: Color::srgba(0.15, 0.15, 0.2, 1.0),
-                        hovered: Color::srgba(0.25, 0.25, 0.3, 1.0),
-                        pressed: Color::srgba(0.10, 0.10, 0.15, 1.0),
-                    },
+                    min_width: Val::Px(50.0), border: UiRect::all(Val::Px(1.0)), ..default() },
+                    BackgroundColor(Color::srgba(0.12, 0.12, 0.15, 1.0)), SeekRangeInput,
+                    BorderColor::all(Color::srgba(0.30, 0.30, 0.35, 1.0)),
+                    ButtonTheme::dark(),
                     Hovered::default(),
                 )).with_children(|p| {
                     range_text_id = p.spawn((Text::new("10"), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id();
@@ -427,13 +453,10 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
                 ht.seek_range_text = Some(range_text_id);
 
                 // Issue button
-                p.spawn((WidgetButton, Node { padding: UiRect::new(Val::Px(10.0), Val::Px(10.0), Val::Px(4.0), Val::Px(4.0)), ..default() },
-                    BackgroundColor(Color::srgba(0.2, 0.5, 0.3, 1.0)), SeekIssueBtn,
-                    ButtonTheme {
-                        normal: Color::srgba(0.2, 0.5, 0.3, 1.0),
-                        hovered: Color::srgba(0.3, 0.6, 0.4, 1.0),
-                        pressed: Color::srgba(0.15, 0.4, 0.2, 1.0),
-                    },
+                p.spawn((WidgetButton, Node { padding: UiRect::new(Val::Px(10.0), Val::Px(10.0), Val::Px(4.0), Val::Px(4.0)), border: UiRect::all(Val::Px(1.0)), ..default() },
+                    BackgroundColor(Color::srgba(0.15, 0.35, 0.20, 1.0)), SeekIssueBtn,
+                    BorderColor::all(Color::srgba(0.25, 0.55, 0.30, 1.0)),
+                    ButtonTheme::green(),
                     Hovered::default(),
                 )).with_child((Text::new("下发"), TextFont { font: font.clone(), font_size: 12.0, ..default() }))
                 .observe(|_ev: On<Activate>, state: Res<SeekPanelState>, selection: Res<SelectionState>, mut cmd_buf: ResMut<CommandBuffer>, tick_clock: Res<TickClock>, mut toast: ResMut<ToastMessage>, mut sim: NonSendMut<SimulationWorld>| {
@@ -458,33 +481,31 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
 
 // ══════════ Button Visual Feedback ══════════
 
-/// Update button background and border colors based on hover/press state.
+/// Update button background colors based on hover/press state.
 /// Uses Hovered (immutable, command-inserted) + Pressed (managed by Button widget).
-/// Also handles Pressed component removal via RemovedComponents.
+/// Also handles Pressed component removal (Changed<Pressed> doesn't fire on removal).
 pub fn button_style_system(
-    mut q: Query<(&mut BackgroundColor, &mut BorderColor, &Hovered, Has<Pressed>, &ButtonTheme)>,
-    changed: Query<Entity, Or<(Changed<Hovered>, Changed<Pressed>)>>,
+    mut q: Query<(&mut BackgroundColor, &mut BorderColor, &Hovered, Has<Pressed>, &ButtonTheme), Or<(Changed<Hovered>, Changed<Pressed>)>>,
     mut removed_pressed: RemovedComponents<Pressed>,
+    mut q_fallback: Query<(&mut BackgroundColor, &mut BorderColor, &Hovered, &ButtonTheme), Without<Pressed>>,
 ) {
-    // Update entities where Hovered or Pressed changed
-    for entity in changed.iter() {
-        if let Ok((mut bg, mut border, hovered, pressed, theme)) = q.get_mut(entity) {
-            if pressed {
-                bg.0 = theme.pressed_bg;
-                *border = BorderColor::all(theme.pressed_border);
-            } else if hovered.get() {
-                bg.0 = theme.hovered_bg;
-                *border = BorderColor::all(theme.hovered_border);
-            } else {
-                bg.0 = theme.normal_bg;
-                *border = BorderColor::all(theme.normal_border);
-            }
+    // Handle normal state changes (hover/press detected by Changed filter)
+    for (mut bg, mut border, hovered, pressed, theme) in q.iter_mut() {
+        if pressed {
+            bg.0 = theme.pressed_bg;
+            *border = BorderColor::all(theme.pressed_border);
+        } else if hovered.get() {
+            bg.0 = theme.hovered_bg;
+            *border = BorderColor::all(theme.hovered_border);
+        } else {
+            bg.0 = theme.normal_bg;
+            *border = BorderColor::all(theme.normal_border);
         }
     }
 
     // Handle Pressed component removal (button released)
     for entity in removed_pressed.read() {
-        if let Ok((mut bg, mut border, hovered, _pressed, theme)) = q.get_mut(entity) {
+        if let Ok((mut bg, mut border, hovered, theme)) = q_fallback.get_mut(entity) {
             if hovered.get() {
                 bg.0 = theme.hovered_bg;
                 *border = BorderColor::all(theme.hovered_border);
