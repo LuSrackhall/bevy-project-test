@@ -148,28 +148,33 @@ pub fn drag_select_system(
     mut selection: ResMut<SelectionState>,
 ) {
     let Ok(window) = q_windows.single() else { return };
-    let Some(cursor) = window.cursor_position() else { return };
     let Ok((camera, cam_t)) = camera_query.single() else { return };
 
-    // Don't start drag when clicking on UI elements
-    if is_cursor_over_ui(&hover_map, &nodes) {
-        return;
-    }
+    // Get cursor position; if outside window and not dragging, skip
+    let cursor = window.cursor_position();
 
-    if mouse.pressed(MouseButton::Left) {
-        let Some(world_pos) = screen_to_world(cursor, window, camera, cam_t) else { return };
-        selection.drag_current = Some(world_pos);
-        if let Some(start) = selection.drag_start {
-            if start.distance(world_pos) > DRAG_THRESHOLD {
-                selection.is_dragging = true;
+    // Don't start drag when clicking on UI elements
+    if let Some(cursor_pos) = cursor {
+        if is_cursor_over_ui(&hover_map, &nodes) {
+            return;
+        }
+
+        if mouse.pressed(MouseButton::Left) {
+            let Some(world_pos) = screen_to_world(cursor_pos, window, camera, cam_t) else { return };
+            selection.drag_current = Some(world_pos);
+            if let Some(start) = selection.drag_start {
+                if start.distance(world_pos) > DRAG_THRESHOLD {
+                    selection.is_dragging = true;
+                }
+            }
+            if selection.drag_start.is_none() {
+                selection.drag_start = Some(world_pos);
             }
         }
-        if selection.drag_start.is_none() {
-            selection.drag_start = Some(world_pos);
-        }
     }
 
-    if mouse.just_released(MouseButton::Left) && selection.is_dragging {
+    // Complete drag on mouse release (use !pressed for cross-window detection)
+    if !mouse.pressed(MouseButton::Left) && selection.is_dragging {
         if let (Some(start), Some(end)) = (selection.drag_start, selection.drag_current) {
             let world = &mut sim_world.0;
             selection.selected_city = None;
