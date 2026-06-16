@@ -230,7 +230,7 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
                     ht.c_spawn = Some(p.spawn((Text::new("当前: 民兵"), TextFont { font: font.clone(), font_size: 13.0, ..default() })).id());
                     p.spawn(Node { flex_direction: FlexDirection::Row, ..default() }).with_children(|p| {
                         for (st, label) in [(SoldierType::Militia,"民兵"),(SoldierType::Infantry,"步兵"),(SoldierType::Archer,"弓兵"),(SoldierType::Cavalry,"骑兵")] {
-                            p.spawn((WidgetButton, Node { padding: UiRect::all(Val::Px(6.0)), margin: UiRect::all(Val::Px(3.0)), border: UiRect::all(Val::Px(1.0)), ..default() }, SpawnTypeBtn(st), ButtonTheme::default(), Hovered::default(), BorderColor::all(Color::srgba(0.35, 0.35, 0.40, 1.0))))
+                            p.spawn((WidgetButton, Node { padding: UiRect::all(Val::Px(6.0)), margin: UiRect::all(Val::Px(3.0)), ..default() }, SpawnTypeBtn(st), ButtonTheme::default(), Hovered::default()))
                                 .with_child((Text::new(label), TextFont { font: font.clone(), font_size: 12.0, ..default() }))
                                 .observe(|ev: On<Activate>, q: Query<&SpawnTypeBtn>, selection: Res<SelectionState>, mut sim: NonSendMut<SimulationWorld>| {
                                     let Ok(btn) = q.get(ev.entity) else { return };
@@ -286,7 +286,7 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
             // Left: existing toolbar buttons
             p.spawn(Node { flex_direction: FlexDirection::Row, align_items: AlignItems::Center, column_gap: Val::Px(4.0), ..default() }).with_children(|p| {
                 for (label, marker) in [("O框选",0u8),("[ ]框选",1),("盾",2u8),("[>]优先",3)] {
-                    let mut cmd = p.spawn((WidgetButton, Node { padding: UiRect::all(Val::Px(6.0)), border: UiRect::all(Val::Px(1.0)), ..default() }, ToolbarButton(marker), ButtonTheme::dark(), Hovered::default(), BorderColor::all(Color::srgba(0.30, 0.30, 0.35, 1.0))));
+                    let mut cmd = p.spawn((WidgetButton, Node { padding: UiRect::all(Val::Px(6.0)), ..default() }, ToolbarButton(marker), ButtonTheme::default(), Hovered::default()));
                     if marker == 2 { cmd.insert(ShieldButton); }
                     cmd.with_child((Text::new(label), TextFont { font: font.clone(), font_size: 13.0, ..default() }))
                         .observe(|ev: On<Activate>, q: Query<&ToolbarButton>, mut sel: ResMut<SelectionState>, mut force: ResMut<ForceMoveNext>, mut sim: NonSendMut<SimulationWorld>, mut cmd_buf: ResMut<CommandBuffer>, tick_clock: Res<TickClock>| {
@@ -481,11 +481,15 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
 
 // ══════════ Button Visual Feedback ══════════
 
-/// Update button background and border colors based on hover/press state.
+/// Update button background colors based on hover/press state.
 /// Uses Hovered (immutable, command-inserted) + Pressed (managed by Button widget).
+/// Also handles Pressed component removal (Changed<Pressed> doesn't fire on removal).
 pub fn button_style_system(
     mut q: Query<(&mut BackgroundColor, &mut BorderColor, &Hovered, Has<Pressed>, &ButtonTheme), Or<(Changed<Hovered>, Changed<Pressed>)>>,
+    mut removed_pressed: RemovedComponents<Pressed>,
+    mut q_fallback: Query<(&mut BackgroundColor, &mut BorderColor, &Hovered, &ButtonTheme), Without<Pressed>>,
 ) {
+    // Handle normal state changes (hover/press detected by Changed filter)
     for (mut bg, mut border, hovered, pressed, theme) in q.iter_mut() {
         if pressed {
             bg.0 = theme.pressed_bg;
@@ -496,6 +500,19 @@ pub fn button_style_system(
         } else {
             bg.0 = theme.normal_bg;
             *border = BorderColor::all(theme.normal_border);
+        }
+    }
+
+    // Handle Pressed component removal (button released)
+    for entity in removed_pressed.read() {
+        if let Ok((mut bg, mut border, hovered, theme)) = q_fallback.get_mut(entity) {
+            if hovered.get() {
+                bg.0 = theme.hovered_bg;
+                *border = BorderColor::all(theme.hovered_border);
+            } else {
+                bg.0 = theme.normal_bg;
+                *border = BorderColor::all(theme.normal_border);
+            }
         }
     }
 }
