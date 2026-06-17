@@ -130,7 +130,7 @@ impl ButtonTheme {
     }
 }
 
-#[derive(Component)] struct HudRoot;
+#[derive(Component)] pub(crate) struct HudRoot;
 #[derive(Component)] struct BottomZone;
 #[derive(Component)] pub(crate) struct HpFillS;
 #[derive(Component)] pub(crate) struct ExpFillS;
@@ -489,9 +489,10 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
             });
         });
     });
-}
 
-// ══════════ Button Visual Feedback ══════════
+    // Spawn pause menu overlay (initially hidden)
+    super::pause::spawn_pause_menu(&mut commands, &font);
+}
 
 /// Update button background and border colors based on hover/press state.
 /// Uses Hovered (immutable, command-inserted) + Pressed (managed by Button widget).

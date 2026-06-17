@@ -7,13 +7,6 @@ use bevy_adapter::tick::SimulationWorld;
 use presentation::PresentationPlugin;
 use render_view::RenderViewPlugin;
 
-/// Initialize the simulation world with map pre-generated.
-fn init_sim_world() -> SimulationWorld {
-    let mut world = simulation::init_simulation_world(42);
-    simulation::map::generate_map(&mut world);
-    SimulationWorld(world)
-}
-
 fn main() {
     App::new()
         .add_plugins((
@@ -27,7 +20,7 @@ fn main() {
             }),
             ShapePlugin,
         ))
-        .insert_non_send_resource(init_sim_world())
+        .insert_non_send_resource(SimulationWorld(simulation::init_simulation_world(0)))
         .add_plugins((BevyAdapterPlugin, PresentationPlugin, RenderViewPlugin))
         .run();
 }

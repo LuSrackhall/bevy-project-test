@@ -18,10 +18,13 @@ pub fn setup_gameover(mut commands: Commands, asset_server: Res<AssetServer>) {
         for (label, btn) in [("再来一局", EndBtn::Restart), ("主菜单", EndBtn::Menu)] {
             parent.spawn((WidgetButton, Node { margin: UiRect::all(Val::Px(10.0)), padding: UiRect::all(Val::Px(20.0)), border: UiRect::all(Val::Px(2.0)), ..default() }, btn, ButtonTheme::default(), Hovered::default(), BorderColor::all(Color::srgba(0.35, 0.35, 0.40, 1.0))))
                 .with_child((Text::new(label), TextFont { font: font.clone(), font_size: 24.0, ..default() }))
-                .observe(move |_ev: On<Activate>, q: Query<&EndBtn>, mut next: ResMut<NextState<crate::GameState>>| {
+                .observe(move |_ev: On<Activate>, q: Query<&EndBtn>, mut next: ResMut<NextState<crate::GameState>>, mut needs_reset: ResMut<crate::NeedsGameReset>| {
                     if let Ok(end_btn) = q.get(_ev.entity) {
                         match end_btn {
-                            EndBtn::Restart => next.set(crate::GameState::Playing),
+                            EndBtn::Restart => {
+                                needs_reset.0 = true;
+                                next.set(crate::GameState::MainMenu);
+                            }
                             EndBtn::Menu => next.set(crate::GameState::MainMenu),
                         }
                     }
