@@ -29,19 +29,19 @@ impl Plugin for UiPlugin {
                 hud::toast_tick_system,
                 hud::toast_display_system,
                 hud::selection_summary_toast_system,
-            ).run_if(in_state(crate::GameState::Playing).and(not(resource_exists_and_equals(crate::Paused(true))))))
+            ).run_if(in_state(crate::GameState::Playing).and(not(resource_exists_and_equals(bevy_adapter::Paused(true))))))
             .add_systems(OnEnter(crate::GameState::GameOver), gameover::setup_gameover)
             .add_systems(OnExit(crate::GameState::GameOver), gameover::cleanup_gameover)
             // Pause visibility toggle
             .add_systems(Update, update_pause_visibility.run_if(in_state(crate::GameState::Playing)))
             // Esc to pause (only when Playing and not paused)
             .add_systems(Update, handle_pause_input
-                .run_if(in_state(crate::GameState::Playing).and(not(resource_exists_and_equals(crate::Paused(true))))));
+                .run_if(in_state(crate::GameState::Playing).and(not(resource_exists_and_equals(bevy_adapter::Paused(true))))));
     }
 }
 
 fn update_pause_visibility(
-    paused: Res<crate::Paused>,
+    paused: Res<bevy_adapter::Paused>,
     mut query: Query<&mut Visibility, With<pause::PauseUI>>,
 ) {
     for mut vis in &mut query {
@@ -51,7 +51,7 @@ fn update_pause_visibility(
 
 fn handle_pause_input(
     keyboard: Res<ButtonInput<KeyCode>>,
-    mut paused: ResMut<crate::Paused>,
+    mut paused: ResMut<bevy_adapter::Paused>,
 ) {
     if keyboard.just_pressed(KeyCode::Escape) {
         paused.0 = true;

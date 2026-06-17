@@ -14,6 +14,10 @@ use crate::input::ForceMoveNext;
 #[derive(Resource, Default, PartialEq)]
 pub struct GameActive(pub bool);
 
+/// Pause flag — when true, simulation tick stops even if GameActive is true.
+#[derive(Resource, Default, PartialEq)]
+pub struct Paused(pub bool);
+
 pub struct BevyAdapterPlugin;
 
 impl Plugin for BevyAdapterPlugin {
@@ -25,9 +29,10 @@ impl Plugin for BevyAdapterPlugin {
             .init_resource::<PendingEvents>()
             .init_resource::<ForceMoveNext>()
             .init_resource::<GameActive>()
+            .init_resource::<Paused>()
             .add_systems(Update, (
                 crate::tick::tick_driver_system,
                 crate::lifecycle::sync_entities_system,
-            ).run_if(resource_exists_and_equals(GameActive(true))));
+            ).run_if(resource_exists_and_equals(GameActive(true)).and(not(resource_exists_and_equals(Paused(true))))));
     }
 }

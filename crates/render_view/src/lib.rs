@@ -20,10 +20,6 @@ pub enum GameState {
     GameOver,
 }
 
-/// Pause flag — toggled by UI, does not trigger OnEnter/OnExit.
-#[derive(Resource, Default, PartialEq)]
-pub struct Paused(pub bool);
-
 /// When true, entering Playing will reset the simulation world.
 #[derive(Resource, Default)]
 pub struct NeedsGameReset(pub bool);
@@ -34,7 +30,6 @@ impl Plugin for RenderViewPlugin {
     fn build(&self, app: &mut App) {
         app
             .init_state::<GameState>()
-            .init_resource::<Paused>()
             .init_resource::<NeedsGameReset>()
             .init_resource::<crate::selection::SelectionState>()
             .add_plugins((ButtonPlugin, MenuPlugin, PopoverPlugin, InputDispatchPlugin, TabNavigationPlugin))
@@ -60,7 +55,7 @@ impl Plugin for RenderViewPlugin {
                 crate::selection::seek_stance_shortcut_system,
                 crate::selection::waypoint_cleanup_system,
                 check_victory_system,
-            ).run_if(in_state(GameState::Playing).and(not(resource_exists_and_equals(Paused(true))))))
+            ).run_if(in_state(GameState::Playing).and(not(resource_exists_and_equals(bevy_adapter::Paused(true))))))
             // Camera: always active
             .add_systems(Update, (
                 crate::camera::camera_drag_system,
@@ -103,7 +98,7 @@ fn reset_game_system(
     mut pending: ResMut<bevy_adapter::tick::PendingEvents>,
     mut selection: ResMut<crate::selection::SelectionState>,
     mut needs_reset: ResMut<NeedsGameReset>,
-    mut paused: ResMut<Paused>,
+    mut paused: ResMut<bevy_adapter::Paused>,
     mut game_active: ResMut<bevy_adapter::GameActive>,
     game_entities: Query<Entity, With<bevy_adapter::binding::LogicEntityRef>>,
 ) {
