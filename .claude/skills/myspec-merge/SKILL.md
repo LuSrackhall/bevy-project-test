@@ -83,7 +83,7 @@ Sync the worktree with the latest main branch, let the user choose a merge metho
 
    | Option | Description | Command |
    |--------|-------------|---------|
-   | Create a merge commit | Preserves branch history as a merge commit | `git merge change/<name>` |
+   | Create a merge commit | Preserves branch history with a merge commit | `git merge --no-ff change/<name>` |
    | Squash and merge | Compresses all commits into one commit on main | `git merge --squash change/<name>` + `git commit` |
    | Rebase | Replays commits on top of main for linear history | `git checkout main` + `git rebase change/<name>` |
 
@@ -95,7 +95,7 @@ Sync the worktree with the latest main branch, let the user choose a merge metho
    ```bash
    cd <repo-root>
    git checkout main
-   git merge change/<name>
+   git merge --no-ff change/<name>
    ```
 
    **Squash and merge:**

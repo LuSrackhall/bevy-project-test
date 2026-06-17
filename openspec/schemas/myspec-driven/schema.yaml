@@ -239,6 +239,7 @@ apply:
 
     Pause if you hit blockers or need clarification.
 
-    After all tasks are done, run the myspec-verify skill to verify
-    implementation and get user acceptance. Do NOT run build, test,
-    git merge, or any other post-implementation action.
+    After all tasks are done, invoke the Skill tool with skill name
+    "myspec-verify" to verify implementation and get user acceptance.
+
+    Do NOT use /opsx:verify as a substitute — use myspec-verify.

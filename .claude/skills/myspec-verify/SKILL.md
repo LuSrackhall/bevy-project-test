@@ -70,7 +70,11 @@ Verify implementation against change artifacts, present results to the user for 
    - WARNING: ...
    ```
 
-   Then ask: **"Does this change meet your requirements?"**
+   Then ask: **"代码实现是否解决了你最初提出的问题？如果接受，我将回补文档并继续合并。"**
+
+   (Translation: "Does the code implementation solve the problem you originally raised? If accepted, I will backfill documentation and proceed to merge.")
+
+   **IMPORTANT:** This question is about CODE FUNCTIONALITY, not documentation. The documentation will be backfilled AFTER user acceptance. Make this distinction clear to the user.
 
 5. **Phase 3a: User accepts**
 
