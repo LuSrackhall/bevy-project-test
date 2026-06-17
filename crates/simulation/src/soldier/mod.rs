@@ -528,11 +528,13 @@ pub fn city_interaction_system(world: &mut World) {
             } else {
                 let is_targeted = si.cmd_target == Some(ci.uid) || si.target == Some(ci.uid);
                 if is_targeted {
+                    let mut consumed = false;
                     if ci.hp < ci.max_hp {
                         let heal = (ci.max_hp as f32 * city_config.heal_ratio) as u32;
                         if let Some(mut c) = world.entity_mut(ci.entity).get_mut::<CityComponent>() {
                             c.health_current = (c.health_current + heal).min(c.health_max);
                         }
+                        consumed = true;
                     } else if ci.level < ci.max_level {
                         let eg = (ci.max_hp as f32 * city_config.level_up_gain_ratio) as u64;
                         let req = (ci.max_hp as f32 * city_config.level_up_cost_multiplier * ci.level as f32) as u64;
@@ -550,9 +552,12 @@ pub fn city_interaction_system(world: &mut World) {
                         if let Some(r) = new_radius {
                             world.entity_mut(ci.entity).insert(CityRadius(r));
                         }
+                        consumed = true;
                     }
-                    if let Some(o) = world.entity(si.entity).get::<CityOrigin>() { origin_decrements.push(o.0); }
-                    to_despawn.push((si.entity, None));
+                    if consumed {
+                        if let Some(o) = world.entity(si.entity).get::<CityOrigin>() { origin_decrements.push(o.0); }
+                        to_despawn.push((si.entity, None));
+                    }
                     break;
                 }
             }

@@ -128,7 +128,7 @@ pub fn combat_engagement_system(world: &mut World) {
             em.insert(SoldierStateComponent(SoldierState::Fighting));
         } else if sd.state == SoldierState::Fighting {
             let ct = sd.cmd_target;
-            em.insert(Movement { speed: sd.speed, target: ct, command_target: None, waypoint: None, force_move: false });
+            em.insert(Movement { speed: sd.speed, target: ct, command_target: sd.cmd_target, waypoint: None, force_move: false });
             em.insert(SoldierStateComponent(SoldierState::Moving));
         }
     }
