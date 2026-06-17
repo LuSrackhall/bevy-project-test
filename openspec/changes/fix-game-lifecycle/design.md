@@ -26,9 +26,11 @@ GameState:  MainMenu ──→ Playing ──→ GameOver
                  ↑          │  ↑         │
                  └──────────┘  └─────────┘
 
-Paused(bool):          true/false（仅在 Playing 时有意义）
-NeedsGameReset(bool):  true/false（按钮设 true，reset 系统消费后设 false）
+Paused(bool):          位于 bevy_adapter，tick 守卫直接检查
+NeedsGameReset(bool):  位于 render_view，按钮设 true，reset 系统消费后设 false
 ```
+
+Paused 资源放在 bevy_adapter 而非 render_view，因为 tick_driver_system 的 `run_if` 守卫需要直接访问它。这保持了单向依赖拓扑：bevy_adapter 不需要知道 render_view。
 
 ### 系统守卫矩阵
 
@@ -66,6 +68,10 @@ OnEnter(Playing):
 ### 暂停 UI 实现
 
 暂停菜单在 `setup_hud` 中创建（初始 `Visibility::Hidden`），通过 `update_pause_visibility` 系统根据 `Paused` 资源切换可见性。随 HUD 一起在 `OnExit(Playing)` 时销毁。
+
+### Esc 键行为
+
+Esc 无条件设 `Paused(true)`。不先清除选区、不先关闭输入框聚焦。选区清除由点击空地处理，输入框聚焦跨暂停保持。
 
 ### 按钮行为变更摘要
 

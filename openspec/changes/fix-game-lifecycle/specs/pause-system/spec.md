@@ -63,18 +63,19 @@
 - **THEN** `Paused` 设为 `false`，`GameState` 切换到 `MainMenu`
 
 ### Requirement: 暂停输入处理
-`handle_pause_input` 系统 SHALL 仅在 `GameState::Playing` 且 `Paused.0 == false` 时响应 Escape 键。行为优先级：
-1. 若 `SeekPanelState.input_active == true`，关闭输入面板
-2. 若有选中的单位或城池，清除选区
-3. 否则设 `Paused(true)`
-
-#### Scenario: 有选区时按 Esc
-- **WHEN** 选中了 3 个士兵，按 Escape
-- **THEN** 选区被清除，不进入暂停
+`handle_pause_input` 系统 SHALL 在 `GameState::Playing` 时响应 Escape 键，无条件设 `Paused(true)`。不清除选区、不关闭输入框聚焦。
 
 #### Scenario: 无选区时按 Esc
 - **WHEN** 无选中单位，按 Escape
 - **THEN** `Paused` 设为 `true`，暂停菜单显示
+
+#### Scenario: 有选区时按 Esc
+- **WHEN** 选中了 3 个士兵，按 Escape
+- **THEN** `Paused` 设为 `true`，暂停菜单显示（选区保持不变）
+
+#### Scenario: 输入框聚焦时按 Esc
+- **WHEN** 索敌输入框处于聚焦状态，按 Escape
+- **THEN** `Paused` 设为 `true`，暂停菜单显示（输入框聚焦保持不变，继续游戏后仍处于聚焦状态）
 
 #### Scenario: 暂停时按 Esc
 - **WHEN** 游戏已暂停，按 Escape

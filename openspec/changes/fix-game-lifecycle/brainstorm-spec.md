@@ -34,6 +34,7 @@
 **理由**：
 - Bevy 的 `States` 系统中，`OnExit(Playing)` 在 `Playing → Paused` 转换时会触发（因为它们是同一个枚举的不同变体），导致暂停时 HUD 被意外销毁
 - 使用布尔资源后，暂停/继续只是翻转布尔值，不触发任何 `OnEnter`/`OnExit`，避免了状态机碰撞
+- `Paused` 资源放在 `bevy_adapter`（而非 `render_view`），因为 `tick_driver_system` 的 `run_if` 守卫需要直接访问它
 - 曾考虑过双状态机（`SimulationActive` + `GamePhase`），但会产生无效组合（`Active + Menu`），且需要复杂的组合守卫
 
 **替代方案**：

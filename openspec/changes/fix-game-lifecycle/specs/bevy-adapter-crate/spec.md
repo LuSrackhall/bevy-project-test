@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: Tick 调度驱动
-bevy_adapter SHALL 提供 `TickClock` 资源和 `tick_driver` 系统。`tick_driver` SHALL 仅在 `GameState::Playing` 且 `Paused.0 == false` 时运行。每帧累加 `time.delta_secs()`，当 `accumulator >= tick_duration` 时执行一次完整 Tick。
+bevy_adapter SHALL 提供 `TickClock` 资源、`GameActive(bool)` 资源和 `Paused(bool)` 资源。`tick_driver` SHALL 仅在 `GameActive == true` 且 `Paused == false` 时运行。`GameActive` 由 render_view 在进入/退出 Playing 时设置。`Paused` 由 render_view 的暂停系统设置。每帧累加 `time.delta_secs()`，当 `accumulator >= tick_duration` 时执行一次完整 Tick。
 
 #### Scenario: 固定频率触发
 - **WHEN** `tick_duration = 50ms`，而帧时间累积达到 100ms，且 `GameState::Playing` 且未暂停
