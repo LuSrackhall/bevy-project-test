@@ -19,16 +19,16 @@ GameState 变为 GameOver 时，SHALL 显示结算面板，展示胜负结果和
 
 ### Requirement: GameOver panel action buttons
 结算面板 SHALL 包含两个操作按钮：
-- "再来一局"：切换到 Playing 状态（触发 OnEnter 重新生成地图和清理旧实体）
-- "返回主菜单"：切换到 MainMenu 状态
+- "再来一局"：设 `NeedsGameReset(true)` 并切换 `GameState` 到 `MainMenu`（用户再点"单人模式"开始新游戏）
+- "返回主菜单"：切换 `GameState` 到 `MainMenu`
 
 #### Scenario: Restart game
 - **WHEN** 玩家在结算面板点击 "再来一局"
-- **THEN** GameState 切换为 Playing，cleanup_game 清理旧实体，OnEnter(Playing) 触发地图生成
+- **THEN** `NeedsGameReset` 设为 `true`，`GameState` 切换为 `MainMenu`，`OnExit(GameOver)` 清理结算面板，主菜单显示。用户点击"单人模式"后 `OnEnter(Playing)` 触发完整重置
 
 #### Scenario: Return to main menu
 - **WHEN** 玩家在结算面板点击 "返回主菜单"
-- **THEN** GameState 切换为 MainMenu，OnExit(GameOver) 清理结算面板，主菜单重新显示
+- **THEN** `GameState` 切换为 `MainMenu`，`OnExit(GameOver)` 清理结算面板，主菜单重新显示
 
 ### Requirement: Game statistics tracked
 游戏 SHALL 跟踪游戏开始时间和累计击杀数。
