@@ -20,9 +20,20 @@ pub enum GameState {
     GameOver,
 }
 
-/// When true, entering Playing will reset the simulation world.
-#[derive(Resource, Default)]
-pub struct NeedsGameReset(pub bool);
+/// Controls what happens when entering Playing state.
+#[derive(Resource)]
+pub enum NeedsGameReset {
+    /// Pause recovery — no reset
+    None,
+    /// Restart/replay with current map size
+    SameSize,
+    /// New game with specified map size
+    NewGame(simulation::map::MapSize),
+}
+
+impl Default for NeedsGameReset {
+    fn default() -> Self { Self::None }
+}
 
 pub struct RenderViewPlugin;
 
@@ -100,12 +111,20 @@ fn reset_game_system(
     mut needs_reset: ResMut<NeedsGameReset>,
     mut paused: ResMut<bevy_adapter::Paused>,
     mut game_active: ResMut<bevy_adapter::GameActive>,
+    mut current_map_size: ResMut<bevy_adapter::CurrentMapSize>,
+    mut map_bounds: ResMut<bevy_adapter::MapBounds>,
     game_entities: Query<Entity, With<bevy_adapter::binding::LogicEntityRef>>,
 ) {
     paused.0 = false;
     game_active.0 = true;
 
-    if needs_reset.0 {
+    let map_size = match &*needs_reset {
+        NeedsGameReset::None => None,
+        NeedsGameReset::SameSize => Some(current_map_size.0),
+        NeedsGameReset::NewGame(size) => Some(*size),
+    };
+
+    if let Some(map_size) = map_size {
         // Despawn all stale game entities
         for e in game_entities.iter() {
             commands.entity(e).despawn();
@@ -124,10 +143,18 @@ fn reset_game_system(
             .unwrap()
             .as_secs();
         let mut world = simulation::init_simulation_world(seed);
-        simulation::map::generate_map(&mut world);
+        simulation::map::generate_map(&mut world, map_size);
         sim_world.0 = world;
 
-        needs_reset.0 = false;
+        // Update current map size and MapBounds
+        current_map_size.0 = map_size;
+        let config = map_size.load_config();
+        *map_bounds = bevy_adapter::MapBounds {
+            width: config.width as f32,
+            height: config.height as f32,
+        };
+
+        *needs_reset = NeedsGameReset::None;
 
         // Backfill: create Bevy entities for all simulation entities
         {

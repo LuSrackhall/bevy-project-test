@@ -22,7 +22,7 @@ pub fn setup_gameover(mut commands: Commands, asset_server: Res<AssetServer>) {
                     if let Ok(end_btn) = q.get(_ev.entity) {
                         match end_btn {
                             EndBtn::Restart => {
-                                needs_reset.0 = true;
+                                *needs_reset = crate::NeedsGameReset::SameSize;
                                 next.set(crate::GameState::MainMenu);
                             }
                             EndBtn::Menu => next.set(crate::GameState::MainMenu),

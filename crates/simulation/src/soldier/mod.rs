@@ -814,7 +814,7 @@ mod seek_stance_tests {
     #[test]
     fn test_spawn_inherits_global_seek_all() {
         let mut world = init_simulation_world(42);
-        map::generate_map(&mut world);
+        map::generate_map(&mut world, map::MapSize::Small);
 
         // Issue a global All directive
         world.resource_mut::<GlobalSeekDirective>().0.push(SeekDirective {
@@ -837,7 +837,7 @@ mod seek_stance_tests {
     #[test]
     fn test_spawn_ignores_non_matching_bytype() {
         let mut world = init_simulation_world(42);
-        map::generate_map(&mut world);
+        map::generate_map(&mut world, map::MapSize::Small);
 
         // Issue a ByType(Archer) directive only
         world.resource_mut::<GlobalSeekDirective>().0.push(SeekDirective {
@@ -860,7 +860,7 @@ mod seek_stance_tests {
     #[test]
     fn test_spawn_latest_matching_directive_wins() {
         let mut world = init_simulation_world(42);
-        map::generate_map(&mut world);
+        map::generate_map(&mut world, map::MapSize::Small);
 
         // Push All(10) at tick 5, then ByType(Militia, 30) at tick 8
         {
@@ -1155,7 +1155,7 @@ mod shield_lifecycle_tests {
     #[test]
     fn test_city_spawn_infantry_has_shield_militia_does_not() {
         let mut world = init_simulation_world(42);
-        map::generate_map(&mut world);
+        map::generate_map(&mut world, map::MapSize::Small);
 
         // Change a city to spawn Infantry
         {
@@ -1434,7 +1434,7 @@ mod shield_lifecycle_tests {
     #[test]
     fn test_aura_heal_heals_shield() {
         let mut world = init_simulation_world(42);
-        map::generate_map(&mut world);
+        map::generate_map(&mut world, map::MapSize::Small);
 
         // Find a player city position to place infantry nearby
         let city_pos = {

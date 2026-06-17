@@ -25,7 +25,7 @@ pub fn spawn_pause_menu(commands: &mut Commands, font: &Handle<Font>) {
                             PauseBtn::Resume => { paused.0 = false; }
                             PauseBtn::Restart => {
                                 paused.0 = false;
-                                needs_reset.0 = true;
+                                *needs_reset = crate::NeedsGameReset::SameSize;
                                 next.set(crate::GameState::MainMenu);
                             }
                             PauseBtn::Menu => {
