@@ -52,7 +52,6 @@ fn update_pause_visibility(
 fn handle_pause_input(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut paused: ResMut<crate::Paused>,
-    mut selection: ResMut<crate::selection::SelectionState>,
     mut seek_state: ResMut<hud::SeekPanelState>,
 ) {
     if keyboard.just_pressed(KeyCode::Escape) {
@@ -61,11 +60,6 @@ fn handle_pause_input(
             seek_state.input_cursor_visible = false;
             return;
         }
-        if !selection.selected_unit_ids.is_empty() || selection.selected_city.is_some() {
-            selection.selected_unit_ids.clear();
-            selection.selected_city = None;
-        } else {
-            paused.0 = true;
-        }
+        paused.0 = true;
     }
 }
