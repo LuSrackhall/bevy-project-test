@@ -1,3 +1,9 @@
+# game-over-panel
+
+## Purpose
+
+游戏结束面板：胜负检测、结算界面显示、操作按钮（再来一局/主菜单）、游戏统计。
+
 ## Requirements
 
 ### Requirement: GameOver panel on victory or defeat

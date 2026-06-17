@@ -1,11 +1,8 @@
-# game-lifecycle
+# game-lifecycle Specification
 
 ## Purpose
-
-游戏生命周期管理：GameState 状态机、NeedsGameReset 标志、reset_game_system 重置逻辑、SimulationWorld 延迟初始化。
-
-## ADDED Requirements
-
+TBD - created by archiving change fix-game-lifecycle. Update Purpose after archive.
+## Requirements
 ### Requirement: GameState 三变体枚举
 `GameState` SHALL 定义为 3 个变体的 Bevy `States` 枚举：`MainMenu`（默认）、`Playing`、`GameOver`。`Paused` SHALL NOT 作为 `GameState` 的变体存在。
 
@@ -75,3 +72,4 @@
 #### Scenario: 首次进入游戏
 - **WHEN** 用户点击"单人模式"，`GameState` 切换到 `Playing`
 - **THEN** `reset_game_system` 用随机种子创建完整 SimulationWorld，地图实体被生成
+

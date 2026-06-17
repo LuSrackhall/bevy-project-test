@@ -1,3 +1,9 @@
+# ui-system-fixes
+
+## Purpose
+
+UI 系统修复与改进：顶部状态栏、暂停按钮、底部面板、HP 条、兵种切换等 HUD 功能。
+
 ## Requirements
 
 ### Requirement: Top status bar updates in real time

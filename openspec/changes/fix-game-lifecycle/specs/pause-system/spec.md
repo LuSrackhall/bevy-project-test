@@ -1,3 +1,9 @@
+# pause-system
+
+## Purpose
+
+暂停系统：Paused 布尔资源、暂停时仿真停止、暂停 UI 可见性、Esc 键行为、暂停菜单按钮。
+
 ## ADDED Requirements
 
 ### Requirement: Paused 布尔资源
