@@ -45,6 +45,16 @@ impl Default for SelectionState {
     }
 }
 
+impl SelectionState {
+    pub fn clear(&mut self) {
+        self.selected_unit_ids.clear();
+        self.selected_city = None;
+        self.drag_start = None;
+        self.drag_current = None;
+        self.is_dragging = false;
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum SelectionMode { Circle, Rect }
 

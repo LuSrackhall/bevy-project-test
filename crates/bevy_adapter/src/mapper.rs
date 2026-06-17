@@ -28,4 +28,9 @@ impl UnitIdMapper {
     pub fn unit_id_of(&self, entity: Entity) -> Option<UnitId> {
         self.entity_to_unit.get(&entity).copied()
     }
+
+    pub fn clear(&mut self) {
+        self.unit_to_entity.clear();
+        self.entity_to_unit.clear();
+    }
 }

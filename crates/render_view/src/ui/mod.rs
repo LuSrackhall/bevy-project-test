@@ -18,7 +18,7 @@ impl Plugin for UiPlugin {
             .add_systems(Update, hud::button_style_system)
             .add_systems(OnEnter(crate::GameState::MainMenu), menu::setup_main_menu)
             .add_systems(OnExit(crate::GameState::MainMenu), menu::cleanup_main_menu)
-            .add_systems(OnEnter(crate::GameState::Playing), hud::setup_hud)
+            // HUD setup is registered in RenderViewPlugin (after reset_game_system)
             .add_systems(Update, (
                 hud::update_top_bar,
                 hud::update_bottom_panel,
@@ -29,34 +29,31 @@ impl Plugin for UiPlugin {
                 hud::toast_tick_system,
                 hud::toast_display_system,
                 hud::selection_summary_toast_system,
-            ).run_if(in_state(crate::GameState::Playing)))
-            .add_systems(OnEnter(crate::GameState::Paused), pause::setup_pause)
-            .add_systems(OnExit(crate::GameState::Paused), pause::cleanup_pause)
+            ).run_if(in_state(crate::GameState::Playing).and(not(resource_exists_and_equals(bevy_adapter::Paused(true))))))
             .add_systems(OnEnter(crate::GameState::GameOver), gameover::setup_gameover)
             .add_systems(OnExit(crate::GameState::GameOver), gameover::cleanup_gameover)
-            // Esc to pause (in Playing state)
-            .add_systems(Update, handle_pause_input.run_if(in_state(crate::GameState::Playing)));
+            // Pause visibility toggle
+            .add_systems(Update, update_pause_visibility.run_if(in_state(crate::GameState::Playing)))
+            // Esc to pause (only when Playing and not paused)
+            .add_systems(Update, handle_pause_input
+                .run_if(in_state(crate::GameState::Playing).and(not(resource_exists_and_equals(bevy_adapter::Paused(true))))));
+    }
+}
+
+fn update_pause_visibility(
+    paused: Res<bevy_adapter::Paused>,
+    mut query: Query<&mut Visibility, With<pause::PauseUI>>,
+) {
+    for mut vis in &mut query {
+        *vis = if paused.0 { Visibility::Visible } else { Visibility::Hidden };
     }
 }
 
 fn handle_pause_input(
     keyboard: Res<ButtonInput<KeyCode>>,
-    mut next: ResMut<NextState<crate::GameState>>,
-    mut selection: ResMut<crate::selection::SelectionState>,
-    mut seek_state: ResMut<hud::SeekPanelState>,
+    mut paused: ResMut<bevy_adapter::Paused>,
 ) {
     if keyboard.just_pressed(KeyCode::Escape) {
-        // If input is active, deactivate instead of deselecting/pausing
-        if seek_state.input_active {
-            seek_state.input_active = false;
-            seek_state.input_cursor_visible = false;
-            return;
-        }
-        if !selection.selected_unit_ids.is_empty() || selection.selected_city.is_some() {
-            selection.selected_unit_ids.clear();
-            selection.selected_city = None;
-        } else {
-            next.set(crate::GameState::Paused);
-        }
+        paused.0 = true;
     }
 }
