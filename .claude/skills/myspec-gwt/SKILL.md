@@ -13,6 +13,8 @@ description: "创建 git worktree 以隔离实施。Use when you need an isolate
 必须在默认分支（main 或 master）上才能创建工作树。如果已在 worktree 或非默认分支，停止并报告。
 </HARD-GATE>
 
+**Windows 环境要求：** 本技能中的 shell 命令基于 bash 语法。Windows 用户需要使用 Git Bash、WSL 或 MSYS2。如果检测到 Windows PowerShell，提示用户切换到 bash 兼容环境。
+
 ## Checklist
 
 你必须按顺序完成以下步骤：

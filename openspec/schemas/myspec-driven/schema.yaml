@@ -239,61 +239,6 @@ apply:
 
     Pause if you hit blockers or need clarification.
 
-    After all tasks are done:
-
-    HARD-GATE: You MUST run /opsx:verify next. Do NOT run build, test,
-    git merge, git commit to main, or any other action before verify
-    completes.
-
-    After verify completes:
-
-    HARD-GATE: You MUST present a change summary to the user and ask
-    for explicit acceptance. Do NOT proceed to merge without user
-    confirmation. The summary MUST include:
-    - What was changed (files, code)
-    - Verify result (PASS / PASS WITH WARNINGS / FAIL)
-    - Build/test status (if applicable)
-
-    If the user does NOT accept:
-
-    HARD-GATE: Do NOT merge. You MUST enter the iteration loop:
-    1. Analyze what went wrong and why
-    2. Recommend an iteration strategy with reasoning:
-       - Strategy 1: Fix in place (default for implementation details,
-         edge cases — fix code directly, re-verify)
-       - Strategy 2: New change in same worktree (for re-planning —
-         run openspec new change with a different name, keep old code
-         as reference; merge with /opsx:bulk-archive later)
-       - Strategy 3: Git reset + stash reference (for clean baseline
-         with reference — git stash current code, git reset to
-         pre-implementation commit, re-propose with stash as reference)
-       - Strategy 4: Git reset, full redo (for fundamental approach
-         failure — git reset --hard to pre-implementation, re-propose
-         from scratch)
-       - Strategy 5: Abandon change (for requirements that need
-         redefining — git worktree remove + git branch -D)
-    3. Present recommendation with reasoning
-    4. Let the user choose (they may pick a different strategy)
-    5. Execute the chosen strategy
-    6. Return to the apply → verify → user acceptance loop
-
-    If the user ACCEPTS:
-
-    HARD-GATE: Before merge, ensure ALL artifacts match the final
-    implementation. Update brainstorm-spec.md, proposal.md, specs/,
-    design.md, and tasks.md to reflect what was actually built
-    (not just the original plan).
-
-    Then instruct the user to:
-    1. cd to repo root and git checkout main
-    2. git merge change/<name> (must ask user to confirm first;
-       on merge conflict, help resolve or git merge --abort)
-    3. Run /opsx:archive on main
-    4. git worktree remove .worktrees/change/<name>
-
-    HARD-GATE: After merge, the ONLY permitted next action is
-    /opsx:archive. Do NOT run build, test, edit tasks, re-merge,
-    or any other action.
-
-    HARD-GATE: After archive, the ONLY permitted next action is
-    git worktree remove. Do NOT perform any other action.
+    After all tasks are done, run the myspec-verify skill to verify
+    implementation and get user acceptance. Do NOT run build, test,
+    git merge, or any other post-implementation action.
