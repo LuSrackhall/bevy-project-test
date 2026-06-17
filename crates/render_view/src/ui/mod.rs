@@ -52,14 +52,8 @@ fn update_pause_visibility(
 fn handle_pause_input(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut paused: ResMut<crate::Paused>,
-    mut seek_state: ResMut<hud::SeekPanelState>,
 ) {
     if keyboard.just_pressed(KeyCode::Escape) {
-        if seek_state.input_active {
-            seek_state.input_active = false;
-            seek_state.input_cursor_visible = false;
-            return;
-        }
         paused.0 = true;
     }
 }
