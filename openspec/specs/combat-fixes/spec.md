@@ -1,5 +1,6 @@
-## ADDED Requirements
-
+## Purpose
+战斗系统修复：多重射击、箭矢渲染、减速 debuff、近战间隔、移动意图保留。
+## Requirements
 ### Requirement: Archer multi-shot targets different enemies
 弓兵触发多重射击时，每支箭 SHALL 射向攻击范围内不同的敌方单位，而非同一目标。
 
@@ -46,3 +47,15 @@ SlowDebuff 的 timer 到期后 SHALL 自动移除 Component，恢复士兵原始
 #### Scenario: Melee soldier attacks
 - **WHEN** 近战士兵（民兵/步兵/骑兵）attack_timer.just_finished() 且目标在攻击范围内
 - **THEN** 执行一次攻击（伤害计算 + 闪避判定 + 吸血），其他帧不攻击
+
+### Requirement: Preserve command_target when reverting from Fighting to Moving
+当士兵处于 Fighting 状态且攻击目标消失（范围内无敌方单位）时，恢复为 Moving 状态 SHALL 保留 `command_target` 为玩家原始下达的目标，而非清空为 None。
+
+#### Scenario: Soldier loses attack target and has command_target
+- **WHEN** 士兵处于 Fighting 状态，`seek_range` 内无敌方单位，且 `command_target` 非空（如玩家下达了回城或移动指令）
+- **THEN** 士兵状态恢复为 Moving，`target` 设为 `command_target` 的值，`command_target` 保持原值不清空
+
+#### Scenario: Soldier loses attack target and has no command_target
+- **WHEN** 士兵处于 Fighting 状态，`seek_range` 内无敌方单位，且 `command_target` 为 None
+- **THEN** 士兵状态恢复为 Moving，`target` 设为 None（与当前行为一致）
+

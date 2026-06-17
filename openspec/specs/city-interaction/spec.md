@@ -1,5 +1,6 @@
-## ADDED Requirements
-
+## Purpose
+城池交互系统：选中、视觉更新、占领翻转、士兵消耗行为。
+## Requirements
 ### Requirement: Click to select player city
 玩家在 Playing 状态下左键点击（桌面）/单指点击（移动端）己方城池时，SHALL 发出 CitySelectedEvent。
 
@@ -28,3 +29,19 @@
 #### Scenario: Player attacks neutral city to death
 - **WHEN** 中立城池 HP 被玩家士兵攻击至 ≤ 0
 - **THEN** 城池 faction 变为 Player，HP 恢复为 20%，level 保持原值
+
+### Requirement: City does not consume soldier when at max health and max level
+当己方城池满血（`health_current >= health_max`）且满级（`level >= max_level`）时，到达城池范围内的目标士兵 SHALL NOT 被 despawn，士兵 SHALL 停留在当前位置。
+
+#### Scenario: Soldier arrives at maxed city
+- **WHEN** 己方士兵移动目标为己方城池，到达城池范围（距离 ≤ city_radius + 5），且城池 health_current >= health_max 且 level >= max_level
+- **THEN** 士兵不被销毁，保持当前位置，不扣减出生城人口
+
+#### Scenario: Soldier arrives at damaged city
+- **WHEN** 己方士兵移动目标为己方城池，到达城池范围，且城池 health_current < health_max
+- **THEN** 士兵按原有规则治愈城池后被 despawn，扣减出生城人口
+
+#### Scenario: Soldier arrives at under-leveled city
+- **WHEN** 己方士兵移动目标为己方城池，到达城池范围，且城池满血但 level < max_level
+- **THEN** 士兵按原有规则贡献升级经验后被 despawn，扣减出生城人口
+
