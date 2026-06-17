@@ -26,6 +26,8 @@ bevy_adapter SHALL 通过 `sync_entities_system` 监听 simulation 层事件，�
 - **WHEN** `GameState::Playing` 且 `Paused.0 == true`
 - **THEN** `sync_entities_system` 不运行
 
+## ADDED Requirements
+
 ### Requirement: UnitIdMapper 清理方法
 `UnitIdMapper` SHALL 提供 `clear()` 方法，清空 `unit_to_entity` 和 `entity_to_unit` 两个映射表。
 
