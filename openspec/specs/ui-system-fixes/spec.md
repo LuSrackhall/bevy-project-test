@@ -1,4 +1,4 @@
-## ADDED Requirements
+## Requirements
 
 ### Requirement: Top status bar updates in real time
 顶部状态栏 SHALL 每帧显示最新数据：玩家城池数/总城池数、玩家总人口、已运行时间（mm:ss 格式）。

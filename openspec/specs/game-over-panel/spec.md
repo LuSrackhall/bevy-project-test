@@ -1,4 +1,4 @@
-## ADDED Requirements
+## Requirements
 
 ### Requirement: GameOver panel on victory or defeat
 GameState 变为 GameOver 时，SHALL 显示结算面板，展示胜负结果和统计数据。
