@@ -71,6 +71,7 @@ impl Plugin for RenderViewPlugin {
             // Camera: always active
             .add_systems(Update, (
                 crate::camera::camera_drag_system,
+                crate::camera::camera_edge_scroll_system,
                 crate::camera::camera_zoom_system,
                 crate::camera::center_on_player_city,
             ));

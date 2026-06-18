@@ -77,6 +77,46 @@ pub fn camera_drag_system(
     }
 }
 
+/// Edge scrolling: mouse near screen edges auto-scrolls camera.
+pub fn camera_edge_scroll_system(
+    mut cam_query: Query<&mut Transform, With<MainCamera>>,
+    proj_query: Query<&Projection, With<MainCamera>>,
+    q_windows: Query<&Window>,
+    map_bounds: Option<Res<bevy_adapter::MapBounds>>,
+    time: Res<Time>,
+) {
+    let Ok(window) = q_windows.single() else { return };
+    let Some(cursor) = window.cursor_position() else { return };
+    let scale = get_ortho_scale(&proj_query);
+
+    let edge_zone = 30.0; // pixels from edge
+    let base_speed = 800.0; // world units per second at scale 1.0
+    let speed = base_speed * scale * time.delta_secs();
+
+    let mut dx = 0.0f32;
+    let mut dy = 0.0f32;
+
+    if cursor.x < edge_zone { dx -= speed; }
+    if cursor.x > window.width() - edge_zone { dx += speed; }
+    if cursor.y < edge_zone { dy += speed; }       // bottom edge = scroll up
+    if cursor.y > window.height() - edge_zone { dy -= speed; } // top edge = scroll down
+
+    if dx == 0.0 && dy == 0.0 { return; }
+
+    for mut transform in cam_query.iter_mut() {
+        transform.translation.x += dx;
+        transform.translation.y += dy;
+    }
+
+    // Clamp to wall boundaries
+    if let Some(bounds) = map_bounds.as_ref() {
+        for mut transform in cam_query.iter_mut() {
+            transform.translation.x = transform.translation.x.clamp(bounds.wall_min_x, bounds.wall_max_x);
+            transform.translation.y = transform.translation.y.clamp(bounds.wall_min_y, bounds.wall_max_y);
+        }
+    }
+}
+
 /// Dynamic zoom range. Max = 6x map size. Min = 0.15.
 pub fn camera_zoom_system(
     mouse_wheel: Res<AccumulatedMouseScroll>,
