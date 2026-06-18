@@ -20,9 +20,20 @@ pub enum GameState {
     GameOver,
 }
 
-/// When true, entering Playing will reset the simulation world.
-#[derive(Resource, Default)]
-pub struct NeedsGameReset(pub bool);
+/// Controls what happens when entering Playing state.
+#[derive(Resource)]
+pub enum NeedsGameReset {
+    /// Pause recovery — no reset
+    None,
+    /// Restart/replay with current map size
+    SameSize,
+    /// New game with specified map size
+    NewGame(simulation::map::MapSize),
+}
+
+impl Default for NeedsGameReset {
+    fn default() -> Self { Self::None }
+}
 
 pub struct RenderViewPlugin;
 
@@ -44,6 +55,7 @@ impl Plugin for RenderViewPlugin {
             .add_systems(Update, (
                 crate::debug_shape::draw_debug_shapes_system,
                 crate::debug_shape::draw_dropped_shields_system,
+                crate::debug_shape::draw_boundary_walls_system,
                 crate::unit_info_bar::unit_info_bar_system,
                 crate::unit_info_bar::info_bar_mode_toggle_system,
                 crate::selection::selection_click_system,
@@ -59,6 +71,7 @@ impl Plugin for RenderViewPlugin {
             // Camera: always active
             .add_systems(Update, (
                 crate::camera::camera_drag_system,
+                crate::camera::camera_edge_scroll_system,
                 crate::camera::camera_zoom_system,
                 crate::camera::center_on_player_city,
             ));
@@ -100,12 +113,20 @@ fn reset_game_system(
     mut needs_reset: ResMut<NeedsGameReset>,
     mut paused: ResMut<bevy_adapter::Paused>,
     mut game_active: ResMut<bevy_adapter::GameActive>,
+    mut current_map_size: ResMut<bevy_adapter::CurrentMapSize>,
+    map_bounds: Option<ResMut<bevy_adapter::MapBounds>>,
     game_entities: Query<Entity, With<bevy_adapter::binding::LogicEntityRef>>,
 ) {
     paused.0 = false;
     game_active.0 = true;
 
-    if needs_reset.0 {
+    let map_size = match &*needs_reset {
+        NeedsGameReset::None => None,
+        NeedsGameReset::SameSize => Some(current_map_size.0),
+        NeedsGameReset::NewGame(size) => Some(*size),
+    };
+
+    if let Some(map_size) = map_size {
         // Despawn all stale game entities
         for e in game_entities.iter() {
             commands.entity(e).despawn();
@@ -124,10 +145,29 @@ fn reset_game_system(
             .unwrap()
             .as_secs();
         let mut world = simulation::init_simulation_world(seed);
-        simulation::map::generate_map(&mut world);
+        simulation::map::generate_map(&mut world, map_size);
         sim_world.0 = world;
 
-        needs_reset.0 = false;
+        // Update current map size and MapBounds
+        current_map_size.0 = map_size;
+        let config = map_size.load_config();
+        let w = config.width as f32;
+        let h = config.height as f32;
+        let new_bounds = bevy_adapter::MapBounds {
+            width: w,
+            height: h,
+            wall_min_x: -w / 2.0,
+            wall_min_y: -h / 2.0,
+            wall_max_x: w * 1.5,
+            wall_max_y: h * 1.5,
+        };
+        if let Some(mut bounds) = map_bounds {
+            *bounds = new_bounds;
+        } else {
+            commands.insert_resource(new_bounds);
+        }
+
+        *needs_reset = NeedsGameReset::None;
 
         // Backfill: create Bevy entities for all simulation entities
         {

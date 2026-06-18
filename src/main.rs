@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use bevy::window::WindowResolution;
+use bevy::window::{WindowResolution, MonitorSelection};
 use bevy_prototype_lyon::prelude::*;
 
 use bevy_adapter::BevyAdapterPlugin;
@@ -13,7 +13,7 @@ fn main() {
             DefaultPlugins.set(WindowPlugin {
                 primary_window: Some(Window {
                     title: "城池争霸".to_string(),
-                    resolution: WindowResolution::new(1280, 720),
+                    mode: bevy::window::WindowMode::BorderlessFullscreen(MonitorSelection::Primary),
                     ..default()
                 }),
                 ..default()

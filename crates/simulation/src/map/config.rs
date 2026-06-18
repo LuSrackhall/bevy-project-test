@@ -1,4 +1,4 @@
-//! Map generation configuration — loaded from content/map.ron
+//! Map generation configuration — loaded from content/map/*.ron
 
 use bevy_ecs::prelude::Resource;
 use serde::Deserialize;
@@ -8,12 +8,12 @@ use serde::Deserialize;
 pub struct MapGenConfig {
     pub width: u32,
     pub height: u32,
-    pub min_cities: u32,
-    pub max_cities: u32,
+    /// 1 city per N square units (density-based)
+    pub city_density: u32,
     pub city_min_distance: u32,
     pub margin: u32,
-    /// [min, max] ratio of neutral cities
-    pub neutral_city_ratio: [f32; 2],
+    /// [min, max] percentage of neutral cities (e.g., [30, 50] means 30%-50%)
+    pub neutral_city_ratio: [u32; 2],
     /// [min, max] range for city max level
     pub city_level_range: [u32; 2],
 }
@@ -22,6 +22,6 @@ impl MapGenConfig {
     /// Load from a RON string.
     pub fn from_ron(ron_str: &str) -> Result<Self, String> {
         ron::from_str(ron_str)
-            .map_err(|e| format!("Failed to parse map.ron: {}", e))
+            .map_err(|e| format!("Failed to parse map config: {}", e))
     }
 }

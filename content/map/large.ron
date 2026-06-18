@@ -1,0 +1,9 @@
+(
+    width: 5000,
+    height: 5000,
+    city_density: 600000,
+    city_min_distance: 140,
+    margin: 100,
+    neutral_city_ratio: (30, 50),
+    city_level_range: (3, 7),
+)

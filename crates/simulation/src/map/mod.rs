@@ -1,12 +1,43 @@
 pub mod config;
 
 use bevy_ecs::world::World;
+use bevy_ecs::prelude::Resource;
 use crate::types::*;
 use crate::events::*;
 use crate::soldier::*;
 use crate::map::config::MapGenConfig;
 use crate::city::config::CityGlobalConfig;
 
+/// Boundary wall limits — units can't pass.
+#[derive(Clone, Copy, Debug, Resource)]
+pub struct WallBounds {
+    pub min_x: i32,
+    pub min_y: i32,
+    pub max_x: i32,
+    pub max_y: i32,
+}
+
+/// Map size preset.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+pub enum MapSize {
+    Small,   // 2000x2000
+    Medium,  // 3500x3500
+    Large,   // 5000x5000
+    Huge,    // 8000x8000
+}
+
+impl MapSize {
+    /// Load the MapGenConfig for this size.
+    pub fn load_config(&self) -> MapGenConfig {
+        let ron_str = match self {
+            MapSize::Small => include_str!("../../../../content/map/small.ron"),
+            MapSize::Medium => include_str!("../../../../content/map/medium.ron"),
+            MapSize::Large => include_str!("../../../../content/map/large.ron"),
+            MapSize::Huge => include_str!("../../../../content/map/huge.ron"),
+        };
+        MapGenConfig::from_ron(ron_str).expect("Failed to parse map config")
+    }
+}
 
 fn rng_range(rng: &mut DeterministicRng, min: u32, max: u32) -> u32 {
     let range = max.wrapping_sub(min).wrapping_add(1);
@@ -14,14 +45,33 @@ fn rng_range(rng: &mut DeterministicRng, min: u32, max: u32) -> u32 {
     (rng.next_u64() as u32) % range + min
 }
 
-pub fn generate_map(world: &mut World) {
-    let map_config = world.resource::<MapGenConfig>().clone();
+pub fn generate_map(world: &mut World, map_size: MapSize) {
+    let map_config = map_size.load_config();
     let city_config = world.resource::<CityGlobalConfig>().clone();
 
+    // Density-based city count with ±15% variance
     let total_cities = {
         let mut rng = world.resource_mut::<DeterministicRng>();
-        rng_range(&mut rng, map_config.min_cities, map_config.max_cities)
+        let area = map_config.width as u64 * map_config.height as u64;
+        let base_count = (area / map_config.city_density as u64) as u32;
+        let variance = base_count * 15 / 100;
+        let min = base_count.saturating_sub(variance).max(2);
+        let max = base_count + variance;
+        rng_range(&mut rng, min, max)
     };
+
+    // Store the config as a resource for downstream use
+    world.insert_resource(map_config.clone());
+
+    // Store wall boundaries (2x map size, centered)
+    let w = map_config.width as i32;
+    let h = map_config.height as i32;
+    world.insert_resource(WallBounds {
+        min_x: -w / 2,
+        min_y: -h / 2,
+        max_x: w + w / 2,
+        max_y: h + h / 2,
+    });
 
     // Generate positions with level
     let mut positions: Vec<(FixedVec2, u32)> = Vec::new();
@@ -54,11 +104,11 @@ pub fn generate_map(world: &mut World) {
         }
     }
 
-    // Assign factions
+    // Assign factions (integer arithmetic, no f32)
     let neutral_count = {
         let mut rng = world.resource_mut::<DeterministicRng>();
-        let min = (total_cities as f32 * map_config.neutral_city_ratio[0]) as u32;
-        let max = (total_cities as f32 * map_config.neutral_city_ratio[1]) as u32;
+        let min = total_cities * map_config.neutral_city_ratio[0] / 100;
+        let max = total_cities * map_config.neutral_city_ratio[1] / 100;
         rng_range(&mut rng, min, max)
     };
     let per_side = (total_cities as usize).saturating_sub(neutral_count as usize + 1) / 2;

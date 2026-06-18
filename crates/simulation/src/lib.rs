@@ -36,9 +36,6 @@ pub fn init_simulation_world(seed: u64) -> World {
         .expect("Failed to parse combat.ron");
     world.insert_resource(combat_config);
 
-    let map_config = MapGenConfig::from_ron(include_str!("../../../content/map.ron"))
-        .expect("Failed to parse map.ron");
-    world.insert_resource(map_config);
 
     // Core resources
     world.insert_resource(DeterministicRng::new(seed));
@@ -131,7 +128,7 @@ mod integration_tests {
         assert!(world.get_resource::<SoldierConfig>().is_some());
         assert!(world.get_resource::<CityGlobalConfig>().is_some());
         assert!(world.get_resource::<CombatGlobalConfig>().is_some());
-        assert!(world.get_resource::<MapGenConfig>().is_some());
+        // MapGenConfig is now inserted by generate_map, not init_simulation_world
         // Verify core resources
         assert!(world.get_resource::<DeterministicRng>().is_some());
         assert!(world.get_resource::<IdGenerator>().is_some());
@@ -141,7 +138,7 @@ mod integration_tests {
     #[test]
     fn test_map_generation_creates_cities() {
         let mut world = init_simulation_world(42);
-        map::generate_map(&mut world);
+        map::generate_map(&mut world, map::MapSize::Small);
         // Verify cities were created
         let mut query = world.query::<(&soldier::CityComponent,)>();
         let count = query.iter(&mut world).count();
