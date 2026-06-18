@@ -128,7 +128,7 @@ pub fn camera_zoom_system(
         let Projection::Orthographic(ref mut ortho) = *proj else { continue };
 
         let old_scale = ortho.scale;
-        ortho.scale *= 1.0 - mouse_wheel.delta.y * 0.008;
+        ortho.scale *= 1.0 - mouse_wheel.delta.y * 0.006;
 
         // Clamp scale
         if let Some(bounds) = map_bounds.as_ref() {
