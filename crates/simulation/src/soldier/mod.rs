@@ -266,7 +266,16 @@ pub fn soldier_movement_system(world: &mut World) {
                 Fixed(pos.0.x.0 + dx as i64),
                 Fixed(pos.0.y.0 + dy as i64),
             );
-            soldier_updates.push((e, new_pos));
+            // Clamp to wall boundaries
+            let clamped = if let Some(wall) = world.get_resource::<crate::map::WallBounds>() {
+                FixedVec2::new(
+                    Fixed::from_int(wall.min_x).max(Fixed::from_int(wall.max_x).min(new_pos.x)),
+                    Fixed::from_int(wall.min_y).max(Fixed::from_int(wall.max_y).min(new_pos.y)),
+                )
+            } else {
+                new_pos
+            };
+            soldier_updates.push((e, clamped));
         }
     }
 

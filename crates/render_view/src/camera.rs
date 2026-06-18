@@ -65,17 +65,11 @@ pub fn camera_drag_system(
         *last_pos = cursor;
     }
 
-    // Clamp to map bounds
+    // Clamp to wall boundaries
     if let Some(bounds) = map_bounds.as_ref() {
-        let padding_x = (bounds.width * 0.05).max(100.0);
-        let padding_y = (bounds.height * 0.05).max(100.0);
-        let min_x = -padding_x;
-        let min_y = -padding_y;
-        let max_x = bounds.width + padding_x;
-        let max_y = bounds.height + padding_y;
         for mut transform in cam_query.iter_mut() {
-            transform.translation.x = transform.translation.x.clamp(min_x, max_x);
-            transform.translation.y = transform.translation.y.clamp(min_y, max_y);
+            transform.translation.x = transform.translation.x.clamp(bounds.wall_min_x, bounds.wall_max_x);
+            transform.translation.y = transform.translation.y.clamp(bounds.wall_min_y, bounds.wall_max_y);
         }
     }
 }
@@ -89,10 +83,20 @@ pub fn camera_zoom_system(
 ) {
     for mut proj in query.iter_mut() {
         if let Projection::Orthographic(ref mut ortho) = *proj {
-            ortho.scale *= 1.0 - mouse_wheel.delta.y * 0.05;
+            ortho.scale *= 1.0 - mouse_wheel.delta.y * 0.02;
 
             // Only limit zoom-in; no max zoom-out (no boundary walls)
-            ortho.scale = ortho.scale.max(0.15);
+            // Max zoom: boundary walls fully visible
+            if let Some(bounds) = map_bounds.as_ref() {
+                if let Ok(window) = q_windows.single() {
+                    let wall_w = bounds.wall_max_x - bounds.wall_min_x;
+                    let wall_h = bounds.wall_max_y - bounds.wall_min_y;
+                    let max_scale = (wall_w / window.width()).max(wall_h / window.height());
+                    ortho.scale = ortho.scale.clamp(0.15, max_scale);
+                }
+            } else {
+                ortho.scale = ortho.scale.max(0.15);
+            }
         }
     }
 }

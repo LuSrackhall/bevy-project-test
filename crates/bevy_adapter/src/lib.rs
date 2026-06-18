@@ -23,6 +23,12 @@ pub struct Paused(pub bool);
 pub struct MapBounds {
     pub width: f32,
     pub height: f32,
+    /// Boundary wall min (x, y) — units can't pass
+    pub wall_min_x: f32,
+    pub wall_min_y: f32,
+    /// Boundary wall max (x, y) — units can't pass
+    pub wall_max_x: f32,
+    pub wall_max_y: f32,
 }
 
 /// Currently selected map size — stored for SameSize restarts.

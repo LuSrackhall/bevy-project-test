@@ -55,6 +55,7 @@ impl Plugin for RenderViewPlugin {
             .add_systems(Update, (
                 crate::debug_shape::draw_debug_shapes_system,
                 crate::debug_shape::draw_dropped_shields_system,
+                crate::debug_shape::draw_boundary_walls_system,
                 crate::unit_info_bar::unit_info_bar_system,
                 crate::unit_info_bar::info_bar_mode_toggle_system,
                 crate::selection::selection_click_system,
@@ -149,9 +150,15 @@ fn reset_game_system(
         // Update current map size and MapBounds
         current_map_size.0 = map_size;
         let config = map_size.load_config();
+        let w = config.width as f32;
+        let h = config.height as f32;
         let new_bounds = bevy_adapter::MapBounds {
-            width: config.width as f32,
-            height: config.height as f32,
+            width: w,
+            height: h,
+            wall_min_x: -w / 2.0,
+            wall_min_y: -h / 2.0,
+            wall_max_x: w * 1.5,
+            wall_max_y: h * 1.5,
         };
         if let Some(mut bounds) = map_bounds {
             *bounds = new_bounds;

@@ -1,11 +1,21 @@
 pub mod config;
 
 use bevy_ecs::world::World;
+use bevy_ecs::prelude::Resource;
 use crate::types::*;
 use crate::events::*;
 use crate::soldier::*;
 use crate::map::config::MapGenConfig;
 use crate::city::config::CityGlobalConfig;
+
+/// Boundary wall limits — units can't pass.
+#[derive(Clone, Copy, Debug, Resource)]
+pub struct WallBounds {
+    pub min_x: i32,
+    pub min_y: i32,
+    pub max_x: i32,
+    pub max_y: i32,
+}
 
 /// Map size preset.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
@@ -52,6 +62,16 @@ pub fn generate_map(world: &mut World, map_size: MapSize) {
 
     // Store the config as a resource for downstream use
     world.insert_resource(map_config.clone());
+
+    // Store wall boundaries (2x map size, centered)
+    let w = map_config.width as i32;
+    let h = map_config.height as i32;
+    world.insert_resource(WallBounds {
+        min_x: -w / 2,
+        min_y: -h / 2,
+        max_x: w + w / 2,
+        max_y: h + h / 2,
+    });
 
     // Generate positions with level
     let mut positions: Vec<(FixedVec2, u32)> = Vec::new();

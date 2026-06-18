@@ -118,6 +118,24 @@ pub fn draw_debug_shapes_system(
     }
 }
 
+/// Render boundary walls as red lines.
+pub fn draw_boundary_walls_system(
+    mut gizmos: Gizmos,
+    map_bounds: Option<Res<bevy_adapter::MapBounds>>,
+) {
+    if let Some(b) = map_bounds.as_ref() {
+        let color = Color::srgb(0.8, 0.2, 0.2);
+        let tl = Vec2::new(b.wall_min_x, b.wall_max_y);
+        let tr = Vec2::new(b.wall_max_x, b.wall_max_y);
+        let br = Vec2::new(b.wall_max_x, b.wall_min_y);
+        let bl = Vec2::new(b.wall_min_x, b.wall_min_y);
+        gizmos.line_2d(tl, tr, color);
+        gizmos.line_2d(tr, br, color);
+        gizmos.line_2d(br, bl, color);
+        gizmos.line_2d(bl, tl, color);
+    }
+}
+
 /// Render dropped shields on the ground as gray rectangles.
 pub fn draw_dropped_shields_system(
     mut gizmos: Gizmos,
