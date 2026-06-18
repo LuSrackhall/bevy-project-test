@@ -43,6 +43,42 @@
 - **WHEN** 地图 8000x8000，padding = 400
 - **THEN** 镜头 x ∈ [-400, 8400]，y ∈ [-400, 8400]
 
+### Requirement: 边缘滚动
+鼠标靠近屏幕边缘时镜头 SHALL 自动滚动。边缘区域 30px，基础速度 800 units/s，随缩放比例自适应。
+
+#### Scenario: 左边缘滚动
+- **WHEN** 鼠标在屏幕左边缘 30px 内
+- **THEN** 镜头自动向左移动
+
+#### Scenario: 缩放自适应
+- **WHEN** 缩放比例为 3.0
+- **THEN** 滚动速度为 800 * 3.0 = 2400 units/s
+
+### Requirement: 光标居中缩放
+缩放 SHALL 保持光标下方的世界点不动（zoom toward cursor）。
+
+#### Scenario: 缩放时世界点固定
+- **WHEN** 光标在某个城池上，向上滚动缩放
+- **THEN** 该城池仍在光标下方，其他区域相对移动
+
+### Requirement: 边界墙
+边界墙 SHALL 为 2 倍地图大小（如 2000x2000 → 边界 -500~1500），红色线条可视化，单位移动被 clamp 在边界内。最大缩放 = 6 倍地图大小。
+
+#### Scenario: 单位到达边界
+- **WHEN** 士兵移动到边界墙位置
+- **THEN** 士兵停在边界墙处，不越过
+
+#### Scenario: 边界墙可见
+- **WHEN** 缩放到最大范围
+- **THEN** 四条红色线条显示边界墙位置
+
+### Requirement: 默认全屏
+游戏 SHALL 以无边框全屏模式启动。
+
+#### Scenario: 启动全屏
+- **WHEN** 游戏启动
+- **THEN** 窗口为 BorderlessFullscreen 模式
+
 ### Requirement: MapBounds 桥接
 bevy_adapter SHALL 提供 `MapBounds { width: f32, height: f32 }` 资源，从 `MapGenConfig` 纯翻译。render_view 读取 `MapBounds` 计算缩放限制和边界。
 

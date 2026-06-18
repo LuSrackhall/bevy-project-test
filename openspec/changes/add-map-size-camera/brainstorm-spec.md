@@ -17,6 +17,10 @@
 - 拖拽速度随缩放比例自适应
 - 拖拽改为仅中键（右键专用于指令）
 - 镜头边界限制在地图范围内
+- 边缘滚动（鼠标靠近屏幕边缘自动移动镜头）
+- 缩放中心跟随光标位置（zoom toward cursor）
+- 边界墙系统（2 倍地图大小，红色可视化，单位不可穿越）
+- 默认无边框全屏启动
 - 修复 `neutral_city_ratio` 的 f32 违规（改用 u32 百分比）
 
 **Non-Goals:**
@@ -100,6 +104,8 @@ let min_scale = 0.15;
 
 使用当前窗口尺寸每帧计算（不缓存），适配窗口 resize。
 
+缩放步长 0.6%（乘法），覆盖更精细的比例。
+
 **理由**：Bevy 的 orthographic projection 中 scale 均匀应用于两轴，visible_width = scale * window_width，visible_height = scale * window_height。公式取两个轴的约束最大值，确保地图始终在视野内。
 
 ### 决策 7：拖拽优化
@@ -117,6 +123,18 @@ let min_scale = 0.15;
 **选择**：主菜单增加 4 个地图大小按钮（小/中/大/巨大），点击后设 `NeedsGameReset(NewGame(MapSize))` 并进入游戏。
 
 **理由**：预设按钮比滑块更简洁，点击即开始。
+
+### 决策 9：边界墙系统
+
+**选择**：边界墙为 2 倍地图大小（如 2000x2000 → 边界 -500~1500），红色线条可视化，单位移动被 clamp 在边界内。
+
+**理由**：防止单位无限游走，提供清晰的可玩区域边界。
+
+### 决策 10：默认全屏
+
+**选择**：`BorderlessFullscreen(MonitorSelection::Primary)` 无边框全屏。
+
+**理由**：RTS 游戏标准做法，避免鼠标移出窗口。
 
 ## Risks / Trade-offs
 
