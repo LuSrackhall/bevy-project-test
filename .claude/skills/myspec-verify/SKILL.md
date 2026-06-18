@@ -78,12 +78,22 @@ Verify implementation against change artifacts, present results to the user for 
 
 5. **Phase 3a: User accepts**
 
-   Backfill ALL artifacts to match the final implementation:
-   - Update brainstorm-spec.md if design diverged
-   - Update proposal.md if scope changed
-   - Update specs/ if requirements were adjusted
-   - Update design.md if implementation approach changed
-   - Update tasks.md if tasks were added/removed/modified
+   Backfill ALL artifacts to match the final implementation. Do NOT skip any artifact.
+
+   For EACH artifact, read it, compare against the actual implementation, and update:
+
+   1. **brainstorm-spec.md** — update Context/Decisions/Risks to match what was actually built
+   2. **proposal.md** — update What Changes/Capabilities/Impact to match actual scope
+   3. **specs/** — update each delta spec to reflect actual requirements implemented
+   4. **design.md** — update Decisions to match actual implementation approach
+   5. **tasks.md** — update task list to match all tasks actually completed (add missing, remove unused)
+
+   **IMPORTANT:** You MUST check EVERY artifact, not just the ones you think changed.
+   Implementation often diverges from the original plan in ways that affect multiple artifacts.
+
+   After updating, verify completeness:
+   - List all artifacts and confirm each was reviewed and updated
+   - If any artifact was not touched, review it again
 
    Commit the backfilled artifacts:
    ```bash
