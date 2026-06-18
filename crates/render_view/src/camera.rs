@@ -32,8 +32,15 @@ pub fn center_on_player_city(
     }
 }
 
+/// Get the current ortho scale from the camera.
+fn get_ortho_scale(q: &Query<&Projection, With<MainCamera>>) -> f32 {
+    q.iter().next().and_then(|proj| {
+        if let Projection::Orthographic(ref ortho) = proj { Some(ortho.scale) } else { None }
+    }).unwrap_or(1.0)
+}
+
 /// Middle-mouse drag with speed scaling by zoom level.
-/// Clamps to map bounds after movement.
+/// Clamps to wall boundaries after movement.
 pub fn camera_drag_system(
     mouse: Res<ButtonInput<MouseButton>>,
     mut cam_query: Query<&mut Transform, With<MainCamera>>,
@@ -44,11 +51,7 @@ pub fn camera_drag_system(
 ) {
     let Ok(window) = q_windows.single() else { return };
     let cursor = window.cursor_position();
-
-    // Get current scale
-    let scale: f32 = proj_query.iter().next().map(|proj| {
-        if let Projection::Orthographic(ref ortho) = proj { ortho.scale } else { 1.0 }
-    }).unwrap_or(1.0);
+    let scale = get_ortho_scale(&proj_query);
 
     if mouse.pressed(MouseButton::Middle) {
         if let Some(cursor) = cursor {
@@ -74,7 +77,7 @@ pub fn camera_drag_system(
     }
 }
 
-/// Dynamic zoom range based on map size and window dimensions.
+/// Dynamic zoom range. Max = 6x map size. Min = 0.15.
 pub fn camera_zoom_system(
     mouse_wheel: Res<AccumulatedMouseScroll>,
     mut query: Query<&mut Projection, With<MainCamera>>,
@@ -85,15 +88,11 @@ pub fn camera_zoom_system(
         if let Projection::Orthographic(ref mut ortho) = *proj {
             ortho.scale *= 1.0 - mouse_wheel.delta.y * 0.02;
 
-            // Only limit zoom-in; no max zoom-out (no boundary walls)
-            // Max zoom: boundary walls fully visible
-            if let Some(bounds) = map_bounds.as_ref() {
-                if let Ok(window) = q_windows.single() {
-                    let wall_w = bounds.wall_max_x - bounds.wall_min_x;
-                    let wall_h = bounds.wall_max_y - bounds.wall_min_y;
-                    let max_scale = (wall_w / window.width()).max(wall_h / window.height());
-                    ortho.scale = ortho.scale.clamp(0.15, max_scale);
-                }
+            if let (Some(bounds), Ok(window)) = (map_bounds.as_ref(), q_windows.single()) {
+                // Max zoom: 6x map size
+                let map_dim = bounds.width.max(bounds.height);
+                let max_scale = (map_dim * 6.0) / window.width().min(window.height());
+                ortho.scale = ortho.scale.clamp(0.15, max_scale);
             } else {
                 ortho.scale = ortho.scale.max(0.15);
             }
