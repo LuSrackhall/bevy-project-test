@@ -95,7 +95,7 @@ pub fn camera_zoom_system(
             if let (Some(bounds), Ok(window)) = (map_bounds.as_ref(), q_windows.single()) {
                 let max_scale = (bounds.width / window.width())
                     .max(bounds.height / window.height())
-                    .max(1.0);
+                    ;
                 ortho.scale = ortho.scale.clamp(0.15, max_scale);
             } else {
                 ortho.scale = ortho.scale.clamp(0.15, 3.0);
