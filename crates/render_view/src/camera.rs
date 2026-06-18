@@ -91,11 +91,14 @@ pub fn camera_zoom_system(
         if let Projection::Orthographic(ref mut ortho) = *proj {
             ortho.scale -= mouse_wheel.delta.y * 0.01;
 
-            // Dynamic zoom limits
+            // Dynamic zoom limits — cover entire pannable area (map + padding)
             if let (Some(bounds), Ok(window)) = (map_bounds.as_ref(), q_windows.single()) {
-                let max_scale = (bounds.width / window.width())
-                    .max(bounds.height / window.height())
-                    ;
+                let padding_x = (bounds.width * 0.05).max(100.0);
+                let padding_y = (bounds.height * 0.05).max(100.0);
+                let total_w = bounds.width + 2.0 * padding_x;
+                let total_h = bounds.height + 2.0 * padding_y;
+                let max_scale = (total_w / window.width())
+                    .max(total_h / window.height());
                 ortho.scale = ortho.scale.clamp(0.15, max_scale);
             } else {
                 ortho.scale = ortho.scale.clamp(0.15, 3.0);
