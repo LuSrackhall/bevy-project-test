@@ -279,7 +279,13 @@ pub fn drag_visual_system(
     selection: Res<SelectionState>,
     mut commands: Commands,
     mut previous: Local<Option<Entity>>,
+    cam_query: Query<&Projection, With<crate::camera::MainCamera>>,
 ) {
+    // Scale stroke width with zoom so it stays visible at any zoom level
+    let scale = cam_query.iter().next().map(|proj| {
+        if let Projection::Orthographic(ref ortho) = proj { ortho.scale } else { 1.0 }
+    }).unwrap_or(1.0);
+    let stroke_width = 1.5 * scale;
     if let Some(e) = *previous {
         commands.entity(e).despawn();
         *previous = None;
@@ -296,13 +302,13 @@ pub fn drag_visual_system(
                 origin: shapes::RectangleOrigin::Center,
                 radii: None,
             })
-            .stroke(Stroke::new(Color::srgba(0.2, 1.0, 0.2, 0.5), 1.5))
+            .stroke(Stroke::new(Color::srgba(0.2, 1.0, 0.2, 0.5), stroke_width))
             .build()
         }
         SelectionMode::Circle => {
             let radius = start.distance(end);
             ShapeBuilder::with(&shapes::Circle { radius, center: Vec2::ZERO })
-                .stroke(Stroke::new(Color::srgba(0.2, 1.0, 0.2, 0.5), 1.5))
+                .stroke(Stroke::new(Color::srgba(0.2, 1.0, 0.2, 0.5), stroke_width))
                 .build()
         }
     };
