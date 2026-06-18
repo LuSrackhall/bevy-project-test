@@ -27,23 +27,11 @@ render_view crate SHALL 提供 `debug_shape` 系统用 Bevy `Gizmos` 渲染所�
 - **THEN** 箭矢在仿真层为逻辑实体，渲染层以直线线段或小圆形表示其飞行路径的当前段
 
 ### Requirement: 相机系统
+镜头缩放范围 SHALL 动态计算。拖拽 SHALL 仅中键。镜头位置 SHALL 限制在地图边界内。
 
-render_view crate SHALL 提供相机系统，包括主相机（`Camera2d`）、中键/右键拖拽漫游、滚轮缩放。相机 SHALL 在游戏开始时定位到第一个玩家城池。
-
-#### Scenario: 中键拖拽
-
-- **WHEN** 玩家按住鼠标中键并拖动
-- **THEN** 相机 `Transform.translation` 随鼠标移动方向平移
-
-#### Scenario: 滚轮缩放
-
-- **WHEN** 玩家滚动鼠标滚轮
-- **THEN** 相机 `OrthographicProjection.scale` 在 [0.2, 3.0] 范围内改变，缩放速度与滚轮增量成正比
-
-#### Scenario: 初始定位
-
-- **WHEN** 游戏开始，地图生成完毕后
-- **THEN** 相机中心自动移动到第一个 `Faction::Player` 城池的位置
+#### Scenario: 动态缩放
+- **WHEN** 地图 8000x8000，窗口 1280x720
+- **THEN** 缩放范围 [0.15, 11.11]
 
 ### Requirement: 选择系统
 
@@ -119,13 +107,11 @@ render_view crate SHALL 提供 HUD，包含：顶部信息栏（城池数/人口
 - **THEN** `ForceMoveNext.active` 设置为 `true`，下一次右键命令将发出 `Action::ForceMove` 而非 `Action::MoveTo`
 
 ### Requirement: 主菜单系统
+主菜单 SHALL 提供 4 个地图大小按钮（小/中/大/巨大），点击后设 `NeedsGameReset::NewGame(MapSize)` 并进入 `Playing`。
 
-render_view crate SHALL 提供主菜单界面（游戏标题、"单人模式"按钮等），在 `GameState::MainMenu` 时显示。点击"单人模式"进入 `GameState::Playing`。
-
-#### Scenario: 进入游戏
-
-- **WHEN** 玩家在主菜单点击"单人模式"
-- **THEN** `GameState` 切换到 `Playing`，主菜单 UI 清除，游戏世界开始初始化
+#### Scenario: 选择 Huge 地图
+- **WHEN** 用户点击"巨大"
+- **THEN** `NeedsGameReset` 设为 `NewGame(MapSize::Huge)`，`GameState` 切换到 `Playing`
 
 ### Requirement: 暂停菜单系统
 

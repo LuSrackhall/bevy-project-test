@@ -15,19 +15,19 @@ TBD - created by archiving change fix-game-lifecycle. Update Purpose after archi
 - **THEN** 枚举仅包含 `MainMenu`、`Playing`、`GameOver` 三个变体
 
 ### Requirement: NeedsGameReset 标志
-`NeedsGameReset(bool)` SHALL 作为 Bevy `Resource` 存在，默认值为 `false`。按钮处理器在触发游戏开始/重开时 SHALL 将其设为 `true`，`reset_game_system` 在完成重置后 SHALL 将其设为 `false`。
+`NeedsGameReset` SHALL 从 `bool` 改为枚举：`None`（暂停恢复）、`SameSize`（重开）、`NewGame(MapSize)`（新游戏）。
 
 #### Scenario: 首次开始游戏
-- **WHEN** 用户在 MainMenu 点击"单人模式"，按钮处理器设 `NeedsGameReset(true)` 并切换 `GameState` 到 `Playing`
-- **THEN** `OnEnter(Playing)` 触发 `reset_game_system`，检测到 `NeedsGameReset.0 == true`，执行完整仿真重置
+- **WHEN** 用户点击"大"地图按钮
+- **THEN** `NeedsGameReset` 设为 `NewGame(MapSize::Large)`
 
-#### Scenario: 暂停恢复不触发重置
-- **WHEN** 用户在暂停菜单点击"继续"，`Paused` 设为 `false`，`GameState` 不变
-- **THEN** `NeedsGameReset` 保持 `false`，不触发任何重置
+#### Scenario: 暂停恢复
+- **WHEN** 用户点击"继续"
+- **THEN** `NeedsGameReset` 保持 `None`
 
-#### Scenario: 重开游戏触发重置
-- **WHEN** 用户在 GameOver 点击"再来一局"，设 `NeedsGameReset(true)` 并切到 `MainMenu`，然后点"单人模式"进入 `Playing`
-- **THEN** `reset_game_system` 执行完整重置：销毁旧实体、清空状态、用新种子创建 SimulationWorld
+#### Scenario: 重开游戏
+- **WHEN** 用户点击"重新开始"
+- **THEN** `NeedsGameReset` 设为 `SameSize`
 
 ### Requirement: reset_game_system 生命周期
 `reset_game_system` SHALL 在 `OnEnter(GameState::Playing)` 时执行。若 `NeedsGameReset == true`，SHALL 执行以下操作序列：
