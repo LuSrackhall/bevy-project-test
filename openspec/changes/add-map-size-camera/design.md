@@ -93,3 +93,29 @@ let min_scale = 0.15;
 - **[权衡] Huge 200-280 城池** → Bevy ECS 轻松处理，后续可优化
 - **[风险] 触控板无中键** → 后续可加 WASD 滚动
 - **[风险] 配置文件重复** → 后续可加共享默认值机制
+
+### 边缘滚动
+
+鼠标靠近屏幕边缘 30px 内自动滚动镜头。基础速度 800 units/s，随缩放比例自适应。四方向均可触发。
+
+### 光标居中缩放（Zoom Toward Cursor）
+
+缩放时保持光标下方的世界点不动。实现：根据缩放比例变化调整 camera translation，使 cursor 处的世界坐标不变。
+
+### 边界墙
+
+边界墙 = 2 倍地图大小（如 2000x2000 → 边界 [-500, 1500]）。红色线条可视化。单位移动 clamp 到 WallBounds。镜头拖拽 clamp 到 wall_min/wall_max。
+
+WallBounds 定义在 simulation 层（纯数据），generate_map 时计算并插入。MapBounds 在 bevy_adapter 层桥接 wall_min/max 字段给 render_view。
+
+最大缩放 = 6 倍地图大小（确保边界墙完全可见）。
+
+### 默认全屏
+
+`BorderlessFullscreen(MonitorSelection::Primary)` 无边框全屏启动。避免鼠标移出窗口。
+
+### 缩放参数
+
+- 步长：0.6%（乘法，`*= 1.0 - delta * 0.006`）
+- 最小缩放：0.15
+- 最大缩放：`map_dim * 6.0 / min(window_w, window_h)`

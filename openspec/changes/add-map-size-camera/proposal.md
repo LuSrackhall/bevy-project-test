@@ -27,6 +27,12 @@
 - `render-view-crate`: 主菜单增加地图选择、镜头系统重写
 - `game-lifecycle`: NeedsGameReset 从 bool 改为枚举
 
+- 边缘滚动（鼠标靠近屏幕边缘自动移动镜头）
+- 光标居中缩放（zoom toward cursor）
+- 边界墙系统（2 倍地图大小，红色可视化，单位不可穿越）
+- 默认无边框全屏启动
+- 框选框描边宽度随缩放自适应
+
 ## Impact
 
 - `simulation/src/map/mod.rs`: generate_map 改为接受 MapSize

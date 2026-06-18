@@ -34,6 +34,15 @@
 - [x] 5.3 更新暂停/GameOver 按钮使用 `NeedsGameReset::SameSize`
 - [x] 5.4 更新 `reset_game_system` 处理 NeedsGameReset 枚举
 
+## 5.5 额外实现（迭代中发现）
+
+- [x] 5.5.1 边缘滚动系统（30px 区域，800 units/s，缩放自适应）
+- [x] 5.5.2 光标居中缩放（zoom toward cursor）
+- [x] 5.5.3 边界墙系统（WallBounds 资源，2x 地图大小，红色可视化，单位 clamp）
+- [x] 5.5.4 框选框描边宽度随缩放自适应
+- [x] 5.5.5 默认无边框全屏启动
+- [x] 5.5.6 缩放精度调整（0.6% 乘法步长）
+
 ## 6. 编译与验证
 
 - [x] 6.1 编译通过（`cargo build`）
