@@ -91,16 +91,8 @@ pub fn camera_zoom_system(
         if let Projection::Orthographic(ref mut ortho) = *proj {
             ortho.scale *= 1.0 - mouse_wheel.delta.y * 0.05;
 
-            // Max zoom: entire pannable area fits in viewport (一览无余)
-            if let (Some(bounds), Ok(window)) = (map_bounds.as_ref(), q_windows.single()) {
-                let px = (bounds.width * 0.05).max(100.0);
-                let py = (bounds.height * 0.05).max(100.0);
-                let max_scale = ((bounds.width + 2.0 * px) / window.width())
-                    .max((bounds.height + 2.0 * py) / window.height());
-                ortho.scale = ortho.scale.clamp(0.15, max_scale);
-            } else {
-                ortho.scale = ortho.scale.clamp(0.15, 3.0);
-            }
+            // Only limit zoom-in; no max zoom-out (no boundary walls)
+            ortho.scale = ortho.scale.max(0.15);
         }
     }
 }
