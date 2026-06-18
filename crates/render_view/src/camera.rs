@@ -89,16 +89,14 @@ pub fn camera_zoom_system(
 ) {
     for mut proj in query.iter_mut() {
         if let Projection::Orthographic(ref mut ortho) = *proj {
-            ortho.scale -= mouse_wheel.delta.y * 0.01;
+            ortho.scale *= 1.0 - mouse_wheel.delta.y * 0.05;
 
-            // Dynamic zoom limits — cover entire pannable area (map + padding)
+            // Max zoom: entire pannable area fits in viewport (一览无余)
             if let (Some(bounds), Ok(window)) = (map_bounds.as_ref(), q_windows.single()) {
-                let padding_x = (bounds.width * 0.05).max(100.0);
-                let padding_y = (bounds.height * 0.05).max(100.0);
-                let total_w = bounds.width + 2.0 * padding_x;
-                let total_h = bounds.height + 2.0 * padding_y;
-                let max_scale = (total_w / window.width())
-                    .max(total_h / window.height());
+                let px = (bounds.width * 0.05).max(100.0);
+                let py = (bounds.height * 0.05).max(100.0);
+                let max_scale = ((bounds.width + 2.0 * px) / window.width())
+                    .max((bounds.height + 2.0 * py) / window.height());
                 ortho.scale = ortho.scale.clamp(0.15, max_scale);
             } else {
                 ortho.scale = ortho.scale.clamp(0.15, 3.0);
