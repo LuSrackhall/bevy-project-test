@@ -112,7 +112,7 @@ fn reset_game_system(
     mut paused: ResMut<bevy_adapter::Paused>,
     mut game_active: ResMut<bevy_adapter::GameActive>,
     mut current_map_size: ResMut<bevy_adapter::CurrentMapSize>,
-    mut map_bounds: ResMut<bevy_adapter::MapBounds>,
+    map_bounds: Option<ResMut<bevy_adapter::MapBounds>>,
     game_entities: Query<Entity, With<bevy_adapter::binding::LogicEntityRef>>,
 ) {
     paused.0 = false;
@@ -149,10 +149,15 @@ fn reset_game_system(
         // Update current map size and MapBounds
         current_map_size.0 = map_size;
         let config = map_size.load_config();
-        *map_bounds = bevy_adapter::MapBounds {
+        let new_bounds = bevy_adapter::MapBounds {
             width: config.width as f32,
             height: config.height as f32,
         };
+        if let Some(mut bounds) = map_bounds {
+            *bounds = new_bounds;
+        } else {
+            commands.insert_resource(new_bounds);
+        }
 
         *needs_reset = NeedsGameReset::None;
 
