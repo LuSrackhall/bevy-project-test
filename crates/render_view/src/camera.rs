@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use bevy::input::mouse::AccumulatedMouseScroll;
+use bevy::window::{CursorGrabMode, CursorOptions};
 use bevy_adapter::tick::SimulationWorld;
 use simulation::soldier::*;
 use simulation::types::Faction;
@@ -9,6 +10,30 @@ pub struct MainCamera;
 
 pub fn setup_camera(mut commands: Commands) {
     commands.spawn((Camera2d, MainCamera));
+}
+
+/// Grab cursor when window is focused, release when unfocused.
+pub fn cursor_grab_system(
+    mut q_cursor: Query<&mut CursorOptions>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    keyboard: Res<ButtonInput<KeyCode>>,
+) {
+    let Ok(mut cursor) = q_cursor.single_mut() else { return };
+
+    // Press Escape to release cursor
+    if keyboard.just_pressed(KeyCode::Escape) {
+        cursor.grab_mode = CursorGrabMode::None;
+        cursor.visible = true;
+        return;
+    }
+
+    // Click to re-grab
+    if mouse.just_pressed(MouseButton::Left) || mouse.just_pressed(MouseButton::Middle) {
+        if cursor.grab_mode == CursorGrabMode::None {
+            cursor.grab_mode = CursorGrabMode::Confined;
+            cursor.visible = false;
+        }
+    }
 }
 
 /// Center camera on the first player city after map generation.
@@ -32,7 +57,6 @@ pub fn center_on_player_city(
     }
 }
 
-/// Get the current ortho scale from the camera.
 fn get_ortho_scale(q: &Query<&Projection, With<MainCamera>>) -> f32 {
     q.iter().next().and_then(|proj| {
         if let Projection::Orthographic(ref ortho) = proj { Some(ortho.scale) } else { None }
@@ -40,7 +64,6 @@ fn get_ortho_scale(q: &Query<&Projection, With<MainCamera>>) -> f32 {
 }
 
 /// Middle-mouse drag with speed scaling by zoom level.
-/// Clamps to wall boundaries after movement.
 pub fn camera_drag_system(
     mouse: Res<ButtonInput<MouseButton>>,
     mut cam_query: Query<&mut Transform, With<MainCamera>>,
@@ -68,7 +91,6 @@ pub fn camera_drag_system(
         *last_pos = cursor;
     }
 
-    // Clamp to wall boundaries
     if let Some(bounds) = map_bounds.as_ref() {
         for mut transform in cam_query.iter_mut() {
             transform.translation.x = transform.translation.x.clamp(bounds.wall_min_x, bounds.wall_max_x);
@@ -89,8 +111,8 @@ pub fn camera_edge_scroll_system(
     let Some(cursor) = window.cursor_position() else { return };
     let scale = get_ortho_scale(&proj_query);
 
-    let edge_zone = 30.0; // pixels from edge
-    let base_speed = 800.0; // world units per second at scale 1.0
+    let edge_zone = 30.0;
+    let base_speed = 800.0;
     let speed = base_speed * scale * time.delta_secs();
 
     let mut dx = 0.0f32;
@@ -98,8 +120,8 @@ pub fn camera_edge_scroll_system(
 
     if cursor.x < edge_zone { dx -= speed; }
     if cursor.x > window.width() - edge_zone { dx += speed; }
-    if cursor.y < edge_zone { dy += speed; }       // bottom edge = scroll up
-    if cursor.y > window.height() - edge_zone { dy -= speed; } // top edge = scroll down
+    if cursor.y < edge_zone { dy += speed; }
+    if cursor.y > window.height() - edge_zone { dy -= speed; }
 
     if dx == 0.0 && dy == 0.0 { return; }
 
@@ -108,7 +130,6 @@ pub fn camera_edge_scroll_system(
         transform.translation.y += dy;
     }
 
-    // Clamp to wall boundaries
     if let Some(bounds) = map_bounds.as_ref() {
         for mut transform in cam_query.iter_mut() {
             transform.translation.x = transform.translation.x.clamp(bounds.wall_min_x, bounds.wall_max_x);
@@ -117,25 +138,47 @@ pub fn camera_edge_scroll_system(
     }
 }
 
-/// Dynamic zoom range. Max = 6x map size. Min = 0.15.
+/// Zoom toward cursor position. Max = 6x map size. Min = 0.15.
 pub fn camera_zoom_system(
     mouse_wheel: Res<AccumulatedMouseScroll>,
-    mut query: Query<&mut Projection, With<MainCamera>>,
+    mut cam_query: Query<(&mut Transform, &mut Projection), With<MainCamera>>,
     q_windows: Query<&Window>,
     map_bounds: Option<Res<bevy_adapter::MapBounds>>,
 ) {
-    for mut proj in query.iter_mut() {
-        if let Projection::Orthographic(ref mut ortho) = *proj {
-            ortho.scale *= 1.0 - mouse_wheel.delta.y * 0.02;
+    let Ok(window) = q_windows.single() else { return };
+    let Some(cursor) = window.cursor_position() else { return };
 
-            if let (Some(bounds), Ok(window)) = (map_bounds.as_ref(), q_windows.single()) {
-                // Max zoom: 6x map size
-                let map_dim = bounds.width.max(bounds.height);
-                let max_scale = (map_dim * 6.0) / window.width().min(window.height());
-                ortho.scale = ortho.scale.clamp(0.15, max_scale);
-            } else {
-                ortho.scale = ortho.scale.max(0.15);
-            }
+    for (mut transform, mut proj) in cam_query.iter_mut() {
+        let Projection::Orthographic(ref mut ortho) = *proj else { continue };
+
+        let old_scale = ortho.scale;
+        ortho.scale *= 1.0 - mouse_wheel.delta.y * 0.008;
+
+        // Clamp scale
+        if let Some(bounds) = map_bounds.as_ref() {
+            let map_dim = bounds.width.max(bounds.height);
+            let max_scale = (map_dim * 6.0) / window.width().min(window.height());
+            ortho.scale = ortho.scale.clamp(0.15, max_scale);
+        } else {
+            ortho.scale = ortho.scale.max(0.15);
+        }
+
+        // Zoom toward cursor: keep the world point under cursor fixed
+        let new_scale = ortho.scale;
+        if (new_scale - old_scale).abs() > f32::EPSILON {
+            // Cursor position in window coords (origin = center)
+            let cx = cursor.x - window.width() / 2.0;
+            let cy = -(cursor.y - window.height() / 2.0);
+            // Adjust camera so the world point under cursor stays fixed
+            let factor = 1.0 - new_scale / old_scale;
+            transform.translation.x += cx * factor * old_scale;
+            transform.translation.y += cy * factor * old_scale;
+        }
+
+        // Clamp to wall boundaries
+        if let Some(bounds) = map_bounds.as_ref() {
+            transform.translation.x = transform.translation.x.clamp(bounds.wall_min_x, bounds.wall_max_x);
+            transform.translation.y = transform.translation.y.clamp(bounds.wall_min_y, bounds.wall_max_y);
         }
     }
 }
