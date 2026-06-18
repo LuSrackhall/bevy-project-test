@@ -1,6 +1,5 @@
 use bevy::prelude::*;
 use bevy::input::mouse::AccumulatedMouseScroll;
-use bevy::window::{CursorGrabMode, CursorOptions};
 use bevy_adapter::tick::SimulationWorld;
 use simulation::soldier::*;
 use simulation::types::Faction;
@@ -12,29 +11,6 @@ pub fn setup_camera(mut commands: Commands) {
     commands.spawn((Camera2d, MainCamera));
 }
 
-/// Grab cursor when window is focused, release when unfocused.
-pub fn cursor_grab_system(
-    mut q_cursor: Query<&mut CursorOptions>,
-    mouse: Res<ButtonInput<MouseButton>>,
-    keyboard: Res<ButtonInput<KeyCode>>,
-) {
-    let Ok(mut cursor) = q_cursor.single_mut() else { return };
-
-    // Press Escape to release cursor
-    if keyboard.just_pressed(KeyCode::Escape) {
-        cursor.grab_mode = CursorGrabMode::None;
-        cursor.visible = true;
-        return;
-    }
-
-    // Click to re-grab
-    if mouse.just_pressed(MouseButton::Left) || mouse.just_pressed(MouseButton::Middle) {
-        if cursor.grab_mode == CursorGrabMode::None {
-            cursor.grab_mode = CursorGrabMode::Confined;
-            cursor.visible = false;
-        }
-    }
-}
 
 /// Center camera on the first player city after map generation.
 pub fn center_on_player_city(

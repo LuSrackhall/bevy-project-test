@@ -70,7 +70,6 @@ impl Plugin for RenderViewPlugin {
             ).run_if(in_state(GameState::Playing).and(not(resource_exists_and_equals(bevy_adapter::Paused(true))))))
             // Camera: always active
             .add_systems(Update, (
-                crate::camera::cursor_grab_system,
                 crate::camera::camera_drag_system,
                 crate::camera::camera_edge_scroll_system,
                 crate::camera::camera_zoom_system,
