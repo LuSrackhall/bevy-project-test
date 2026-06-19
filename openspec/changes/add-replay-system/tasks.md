@@ -1,34 +1,34 @@
 ## 1. 修复仿真确定性 — 概率系统万分比改造
 
-- [ ] 1.1 在 `simulation/src/types.rs` 中新增 `gen_probability_permyriad() -> u32` 方法，返回 0..10000 的确定性概率值
-- [ ] 1.2 将 `combat/mod.rs` 中所有 `gen_probability()` 调用替换为 `gen_probability_permyriad()`，概率阈值从 f32 改为 u32 万分比
-- [ ] 1.3 将 `combat/mod.rs` 中穿透概率（`pierce_chance: f32`）改为万分比整数，Arrow 组件字段类型同步修改
-- [ ] 1.4 将 `combat/mod.rs` 中多重射击概率计算改为万分比整数运算
-- [ ] 1.5 将 `combat/mod.rs` 中 Fisher-Yates 洗牌改为整数索引（`gen_probability_permyriad() * (i+1) / 10000`）
-- [ ] 1.6 将 `combat/mod.rs` 中箭矢散布判定和建筑伤害计算改为万分比整数
+- [x] 1.1 在 `simulation/src/types.rs` 中新增 `gen_probability_permyriad() -> u32` 方法，返回 0..10000 的确定性概率值
+- [x] 1.2 将 `combat/mod.rs` 中所有 `gen_probability()` 调用替换为 `gen_probability_permyriad()`，概率阈值从 f32 改为 u32 万分比
+- [x] 1.3 将 `combat/mod.rs` 中穿透概率（`pierce_chance: f32`）改为万分比整数，Arrow 组件字段类型同步修改
+- [x] 1.4 将 `combat/mod.rs` 中多重射击概率计算改为万分比整数运算
+- [x] 1.5 将 `combat/mod.rs` 中 Fisher-Yates 洗牌改为整数索引（`gen_probability_permyriad() * (i+1) / 10000`）
+- [x] 1.6 将 `combat/mod.rs` 中箭矢散布判定和建筑伤害计算改为万分比整数
 
 ## 2. 修复仿真确定性 — 比例计算整数化
 
-- [ ] 2.1 将 `combat/mod.rs` 中骑兵闪避概率（`hp_cur as f32 / hp_max as f32`）改为万分比整数除法
-- [ ] 2.2 将 `combat/mod.rs` 中吸血计算（`lifesteal_rate`）改为万分比整数乘除
-- [ ] 2.3 将 `soldier/mod.rs` 中减速倍率 `powi()` 改为循环万分比乘法
-- [ ] 2.4 将 `soldier/mod.rs` 中出生冷却（`60.0 / mult`）改为整数除法
-- [ ] 2.5 将 `soldier/mod.rs` 中城市占领 HP、城市伤害、治疗量、升级门槛等比例计算改为万分比整数
-- [ ] 2.6 将 `ai/mod.rs` 中 AI 攻击决策的 f32 比较（`ai_nearby as f32 > ... * 1.3`）改为整数比较
+- [x] 2.1 将 `combat/mod.rs` 中骑兵闪避概率（`hp_cur as f32 / hp_max as f32`）改为万分比整数除法
+- [x] 2.2 将 `combat/mod.rs` 中吸血计算（`lifesteal_rate`）改为万分比整数乘除
+- [x] 2.3 将 `soldier/mod.rs` 中减速倍率 `powi()` 改为循环万分比乘法
+- [x] 2.4 将 `soldier/mod.rs` 中出生冷却（`60.0 / mult`）改为整数除法
+- [x] 2.5 将 `soldier/mod.rs` 中城市占领 HP、城市伤害、治疗量、升级门槛等比例计算改为万分比整数
+- [x] 2.6 将 `ai/mod.rs` 中 AI 攻击决策的 f32 比较（`ai_nearby as f32 > ... * 1.3`）改为整数比较
 
 ## 3. 修复仿真确定性 — 配置文件迁移
 
-- [ ] 3.1 将 `content/combat.ron` 中所有 f32 概率/比率字段改为 u32 万分比
-- [ ] 3.2 将 `content/soldier.ron` 中所有 f32 字段（`stack_mult`、`speed_penalty` 等）改为 u32 万分比
-- [ ] 3.3 将 `content/city.ron` 中所有 f32 字段改为 u32 万分比
-- [ ] 3.4 更新 config 解析代码（config.rs），将 f32 字段类型改为 u32
-- [ ] 3.5 更新所有现有测试中的配置值和断言，匹配万分比新值
+- [x] 3.1 将 `content/combat.ron` 中所有 f32 概率/比率字段改为 u32 万分比
+- [x] 3.2 将 `content/soldier.ron` 中所有 f32 字段（`stack_mult`、`speed_penalty` 等）改为 u32 万分比
+- [x] 3.3 将 `content/city.ron` 中所有 f32 字段改为 u32 万分比
+- [x] 3.4 更新 config 解析代码（config.rs），将 f32 字段类型改为 u32
+- [x] 3.5 更新所有现有测试中的配置值和断言，匹配万分比新值
 
 ## 4. 修复仿真确定性 — HashMap 与 RNG
 
-- [ ] 4.1 将 `combat/mod.rs` 中 nearest-enemy 扫描的 `HashMap<UnitId, ...>` 改为 `BTreeMap`
-- [ ] 4.2 审查 simulation 层所有 HashMap 使用，确认无其他迭代顺序敏感场景
-- [ ] 4.3 确认 `rand` crate 版本已锁定在 Cargo.lock 中
+- [x] 4.1 将 `combat/mod.rs` 中 nearest-enemy 扫描的 `HashMap<UnitId, ...>` 改为 `BTreeMap`
+- [x] 4.2 审查 simulation 层所有 HashMap 使用，确认无其他迭代顺序敏感场景
+- [x] 4.3 确认 `rand` crate 版本已锁定在 Cargo.lock 中
 
 ## 5. 黄金确定性测试
 

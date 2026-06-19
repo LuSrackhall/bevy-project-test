@@ -8,7 +8,7 @@ use serde::Deserialize;
 pub struct ShieldConfig {
     pub speed_penalty: u32,
     pub attack_speed_penalty: u32,
-    pub passive_block_chance: f32,
+    pub passive_block_chance: u32,
     pub frontal_angle_deg: u32,
     pub initial_hp: u32,
     pub drop_survive_ticks: u32,
@@ -18,25 +18,25 @@ pub struct ShieldConfig {
 /// Cavalry dodge mechanics.
 #[derive(Clone, Debug, Deserialize)]
 pub struct CavalryConfig {
-    pub dodge_max_chance: f32,
-    pub dodge_decay_rate: f32,
+    pub dodge_max_chance: u32,
+    pub dodge_decay_rate: u32,
 }
 
 /// Archer multi-shot mechanics.
 #[derive(Clone, Debug, Deserialize)]
 pub struct ArcherMultiShotConfig {
-    pub base_chance: f32,
-    pub per_level_bonus: f32,
-    pub min_chance: f32,
-    pub max_chance: f32,
+    pub base_chance: u32,
+    pub per_level_bonus: u32,
+    pub min_chance: u32,
+    pub max_chance: u32,
 }
 
 /// Slow debuff applied by archer arrows.
 #[derive(Clone, Debug, Deserialize)]
 pub struct SlowDebuffConfig {
-    pub base_amount: f32,
-    pub stack_mult: f32,
-    pub max_reduction: f32,
+    pub base_amount: u32,
+    pub stack_mult: u32,
+    pub max_reduction: u32,
     pub duration_ticks: u32,
     pub max_stacks: u32,
 }
@@ -49,7 +49,7 @@ pub struct LevelUpConfig {
     pub hp_gain: u32,
     pub attack_gain: u32,
     pub lifesteal_unlock_level: u32,
-    pub lifesteal_rate: f32,
+    pub lifesteal_rate: u32,
 }
 
 /// Fearless buff (triggered on cavalry dodge).
@@ -57,7 +57,7 @@ pub struct LevelUpConfig {
 pub struct FearlessConfig {
     pub duration_ticks: u32,
     pub attack_bonus: u32,
-    pub lifesteal_bonus: f32,
+    pub lifesteal_bonus: u32,
 }
 
 /// Post-tick overlap resolution — guarantees no soldiers overlap after each tick.
@@ -82,8 +82,8 @@ pub struct AttackWindupConfig {
 /// Top-level combat configuration.
 #[derive(Clone, Debug, Deserialize, Resource)]
 pub struct CombatGlobalConfig {
-    pub city_damage_per_soldier_ratio: f32,
-    pub arrow_building_damage_ratio: f32,
+    pub city_damage_per_soldier_ratio: u32,
+    pub arrow_building_damage_ratio: u32,
     pub facing: FacingConfig,
     pub attack_windup: AttackWindupConfig,
     pub shield: ShieldConfig,

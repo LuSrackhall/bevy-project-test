@@ -13,7 +13,7 @@ pub struct SoldierUnitConfig {
     pub speed: u32,
     pub attack_range: u32,
     pub attack_interval_ticks: u32,
-    pub spawn_speed_mult: f32,
+    pub spawn_speed_mult: u32,
     // Archer-specific fields (serde default for non-archer types)
     #[serde(default = "default_arrow_speed")]
     pub arrow_speed: u32,
@@ -28,9 +28,9 @@ pub struct SoldierUnitConfig {
     #[serde(default = "default_overshoot_per_level")]
     pub overshoot_per_level: u32,
     #[serde(default = "default_pierce_base")]
-    pub pierce_base_chance: f32,
+    pub pierce_base_chance: u32,
     #[serde(default = "default_pierce_per_level")]
-    pub pierce_per_level: f32,
+    pub pierce_per_level: u32,
     #[serde(default = "default_pierce_unlock")]
     pub pierce_unlock_level: u32,
     #[serde(default = "default_collision_radius")]
@@ -55,11 +55,11 @@ fn default_overshoot_base() -> u32 {
 fn default_overshoot_per_level() -> u32 {
     20
 }
-fn default_pierce_base() -> f32 {
-    0.05
+fn default_pierce_base() -> u32 {
+    500
 }
-fn default_pierce_per_level() -> f32 {
-    0.02
+fn default_pierce_per_level() -> u32 {
+    200
 }
 fn default_pierce_unlock() -> u32 {
     2
@@ -106,14 +106,14 @@ impl SoldierUnitConfig {
         max_dist.div_ceil(self.arrow_speed)
     }
 
-    /// Pierce chance for given level.
-    pub fn compute_pierce_chance(&self, level: u32) -> f32 {
+    /// Pierce chance for given level (permyriad, i.e. 10000 = 100%).
+    pub fn compute_pierce_chance(&self, level: u32) -> u32 {
         if level < self.pierce_unlock_level {
-            return 0.0;
+            return 0;
         }
         (self.pierce_base_chance
-            + (level - self.pierce_unlock_level) as f32 * self.pierce_per_level)
-            .max(0.0)
+            + (level - self.pierce_unlock_level) * self.pierce_per_level)
+            .min(10000)
     }
 }
 

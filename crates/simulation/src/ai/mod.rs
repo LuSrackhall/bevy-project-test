@@ -158,7 +158,7 @@ pub fn ai_decide(world: &mut World, current_tick: u32) {
                         })
                         .count();
 
-                    if ai_nearby as f32 > player_nearby as f32 * 1.3 && ai_nearby > 0 {
+                    if (ai_nearby as u64) * 10 > (player_nearby as u64) * 13 && ai_nearby > 0 {
                         for &(sid, _spos, sfac, has_target, _) in &soldiers {
                             if sfac == Faction::Enemy && !has_target {
                                 commands.push(GameCommand {

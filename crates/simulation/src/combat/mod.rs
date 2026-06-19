@@ -9,7 +9,7 @@ use crate::types::*;
 use bevy_ecs::component::Component;
 use bevy_ecs::entity::Entity;
 use bevy_ecs::world::World;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 // ══════════ Arrow Types ══════════
 
@@ -24,7 +24,7 @@ pub struct Arrow {
     pub shooter: Option<UnitId>,
     pub flight_remaining: u32, // ticks remaining in flight (damage phase)
     pub decay_remaining: u32,  // 0=flight, >0=decay (visual only)
-    pub pierce_chance: f32,    // pre-computed at launch
+    pub pierce_chance: u32,    // permyriad, pre-computed at launch
     pub stuck_to: Option<UnitId>, // follow target during decay
     pub hit_units: Vec<UnitId>, // already-hit units (prevent double-hit)
     pub start_pos: FixedVec2,
@@ -268,7 +268,7 @@ fn try_passive_block(
     }
 
     let passive_block_chance = combat_config.shield.passive_block_chance;
-    let block_roll = world.resource_mut::<DeterministicRng>().gen_probability();
+    let block_roll = world.resource_mut::<DeterministicRng>().gen_probability_permyriad();
 
     if block_roll < passive_block_chance {
         if let Some(mut shield_item) = world.get_mut::<ShieldItem>(target_entity) {
@@ -358,8 +358,8 @@ pub fn melee_attack_system(world: &mut World, current_tick: u32) {
             .collect()
     };
 
-    // Collect enemy soldier positions for target scanning
-    let enemy_positions: HashMap<UnitId, (FixedVec2, Faction)> = {
+    // Collect enemy soldier positions for target scanning (BTreeMap for deterministic iteration)
+    let enemy_positions: BTreeMap<UnitId, (FixedVec2, Faction)> = {
         let mut q = world.query::<(
             &UnitIdComponent,
             &LogicalPosition,
@@ -464,13 +464,12 @@ pub fn melee_attack_system(world: &mut World, current_tick: u32) {
             damage += combat_config.fearless.attack_bonus;
         }
 
-        // Cavalry dodge
+        // Cavalry dodge (permyriad arithmetic)
         if tst == Some(SoldierType::Cavalry) && hp_max > 0 {
-            let hp_r = hp_cur as f32 / hp_max as f32;
-            let dc = (combat_config.cavalry.dodge_max_chance
-                - (1.0 - hp_r) * combat_config.cavalry.dodge_decay_rate)
-                .max(0.0);
-            if world.resource_mut::<DeterministicRng>().gen_probability() < dc {
+            let hp_ratio_pm = (hp_cur as u64 * 10000) / hp_max as u64; // 0..10000
+            let decay = ((10000 - hp_ratio_pm) * combat_config.cavalry.dodge_decay_rate as u64) / 10000;
+            let dc = (combat_config.cavalry.dodge_max_chance as u64).saturating_sub(decay);
+            if (world.resource_mut::<DeterministicRng>().gen_probability_permyriad() as u64) < dc {
                 damage = 0;
                 world.entity_mut(te).insert(FearlessBuff {
                     remaining_ticks: combat_config.fearless.duration_ticks,
@@ -531,20 +530,20 @@ pub fn melee_attack_system(world: &mut World, current_tick: u32) {
         });
     }
 
-    // Apply lifesteal & XP
+    // Apply lifesteal & XP (permyriad arithmetic)
     for (e, dmg, lvl, hf) in ls_kills.iter().chain(ls_hits.iter()) {
-        let ls = if *lvl >= combat_config.level_up.lifesteal_unlock_level {
+        let mut ls_pm = if *lvl >= combat_config.level_up.lifesteal_unlock_level {
             combat_config.level_up.lifesteal_rate
         } else {
-            0.0
-        } + if *hf {
-            combat_config.fearless.lifesteal_bonus
-        } else {
-            0.0
+            0
         };
-        if ls > 0.0 {
+        if *hf {
+            ls_pm += combat_config.fearless.lifesteal_bonus;
+        }
+        if ls_pm > 0 {
             if let Some(mut hp) = world.entity_mut(*e).get_mut::<Health>() {
-                hp.current = (hp.current + (*dmg as f32 * ls) as u32).min(hp.max);
+                let heal = (*dmg as u64 * ls_pm as u64 / 10000) as u32;
+                hp.current = (hp.current + heal).min(hp.max);
             }
         }
     }
@@ -695,13 +694,12 @@ pub fn attack_windup_system(world: &mut World, current_tick: u32) {
             damage += combat_config.fearless.attack_bonus;
         }
 
-        // Cavalry dodge
+        // Cavalry dodge (permyriad arithmetic)
         if tst == Some(SoldierType::Cavalry) && hp_max > 0 {
-            let hp_r = hp_cur as f32 / hp_max as f32;
-            let dc = (combat_config.cavalry.dodge_max_chance
-                - (1.0 - hp_r) * combat_config.cavalry.dodge_decay_rate)
-                .max(0.0);
-            if world.resource_mut::<DeterministicRng>().gen_probability() < dc {
+            let hp_ratio_pm = (hp_cur as u64 * 10000) / hp_max as u64;
+            let decay = ((10000 - hp_ratio_pm) * combat_config.cavalry.dodge_decay_rate as u64) / 10000;
+            let dc = (combat_config.cavalry.dodge_max_chance as u64).saturating_sub(decay);
+            if (world.resource_mut::<DeterministicRng>().gen_probability_permyriad() as u64) < dc {
                 damage = 0;
                 world.entity_mut(te).insert(FearlessBuff {
                     remaining_ticks: combat_config.fearless.duration_ticks,
@@ -762,20 +760,20 @@ pub fn attack_windup_system(world: &mut World, current_tick: u32) {
         });
     }
 
-    // Apply lifesteal & XP
+    // Apply lifesteal & XP (permyriad arithmetic)
     for (e, dmg, lvl, hf) in ls_kills.iter().chain(ls_hits.iter()) {
-        let ls = if *lvl >= combat_config.level_up.lifesteal_unlock_level {
+        let mut ls_pm = if *lvl >= combat_config.level_up.lifesteal_unlock_level {
             combat_config.level_up.lifesteal_rate
         } else {
-            0.0
-        } + if *hf {
-            combat_config.fearless.lifesteal_bonus
-        } else {
-            0.0
+            0
         };
-        if ls > 0.0 {
+        if *hf {
+            ls_pm += combat_config.fearless.lifesteal_bonus;
+        }
+        if ls_pm > 0 {
             if let Some(mut hp) = world.entity_mut(*e).get_mut::<Health>() {
-                hp.current = (hp.current + (*dmg as f32 * ls) as u32).min(hp.max);
+                let heal = (*dmg as u64 * ls_pm as u64 / 10000) as u32;
+                hp.current = (hp.current + heal).min(hp.max);
             }
         }
     }
@@ -942,19 +940,19 @@ pub fn archer_attack_system(world: &mut World) {
             continue;
         };
 
-        // ── Multi-shot check ──
+        // ── Multi-shot check (permyriad) ──
         let multi_cfg = &combat_config.archer_multi_shot;
-        let multi_chance = (multi_cfg.base_chance + ad.level as f32 * multi_cfg.per_level_bonus)
+        let multi_chance = (multi_cfg.base_chance + ad.level * multi_cfg.per_level_bonus)
             .min(multi_cfg.max_chance)
             .max(multi_cfg.min_chance);
 
         let targets_to_hit: Vec<(UnitId, FixedVec2)> = {
             let mut rng = world.resource_mut::<DeterministicRng>();
-            let roll = rng.gen_probability();
+            let roll = rng.gen_probability_permyriad();
 
             if roll < multi_chance && enemy_soldiers_in_range.len() > 1 {
                 // Multi-shot: pick 2-5 random enemies in range
-                let num_shots = 2 + (rng.gen_probability() * 4.0) as u32; // 2-5
+                let num_shots = 2 + (rng.next_u64() % 4) as u32; // 2-5
                 let num_shots = num_shots.min(enemy_soldiers_in_range.len() as u32);
 
                 // Collect candidates excluding primary target
@@ -966,8 +964,8 @@ pub fn archer_attack_system(world: &mut World) {
 
                 // Shuffle using Fisher-Yates with deterministic RNG
                 for i in (1..candidates.len()).rev() {
-                    let j = (rng.gen_probability() * (i + 1) as f32) as usize;
-                    candidates.swap(i, j.min(i));
+                    let j = (rng.next_u64() as usize) % (i + 1);
+                    candidates.swap(i, j);
                 }
 
                 // Take num_shots - 1 extra targets + primary
@@ -998,14 +996,14 @@ pub fn archer_attack_system(world: &mut World) {
             let dist = Fixed(dist_internal);
             let dir_unit = FixedVec2::new(delta.x / dist, delta.y / dist);
 
-            // Spread: 10° max in radians ≈ 0.1745 → Fixed(44) with 8-bit precision
+            // Spread: 65% dead-on, 35% ±0.1°–10°
             let spread_angle = {
                 let mut rng = world.resource_mut::<DeterministicRng>();
-                if rng.gen_probability() < 0.65 {
-                    Fixed::ZERO // 65% perfect aim
+                if rng.gen_probability_permyriad() < 6500 {  // 65%
+                    Fixed::ZERO // perfect aim
                 } else {
                     let angle = Fixed(1 + (rng.next_u64() % 44) as i64); // 0.1°–10°
-                    if rng.gen_probability() < 0.5 {
+                    if rng.gen_probability_permyriad() < 5000 {
                         Fixed(-angle.0)
                     } else {
                         angle
@@ -1097,14 +1095,18 @@ pub fn arrow_movement_system(world: &mut World, current_tick: u32) {
             .collect()
     };
 
-    let arrow_building_damage_denom =
-        (1.0_f32 / combat_config.arrow_building_damage_ratio).round() as u32;
+    // arrow_building_damage_ratio is permyriad (e.g. 50 = 0.5%). Denom = 10000 / ratio.
+    let arrow_building_damage_denom = if combat_config.arrow_building_damage_ratio > 0 {
+        10000u32 / combat_config.arrow_building_damage_ratio
+    } else {
+        0
+    };
 
     let mut to_despawn: Vec<Entity> = Vec::new();
     // Collect pierce decisions before query to avoid borrow conflict
-    let pierce_rolls: Vec<f32> = {
+    let pierce_rolls: Vec<u32> = {
         let mut rng = world.resource_mut::<DeterministicRng>();
-        (0..100).map(|_| rng.gen_probability()).collect()
+        (0..100).map(|_| rng.gen_probability_permyriad()).collect()
     };
     let mut pierce_idx = 0usize;
 
@@ -1296,7 +1298,7 @@ mod arrow_city_tests {
                     shooter: None,
                     flight_remaining: 50,
                     decay_remaining: 0,
-                    pierce_chance: 0.0,
+                    pierce_chance: 0,
                     stuck_to: None,
                     hit_units: Vec::new(),
                     start_pos: pos,
@@ -1504,7 +1506,7 @@ mod arrow_city_tests {
                 shooter: None,
                 flight_remaining: 50,
                 decay_remaining: 0,
-                pierce_chance: 1.0,
+                pierce_chance: 10000,
                 stuck_to: None,
                 hit_units: Vec::new(),
                 start_pos: arrow_start,
@@ -1709,7 +1711,7 @@ mod integration_tests {
         // Override passive_block_chance to 1.0 (100%)
         {
             let mut cfg = world.resource_mut::<CombatGlobalConfig>();
-            cfg.shield.passive_block_chance = 1.0;
+            cfg.shield.passive_block_chance = 10000;
         }
 
         // Infantry in Normal state (not Blocking) at origin
@@ -1753,7 +1755,7 @@ mod integration_tests {
         // Disable passive block so only manual (Blocking state) matters
         {
             let mut cfg = world.resource_mut::<CombatGlobalConfig>();
-            cfg.shield.passive_block_chance = 0.0;
+            cfg.shield.passive_block_chance = 0;
         }
 
         // Infantry facing right (0°) in Blocking state
@@ -1819,7 +1821,7 @@ mod integration_tests {
         // Set passive block to 100% — if it triggers, damage goes to shield
         {
             let mut cfg = world.resource_mut::<CombatGlobalConfig>();
-            cfg.shield.passive_block_chance = 1.0;
+            cfg.shield.passive_block_chance = 10000;
         }
 
         // Infantry facing right (0°) in Blocking state
@@ -1929,9 +1931,9 @@ mod integration_tests {
         // Override multi-shot to 100% chance
         {
             let mut cfg = world.resource_mut::<CombatGlobalConfig>();
-            cfg.archer_multi_shot.base_chance = 1.0;
-            cfg.archer_multi_shot.min_chance = 1.0;
-            cfg.archer_multi_shot.max_chance = 1.0;
+            cfg.archer_multi_shot.base_chance = 10000;
+            cfg.archer_multi_shot.min_chance = 10000;
+            cfg.archer_multi_shot.max_chance = 10000;
         }
 
         // Archer at origin (cooldown starts at 0 → fires immediately)

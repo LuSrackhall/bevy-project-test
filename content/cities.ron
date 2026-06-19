@@ -6,12 +6,12 @@
 (
     level_hp_multiplier: 100,
     base_population_per_level: 12,
-    visual_radius_base: 15.0,
-    visual_radius_per_level: 3.0,
-    heal_ratio: 0.30,
-    level_up_cost_multiplier: 1.0,
-    level_up_gain_ratio: 0.30,
-    capture_hp_ratio: 0.20,
+    visual_radius_base: 15,
+    visual_radius_per_level: 3,
+    heal_ratio: 3000,
+    level_up_cost_multiplier: 10000,
+    level_up_gain_ratio: 3000,
+    capture_hp_ratio: 2000,
     aura: (
         base_radius: 180,
         spawn_dir_radius: 300,

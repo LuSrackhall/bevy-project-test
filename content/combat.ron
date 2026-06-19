@@ -1,7 +1,7 @@
 // content/combat.ron
 (
-    city_damage_per_soldier_ratio: 0.5,
-    arrow_building_damage_ratio: 0.005,
+    city_damage_per_soldier_ratio: 5000,
+    arrow_building_damage_ratio: 50,
 
     facing: (
         turn_rate_ticks_per_full_rotation: 20,
@@ -15,7 +15,7 @@
     shield: (
         speed_penalty: 15,
         attack_speed_penalty: 60,
-        passive_block_chance: 0.40,
+        passive_block_chance: 4000,
         frontal_angle_deg: 120,
         initial_hp: 1500,
         drop_survive_ticks: 600,
@@ -23,21 +23,21 @@
     ),
 
     cavalry: (
-        dodge_max_chance: 0.50,
-        dodge_decay_rate: 0.35,
+        dodge_max_chance: 5000,
+        dodge_decay_rate: 3500,
     ),
 
     archer_multi_shot: (
-        base_chance: 0.05,
-        per_level_bonus: 0.005,
-        min_chance: 0.05,
-        max_chance: 0.30,
+        base_chance: 500,
+        per_level_bonus: 50,
+        min_chance: 500,
+        max_chance: 3000,
     ),
 
     slow_debuff: (
-        base_amount: 0.85,
-        stack_mult: 0.90,
-        max_reduction: 0.35,
+        base_amount: 8500,
+        stack_mult: 9000,
+        max_reduction: 3500,
         duration_ticks: 20,
         max_stacks: 9,
     ),
@@ -48,13 +48,13 @@
         hp_gain: 30,
         attack_gain: 6,
         lifesteal_unlock_level: 4,
-        lifesteal_rate: 0.10,
+        lifesteal_rate: 1000,
     ),
 
     fearless: (
         duration_ticks: 40,
         attack_bonus: 10,
-        lifesteal_bonus: 0.15,
+        lifesteal_bonus: 1500,
     ),
 
     overlap_resolution: (

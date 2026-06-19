@@ -152,9 +152,7 @@ pub fn generate_map(world: &mut World, map_size: MapSize) {
             rng_range(&mut rng, level * 2, level * 5)
         };
         let max_population = level * city_config.base_population_per_level + pop_extra;
-        let visual_radius = (city_config.visual_radius_base
-            + level as f32 * city_config.visual_radius_per_level)
-            as u32;
+        let visual_radius = city_config.visual_radius_base + level * city_config.visual_radius_per_level;
 
         let unit_id = {
             let mut id_gen = world.resource_mut::<IdGenerator>();
