@@ -32,11 +32,11 @@
 
 ## 5. 黄金确定性测试
 
-- [ ] 5.1 在 `simulation/src/lib.rs` 或新模块中实现 `hash_world_state(world: &World) -> u64` 函数，按 UnitId 排序遍历所有组件
-- [ ] 5.2 编写黄金测试用例 1：空地图 + 无指令，1000 tick 后断言世界状态哈希一致
-- [ ] 5.3 编写黄金测试用例 2：1v1 战斗 + 预定义指令，500 tick 后断言世界状态哈希一致
-- [ ] 5.4 编写黄金测试用例 3：多城市混战 + AI + 混合指令，2000 tick 后断言世界状态哈希一致
-- [ ] 5.5 确认 `cargo test -p simulation` 全部通过
+- [x] 5.1 在 `simulation/src/lib.rs` 或新模块中实现 `hash_world_state(world: &World) -> u64` 函数，按 UnitId 排序遍历所有组件
+- [x] 5.2 编写黄金测试用例 1：空地图 + 无指令，1000 tick 后断言世界状态哈希一致
+- [x] 5.3 编写黄金测试用例 2：1v1 战斗 + 预定义指令，500 tick 后断言世界状态哈希一致
+- [x] 5.4 编写黄金测试用例 3：多城市混战 + AI + 混合指令，2000 tick 后断言世界状态哈希一致
+- [x] 5.5 确认 `cargo test -p simulation` 全部通过
 
 ## 6. Replay 数据结构与 serde
 

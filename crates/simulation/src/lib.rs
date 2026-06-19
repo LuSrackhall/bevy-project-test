@@ -4,6 +4,7 @@ pub mod combat;
 pub mod command;
 pub mod events;
 pub mod facing;
+pub mod golden_test;
 pub mod map;
 pub mod soldier;
 pub mod types;
