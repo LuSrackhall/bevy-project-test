@@ -292,7 +292,7 @@ fn create_bar(
             // Level text
             lvl_text_e = parent.spawn((
                 Text2d::new(format!("Lv.{}", info.level)),
-                TextFont { font: font.clone(), font_size: 10.0, ..default() },
+                TextFont { font: font.clone().into(), font_size: FontSize::Px(10.0), ..default() },
                 TextColor(Color::WHITE),
                 Transform::from_xyz(-20.0, 6.0, 0.02),
                 Visibility::Inherited,
@@ -330,7 +330,7 @@ fn create_bar(
                 // Shield numeric
                 shield_num_e = parent.spawn((
                     Text2d::new(format!("{}/{}", info.shield_hp, info.shield_max)),
-                    TextFont { font: font.clone(), font_size: 8.0, ..default() },
+                    TextFont { font: font.clone().into(), font_size: FontSize::Px(8.0), ..default() },
                     TextColor(Color::WHITE),
                     Transform::from_xyz(22.0, 8.0, 0.02),
                     Visibility::Inherited,
@@ -389,7 +389,7 @@ fn create_bar(
             // HP numeric
             hp_num_e = parent.spawn((
                 Text2d::new(format!("{}/{}", info.hp_cur, info.hp_max)),
-                TextFont { font: font.clone(), font_size: 8.0, ..default() },
+                TextFont { font: font.clone().into(), font_size: FontSize::Px(8.0), ..default() },
                 TextColor(Color::WHITE),
                 Transform::from_xyz(22.0, 2.0, 0.02),
                 Visibility::Inherited,
@@ -399,7 +399,7 @@ fn create_bar(
             // EXP numeric
             exp_num_e = parent.spawn((
                 Text2d::new(format!("{}/{}", info.exp, EXP_MAX)),
-                TextFont { font: font.clone(), font_size: 8.0, ..default() },
+                TextFont { font: font.clone().into(), font_size: FontSize::Px(8.0), ..default() },
                 TextColor(Color::WHITE),
                 Transform::from_xyz(22.0, -3.0, 0.02),
                 Visibility::Inherited,

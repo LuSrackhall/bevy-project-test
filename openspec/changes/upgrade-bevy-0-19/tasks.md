@@ -17,20 +17,20 @@
 
 ## 3. TextFont API 适配
 
-- [ ] 3.1 更新 `render_view/src/unit_info_bar.rs` 中所有 `TextFont` 构造：`font` 字段改为 `.into()`，`font_size` 改为 `FontSize::Px(...)`
-- [ ] 3.2 更新 `render_view/src/ui/hud.rs` 中所有 `TextFont` 构造
-- [ ] 3.3 更新 `render_view/src/ui/menu.rs` 中所有 `TextFont` 构造
-- [ ] 3.4 更新 `render_view/src/ui/pause.rs` 中所有 `TextFont` 构造
-- [ ] 3.5 更新 `render_view/src/ui/gameover.rs` 中所有 `TextFont` 构造
+- [x] 3.1 更新 `render_view/src/unit_info_bar.rs` 中所有 `TextFont` 构造：`font` 字段改为 `.into()`，`font_size` 改为 `FontSize::Px(...)`
+- [x] 3.2 更新 `render_view/src/ui/hud.rs` 中所有 `TextFont` 构造
+- [x] 3.3 更新 `render_view/src/ui/menu.rs` 中所有 `TextFont` 构造
+- [x] 3.4 更新 `render_view/src/ui/pause.rs` 中所有 `TextFont` 构造
+- [x] 3.5 更新 `render_view/src/ui/gameover.rs` 中所有 `TextFont` 构造
 
 ## 4. NonSend API 适配
 
-- [ ] 4.1 更新 `src/main.rs` 中 `insert_non_send_resource` 为 `insert_non_send`
+- [x] 4.1 更新 `src/main.rs` 中 `insert_non_send_resource` 为 `insert_non_send`
 
 ## 5. UI Widget 插件注册调整
 
-- [ ] 5.1 从 `render_view/src/lib.rs` 中移除手动注册的 `ButtonPlugin`、`MenuPlugin`、`PopoverPlugin`、`InputDispatchPlugin`、`TabNavigationPlugin`（确认已含于 `DefaultPlugins`）
-- [ ] 5.2 如 `DefaultPlugins` 未自动包含上述插件，则保留手动注册
+- [x] 5.1 从 `render_view/src/lib.rs` 中移除手动注册的 `ButtonPlugin`、`MenuPlugin`、`PopoverPlugin`、`InputDispatchPlugin`、`TabNavigationPlugin`（确认已含于 `DefaultPlugins`）
+- [x] 5.2 如 `DefaultPlugins` 未自动包含上述插件，则保留手动注册
 
 ## 6. 编译修复
 

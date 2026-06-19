@@ -18,7 +18,7 @@ fn main() {
                 ..default()
             }),
         ))
-        .insert_non_send_resource(SimulationWorld(simulation::init_simulation_world(0)))
+        .insert_non_send(SimulationWorld(simulation::init_simulation_world(0)))
         .add_plugins((BevyAdapterPlugin, PresentationPlugin, RenderViewPlugin))
         .run();
 }
