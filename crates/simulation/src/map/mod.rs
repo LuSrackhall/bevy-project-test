@@ -19,8 +19,9 @@ pub struct WallBounds {
 }
 
 /// Map size preset.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, Serialize, Deserialize, Default)]
 pub enum MapSize {
+    #[default]
     Small,  // 2000x2000
     Medium, // 3500x3500
     Large,  // 5000x5000

@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use simulation::command::{CommandBuffer, GameCommand};
 use simulation::SimulationEvents;
+use crate::replay::ReplayRecorder;
 
 /// Drives the fixed-tick simulation loop.
 #[derive(Resource)]
@@ -38,6 +39,7 @@ pub fn tick_driver_system(
     mut sim_world: NonSendMut<SimulationWorld>,
     mut cmd_buf: ResMut<CommandBuffer>,
     mut pending: ResMut<PendingEvents>,
+    mut recorder: ResMut<ReplayRecorder>,
 ) {
     tick_clock.accumulator += time.delta_secs();
     pending.events.clear();
@@ -53,6 +55,10 @@ pub fn tick_driver_system(
             .filter(|c| c.tick == tick_clock.current_tick)
             .cloned()
             .collect();
+
+        // Record commands if recording is active (before injection)
+        recorder.record_tick(tick_clock.current_tick, &commands_for_tick);
+
         {
             let mut sim_cmds = sim_world
                 .0

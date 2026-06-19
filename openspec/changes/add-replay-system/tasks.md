@@ -50,21 +50,21 @@
 
 ## 7. Replay 录制
 
-- [ ] 7.1 在 `bevy_adapter` 中定义 `GameMode` 枚举（Live/Replay）和 `ReplayRecorder` 资源
-- [ ] 7.2 在 `tick_driver_system` 中添加录制拦截点：提取命令后、注入 simulation 前，复制到 ReplayRecorder
-- [ ] 7.3 确保仅录制外部玩家命令，不录制 AI 命令
+- [x] 7.1 在 `bevy_adapter` 中定义 `GameMode` 枚举（Live/Replay）和 `ReplayRecorder` 资源
+- [x] 7.2 在 `tick_driver_system` 中添加录制拦截点：提取命令后、注入 simulation 前，复制到 ReplayRecorder
+- [x] 7.3 确保仅录制外部玩家命令，不录制 AI 命令
 - [ ] 7.4 实现 GameOver 时 ReplayRecorder.finish() 生成 ReplayFile 并写入磁盘
 - [ ] 7.5 在 render_view 设置界面添加 "自动录制 Replay" 开关（默认开启）
 
 ## 8. Replay 回放
 
-- [ ] 8.1 在 `bevy_adapter` 中定义 `ReplayController` 资源（replay_data、current_tick、target_tick、speed、is_paused、is_seeking）
-- [ ] 8.2 实现 `replay_tick_driver_system`：从 ReplayFile 提取当前 tick 命令注入 simulation，调用 run_tick
-- [ ] 8.3 通过 `run_if` 条件让 tick_driver_system 和 replay_tick_driver_system 互斥运行
-- [ ] 8.4 实现暂停/继续功能
-- [ ] 8.5 实现快进（2x/4x）：每帧执行多个 tick
-- [ ] 8.6 实现 seek：从 tick 0 快速重放到目标 tick
-- [ ] 8.7 在 bevy_adapter 中暴露 `ReplayStatus { is_replay, total_ticks }` 资源
+- [x] 8.1 在 `bevy_adapter` 中定义 `ReplayController` 资源（replay_data、current_tick、target_tick、speed、is_paused、is_seeking）
+- [x] 8.2 实现 `replay_tick_driver_system`：从 ReplayFile 提取当前 tick 命令注入 simulation，调用 run_tick
+- [x] 8.3 通过 `run_if` 条件让 tick_driver_system 和 replay_tick_driver_system 互斥运行
+- [x] 8.4 实现暂停/继续功能
+- [x] 8.5 实现快进（2x/4x）：每帧执行多个 tick
+- [x] 8.6 实现 seek：从 tick 0 快速重放到目标 tick
+- [x] 8.7 在 bevy_adapter 中暴露 `ReplayStatus { is_replay, total_ticks }` 资源
 
 ## 9. Replay UI
 
