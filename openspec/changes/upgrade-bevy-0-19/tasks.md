@@ -9,11 +9,11 @@
 
 ## 2. 版本号与 Feature Flag 更新
 
-- [ ] 2.1 更新 `Cargo.toml`（根）：`bevy = "0.19"`
-- [ ] 2.2 更新 `crates/simulation/Cargo.toml`：`bevy_ecs = "0.19"`
-- [ ] 2.3 更新 `crates/bevy_adapter/Cargo.toml`：`bevy = "0.19"`
-- [ ] 2.4 更新 `crates/presentation/Cargo.toml`：`bevy = "0.19"`
-- [ ] 2.5 更新 `crates/render_view/Cargo.toml`：`bevy = "0.19"`，feature `experimental_bevy_ui_widgets` 改为 `bevy_ui_widgets`
+- [x] 2.1 更新 `Cargo.toml`（根）：`bevy = "0.19"`
+- [x] 2.2 更新 `crates/simulation/Cargo.toml`：`bevy_ecs = "0.19"`
+- [x] 2.3 更新 `crates/bevy_adapter/Cargo.toml`：`bevy = "0.19"`
+- [x] 2.4 更新 `crates/presentation/Cargo.toml`：`bevy = "0.19"`
+- [x] 2.5 更新 `crates/render_view/Cargo.toml`：`bevy = "0.19"`，feature `experimental_bevy_ui_widgets` 改为 `bevy_ui_widgets`
 
 ## 3. TextFont API 适配
 
