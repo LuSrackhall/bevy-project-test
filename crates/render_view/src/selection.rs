@@ -1,8 +1,6 @@
 use bevy::prelude::*;
 use bevy::picking::hover::HoverMap;
 use bevy::picking::pointer::PointerId;
-use bevy_prototype_lyon::prelude::*;
-use bevy_prototype_lyon::shapes;
 use bevy_adapter::tick::SimulationWorld;
 use bevy_adapter::mapper::UnitIdMapper;
 use bevy_adapter::input::ForceMoveNext;
@@ -57,9 +55,6 @@ impl SelectionState {
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum SelectionMode { Circle, Rect }
-
-#[derive(Component)]
-pub struct SelectionIndicator;
 
 #[derive(Component)]
 pub struct Waypoint;
@@ -250,23 +245,17 @@ pub fn selection_shortcut_system(
 // ══════════ Selection visual ══════════
 
 pub fn selection_visual_system(
-    mut commands: Commands,
+    mut gizmos: Gizmos,
     selection: Res<SelectionState>,
-    indicator_query: Query<Entity, With<SelectionIndicator>>,
     mut sim_world: bevy::ecs::system::NonSendMut<SimulationWorld>,
 ) {
-    for e in indicator_query.iter() { commands.entity(e).despawn(); }
-
     let world = &mut sim_world.0;
     let mut query = world.query::<(&UnitIdComponent, &LogicalPosition)>();
     for &uid in &selection.selected_unit_ids {
         for (id_comp, pos) in query.iter(world) {
             if id_comp.0 == uid {
                 let p = Vec2::new(pos.0.x.to_float(), pos.0.y.to_float());
-                let indicator = ShapeBuilder::with(&shapes::Circle { radius: 10.0, center: Vec2::ZERO })
-                    .stroke(Stroke::new(Color::srgb(0.2, 1.0, 0.2), 2.0))
-                    .build();
-                commands.spawn((indicator, SelectionIndicator, Transform::from_xyz(p.x, p.y, 5.0)));
+                gizmos.circle_2d(p, 10.0, Color::srgb(0.2, 1.0, 0.2));
                 break;
             }
         }
@@ -276,53 +265,27 @@ pub fn selection_visual_system(
 // ══════════ Drag visual ══════════
 
 pub fn drag_visual_system(
+    mut gizmos: Gizmos,
     selection: Res<SelectionState>,
-    mut commands: Commands,
-    mut previous: Local<Option<Entity>>,
     cam_query: Query<&Projection, With<crate::camera::MainCamera>>,
 ) {
-    // Scale stroke width with zoom so it stays visible at any zoom level
-    let scale = cam_query.iter().next().map(|proj| {
-        if let Projection::Orthographic(ref ortho) = proj { ortho.scale } else { 1.0 }
-    }).unwrap_or(1.0);
-    let stroke_width = 1.5 * scale;
-    if let Some(e) = *previous {
-        commands.entity(e).despawn();
-        *previous = None;
-    }
     if !selection.is_dragging { return; }
     let Some(start) = selection.drag_start else { return };
     let Some(end) = selection.drag_current else { return };
 
-    let visual = match selection.selection_mode {
+    let color = Color::srgba(0.2, 1.0, 0.2, 0.5);
+
+    match selection.selection_mode {
         SelectionMode::Rect => {
+            let center = (start + end) / 2.0;
             let size = (end - start).abs();
-            ShapeBuilder::with(&shapes::Rectangle {
-                extents: Vec2::new(size.x, size.y),
-                origin: shapes::RectangleOrigin::Center,
-                radii: None,
-            })
-            .stroke(Stroke::new(Color::srgba(0.2, 1.0, 0.2, 0.5), stroke_width))
-            .build()
+            gizmos.rect_2d(center, size, color);
         }
         SelectionMode::Circle => {
             let radius = start.distance(end);
-            ShapeBuilder::with(&shapes::Circle { radius, center: Vec2::ZERO })
-                .stroke(Stroke::new(Color::srgba(0.2, 1.0, 0.2, 0.5), stroke_width))
-                .build()
+            gizmos.circle_2d(start, radius, color);
         }
-    };
-
-    let e = match selection.selection_mode {
-        SelectionMode::Rect => {
-            let center = (start + end) / 2.0;
-            commands.spawn((visual, Transform::from_xyz(center.x, center.y, 10.0))).id()
-        }
-        SelectionMode::Circle => {
-            commands.spawn((visual, Transform::from_xyz(start.x, start.y, 10.0))).id()
-        }
-    };
-    *previous = Some(e);
+    }
 }
 
 // ══════════ Command issue (right-click) ══════════

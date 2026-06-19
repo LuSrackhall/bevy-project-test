@@ -1,11 +1,11 @@
 ## 1. 移除 bevy_prototype_lyon
 
-- [ ] 1.1 从 `Cargo.toml`（根）和 `crates/render_view/Cargo.toml` 中移除 `bevy_prototype_lyon` 依赖
-- [ ] 1.2 重写 `render_view/src/selection.rs` 中的 `selection_visual_system`：选中圆环指示器改用 `Gizmos::circle_2d`，移除 `SelectionIndicator` 组件的实体管理逻辑
-- [ ] 1.3 重写 `render_view/src/selection.rs` 中的 `drag_visual_system`：拖拽框改用 `Gizmos::rect_2d` / `Gizmos::circle_2d`，移除实体管理逻辑
-- [ ] 1.4 重写 `render_view/src/unit_info_bar.rs` 中的 `create_bar`：血条/经验条/护盾条背景矩形改用 `Sprite { color, custom_size }`（与现有填充部分实现方式一致）
-- [ ] 1.5 从 `src/main.rs` 中移除 `ShapePlugin` 的 `add_plugins` 注册
-- [ ] 1.6 从 `render_view/src/selection.rs` 和 `render_view/src/unit_info_bar.rs` 中移除 `bevy_prototype_lyon` 相关 import
+- [x] 1.1 从 `Cargo.toml`（根）和 `crates/render_view/Cargo.toml` 中移除 `bevy_prototype_lyon` 依赖
+- [x] 1.2 重写 `render_view/src/selection.rs` 中的 `selection_visual_system`：选中圆环指示器改用 `Gizmos::circle_2d`，移除 `SelectionIndicator` 组件的实体管理逻辑
+- [x] 1.3 重写 `render_view/src/selection.rs` 中的 `drag_visual_system`：拖拽框改用 `Gizmos::rect_2d` / `Gizmos::circle_2d`，移除实体管理逻辑
+- [x] 1.4 重写 `render_view/src/unit_info_bar.rs` 中的 `create_bar`：血条/经验条/护盾条背景矩形改用 `Sprite { color, custom_size }`（与现有填充部分实现方式一致）
+- [x] 1.5 从 `src/main.rs` 中移除 `ShapePlugin` 的 `add_plugins` 注册
+- [x] 1.6 从 `render_view/src/selection.rs` 和 `render_view/src/unit_info_bar.rs` 中移除 `bevy_prototype_lyon` 相关 import
 
 ## 2. 版本号与 Feature Flag 更新
 
