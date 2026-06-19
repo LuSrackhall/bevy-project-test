@@ -6,6 +6,7 @@
 use bevy_ecs::prelude::{Component, Resource};
 use rand::rngs::SmallRng;
 use rand::{RngCore, SeedableRng};
+use serde::{Deserialize, Serialize};
 use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign};
 
 // ═══════════════════════════════════════════════════════════════
@@ -15,7 +16,7 @@ use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign};
 /// Fixed-point number with 8 fractional bits.
 /// Precision: 1/256 ≈ 0.0039
 /// Range: ~±8.3 million internal units
-#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Debug, Hash)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Debug, Hash, Serialize, Deserialize)]
 pub struct Fixed(pub i64);
 
 /// Number of fractional bits.
@@ -136,7 +137,7 @@ impl DivAssign for Fixed {
 // FixedVec2: 2D fixed-point vector
 // ═══════════════════════════════════════════════════════════════
 
-#[derive(Copy, Clone, Eq, PartialEq, Debug, Hash)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug, Hash, Serialize, Deserialize)]
 pub struct FixedVec2 {
     pub x: Fixed,
     pub y: Fixed,
@@ -237,12 +238,17 @@ impl Div<Fixed> for FixedVec2 {
 /// Globally unique identifier for simulation entities.
 /// Must be used for all cross-entity references in simulation.
 /// Must NOT be confused with Bevy's `Entity`.
-#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Debug, Hash)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Debug, Hash, Serialize, Deserialize)]
 pub struct UnitId(pub u64);
 
 /// Monotonically increasing ID generator.
 #[derive(Resource, Default)]
 pub struct IdGenerator(u64);
+
+/// The seed used to initialize the simulation world.
+/// Persisted for Replay reconstruction.
+#[derive(Resource, Copy, Clone, Debug, Serialize, Deserialize)]
+pub struct SimulationSeed(pub u64);
 
 impl IdGenerator {
     pub fn new() -> Self {
@@ -260,14 +266,14 @@ impl IdGenerator {
 // Enums
 // ═══════════════════════════════════════════════════════════════
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, Serialize, Deserialize)]
 pub enum Faction {
     Player,
     Enemy,
     Neutral,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, Serialize, Deserialize)]
 pub enum SoldierType {
     Militia,
     Infantry,
@@ -275,13 +281,13 @@ pub enum SoldierType {
     Cavalry,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, Serialize, Deserialize)]
 pub enum SoldierState {
     Moving,
     Fighting,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, Serialize, Deserialize)]
 pub enum ShieldState {
     Normal,
     Blocking,

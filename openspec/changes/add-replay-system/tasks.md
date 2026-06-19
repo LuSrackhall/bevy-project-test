@@ -40,13 +40,13 @@
 
 ## 6. Replay 数据结构与 serde
 
-- [ ] 6.1 为 `Fixed`、`FixedVec2`、`UnitId` 添加 `#[derive(Serialize, Deserialize)]`
-- [ ] 6.2 为 `SoldierType`、`ShieldState`、`Faction`、`SoldierState` 添加 serde derives
-- [ ] 6.3 为 `SeekScope`、`SeekDirective`、`Action`、`GameCommand` 添加 serde derives
-- [ ] 6.4 在 `simulation/src/types.rs` 中新增 `SimulationSeed(pub u64)` 资源
-- [ ] 6.5 在 `init_simulation_world` 中插入 `SimulationSeed` 资源
-- [ ] 6.6 创建 `simulation/src/replay.rs`，定义 `ReplayFile` 结构（含 format_version、seed、map_size、total_ticks、commands_per_tick: BTreeMap）
-- [ ] 6.7 为 ReplayFile 编写序列化/反序列化单元测试
+- [x] 6.1 为 `Fixed`、`FixedVec2`、`UnitId` 添加 `#[derive(Serialize, Deserialize)]`
+- [x] 6.2 为 `SoldierType`、`ShieldState`、`Faction`、`SoldierState` 添加 serde derives
+- [x] 6.3 为 `SeekScope`、`SeekDirective`、`Action`、`GameCommand` 添加 serde derives
+- [x] 6.4 在 `simulation/src/types.rs` 中新增 `SimulationSeed(pub u64)` 资源
+- [x] 6.5 在 `init_simulation_world` 中插入 `SimulationSeed` 资源
+- [x] 6.6 创建 `simulation/src/replay.rs`，定义 `ReplayFile` 结构（含 format_version、seed、map_size、total_ticks、commands_per_tick: BTreeMap）
+- [x] 6.7 为 ReplayFile 编写序列化/反序列化单元测试
 
 ## 7. Replay 录制
 

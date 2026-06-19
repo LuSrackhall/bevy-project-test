@@ -7,6 +7,7 @@ use crate::soldier::*;
 use crate::types::*;
 use bevy_ecs::prelude::Resource;
 use bevy_ecs::world::World;
+use serde::{Deserialize, Serialize};
 
 /// Boundary wall limits — units can't pass.
 #[derive(Clone, Copy, Debug, Resource)]
@@ -18,7 +19,7 @@ pub struct WallBounds {
 }
 
 /// Map size preset.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, Serialize, Deserialize)]
 pub enum MapSize {
     Small,  // 2000x2000
     Medium, // 3500x3500
