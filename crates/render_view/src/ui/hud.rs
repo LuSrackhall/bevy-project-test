@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use bevy::ui_widgets::{Activate, Button as WidgetButton, MenuItem, MenuPopup};
+use bevy::ui_widgets::{Activate, Button as WidgetButton, MenuPopup};
 use bevy::picking::hover::Hovered;
 use bevy::ui::Pressed;
 use bevy::input_focus::tab_navigation::TabIndex;
@@ -397,14 +397,14 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
                             )).with_children(|p| {
                                 for (label, scope) in options {
                                     p.spawn((
-                                        Node { padding: UiRect::new(Val::Px(12.0), Val::Px(12.0), Val::Px(4.0), Val::Px(4.0)), ..default() },
-                                        MenuItem,
+                                        WidgetButton, Node { padding: UiRect::new(Val::Px(12.0), Val::Px(12.0), Val::Px(4.0), Val::Px(4.0)), border: UiRect::all(Val::Px(1.0)), ..default() },
                                         SeekScopeOption(scope),
+                                        ButtonTheme::dark(),
                                         Hovered::default(),
                                         TabIndex(0),
-                                        BackgroundColor(Color::srgba(0.2, 0.2, 0.25, 1.0)),
+                                        BorderColor::all(Color::srgba(0.35, 0.35, 0.40, 1.0)),
                                     )).with_child((Text::new(label), TextFont { font: f.clone().into(), font_size: FontSize::Px(12.0), ..default() }))
-                                    .observe(|ev: On<Activate>, q: Query<&SeekScopeOption>, mut state: ResMut<SeekPanelState>, mut tq: Query<&mut Text>, ht: Res<HudTexts>| {
+                                    .observe(|ev: On<Activate>, q: Query<&SeekScopeOption>, q_cof: Query<&ChildOf>, mut state: ResMut<SeekPanelState>, mut tq: Query<&mut Text>, ht: Res<HudTexts>, mut commands: Commands| {
                                         if let Ok(opt) = q.get(ev.entity) {
                                             state.scope = opt.0.clone();
                                             if let Some(text_id) = ht.seek_scope_text {
@@ -412,6 +412,10 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
                                                     t.0 = format!("{} ▼", scope_label(&state.scope));
                                                 }
                                             }
+                                        }
+                                        // Close popup: despawn the MenuPopup ancestor
+                                        if let Ok(cof) = q_cof.get(ev.entity) {
+                                            commands.entity(cof.parent()).despawn();
                                         }
                                     });
                                 }
