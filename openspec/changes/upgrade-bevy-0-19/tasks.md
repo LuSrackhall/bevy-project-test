@@ -34,8 +34,8 @@
 
 ## 6. 编译修复
 
-- [ ] 6.1 执行 `cargo build`，修复所有编译错误（Observer 生命周期、Command trait、Node 新字段等）
-- [ ] 6.2 检查 `simulation` 层是否使用了 `World::clear_entities`，如有则改为 `World::clear_all` 或添加显式资源保留逻辑
+- [x] 6.1 执行 `cargo build`，修复所有编译错误（Observer 生命周期、Command trait、Node 新字段等）
+- [x] 6.2 检查 `simulation` 层是否使用了 `World::clear_entities`，如有则改为 `World::clear_all` 或添加显式资源保留逻辑
 
 ## 7. 功能验证
 

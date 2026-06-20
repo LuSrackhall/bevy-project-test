@@ -417,7 +417,7 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
                                 commands.entity(popup.unwrap()).despawn();
                             }
                         }
-                        MenuAction::Close | MenuAction::CloseAll => {
+                        MenuAction::CloseAll => {
                             if let Some(popup) = popup {
                                 commands.entity(popup).despawn();
                             }
