@@ -6,6 +6,8 @@ use bevy_adapter::tick::SimulationWorld;
 use presentation::PresentationPlugin;
 use render_view::RenderViewPlugin;
 
+use bevy::log::LogPlugin;
+
 fn main() {
     App::new()
         .add_plugins((
@@ -15,6 +17,9 @@ fn main() {
                     mode: bevy::window::WindowMode::BorderlessFullscreen(MonitorSelection::Primary),
                     ..default()
                 }),
+                ..default()
+            }).set(LogPlugin {
+                filter: "warn,icu_provider=error".to_string(),
                 ..default()
             }),
         ))
