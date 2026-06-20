@@ -50,6 +50,7 @@ pub struct SeekPanelState {
     pub has_selection: bool,
     pub input_cursor_visible: bool,
     pub input_blink_timer: f32,
+    pub open_scope_popup: Option<Entity>,
 }
 
 impl Default for SeekPanelState {
@@ -61,6 +62,7 @@ impl Default for SeekPanelState {
             has_selection: false,
             input_cursor_visible: false,
             input_blink_timer: 0.0,
+            open_scope_popup: None,
         }
     }
 }
@@ -354,6 +356,7 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
                     .observe(move |ev: On<Activate>,
                         q_children: Query<&Children>,
                         q_popup: Query<Entity, With<MenuPopup>>,
+                        mut state: ResMut<SeekPanelState>,
                         mut commands: Commands| {
                         let btn = ev.entity;
                         let Ok(children) = q_children.get(btn) else { return };
@@ -399,16 +402,18 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
                                                 }
                                             }
                                         }
-                                        // Close popup
+                                        state.open_scope_popup = None;
                                         if let Ok(cof) = q_cof.get(ev.entity) {
                                             commands.entity(cof.parent()).despawn();
                                         }
                                     });
                                 }
                             }).id();
+                            state.open_scope_popup = Some(popup_entity);
                             commands.entity(btn).add_child(popup_entity);
                         } else {
                             commands.entity(existing.unwrap()).despawn();
+                            state.open_scope_popup = None;
                         }
                     })
                     .with_children(|p| {
@@ -678,6 +683,31 @@ fn clear_compendium(tq: &mut Query<&mut Text>, ht: &HudTexts) {
 fn find_entity_by_unit_id(world: &mut bevy::prelude::World, uid: simulation::types::UnitId) -> Option<bevy::prelude::Entity> {
     let mut q = world.query::<(bevy::prelude::Entity, &simulation::soldier::UnitIdComponent)>();
     q.iter(world).find(|(_, id)| id.0 == uid).map(|(e, _)| e)
+}
+
+// ══════════ Scope Popup Close on Outside Click ══════════
+
+pub fn scope_popup_close_system(
+    mouse: Res<ButtonInput<MouseButton>>,
+    mut state: ResMut<SeekPanelState>,
+    q_children: Query<&Children>,
+    q_popup: Query<Entity, With<MenuPopup>>,
+    mut commands: Commands,
+) {
+    let Some(popup_entity) = state.open_scope_popup else { return };
+    if !mouse.just_pressed(MouseButton::Left) { return };
+    // Check if the popup still exists
+    if q_popup.get(popup_entity).is_err() {
+        state.open_scope_popup = None;
+        return;
+    }
+    // Close the popup — the button's observer will handle despawn on next click
+    // Here we just clear the popup from the button's children
+    if let Ok(children) = q_children.get(popup_entity) {
+        // popup_entity is a child of the button; despawn it
+        commands.entity(popup_entity).despawn();
+    }
+    state.open_scope_popup = None;
 }
 
 // ══════════ Seek Panel Mode System ══════════

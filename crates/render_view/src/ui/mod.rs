@@ -26,6 +26,7 @@ impl Plugin for UiPlugin {
                 hud::seek_panel_mode_system,
                 hud::seek_panel_count_system,
                 hud::seek_panel_input_system,
+                hud::scope_popup_close_system,
                 hud::toast_tick_system,
                 hud::toast_display_system,
                 hud::selection_summary_toast_system,
