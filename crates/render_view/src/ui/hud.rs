@@ -144,6 +144,7 @@ impl ButtonTheme {
 // Seek panel components
 #[derive(Component)] pub(crate) struct SeekPanelRoot;
 #[derive(Component)] pub(crate) struct SeekScopeDropdown; // the trigger button showing current scope
+#[derive(Component)] struct ScopePopupOverlay; // full-screen overlay for scope popup
 #[derive(Component, Clone)] pub(crate) struct SeekScopeOption(pub SeekScope); // dropdown option
 #[derive(Component)] pub(crate) struct SeekRangeInput; // the range input box
 #[derive(Component)] pub(crate) struct SeekIssueBtn; // the issue button
@@ -353,15 +354,12 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
                     ))
                     .observe(move |ev: On<Activate>,
                         q_children: Query<&Children>,
-                        q_anchor: Query<(&UiGlobalTransform, &ComputedNode)>,
-                        q_popup: Query<Entity, With<MenuPopup>>,
-                        q_window: Query<&ComputedUiRenderTargetInfo>,
+                        q_overlay: Query<Entity, With<ScopePopupOverlay>>,
                         mut commands: Commands| {
                         let btn = ev.entity;
                         let Ok(children) = q_children.get(btn) else { return };
-                        let popup = children.iter().find_map(|c| q_popup.get(c).ok());
-                        if popup.is_none() {
-                            let Ok((anchor_gt, anchor_cn)) = q_anchor.get(btn) else { return };
+                        let overlay = children.iter().find_map(|c| q_overlay.get(c).ok());
+                        if overlay.is_none() {
                             let options = [
                                 ("全体", SeekScope::All),
                                 ("民兵", SeekScope::ByType(SoldierType::Militia)),
@@ -370,59 +368,71 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
                                 ("骑兵", SeekScope::ByType(SoldierType::Cavalry)),
                             ];
                             let f = font_clone.clone();
-                            let est_popup_h = 5.0 * 24.0;
-                            let gap = 2.0;
-                            let trigger_top = anchor_gt.affine().translation.y;
-                            let window_h = q_window.iter().next().map(|w| w.logical_size().y).unwrap_or(800.0);
-                            let space_below = window_h - trigger_top - anchor_cn.size().y;
-                            let top = if trigger_top > est_popup_h + gap {
-                                Val::Px(-(est_popup_h + gap))
-                            } else if space_below > est_popup_h + gap {
-                                Val::Px(anchor_cn.size().y + gap)
-                            } else {
-                                Val::Px(-(est_popup_h + gap))
-                            };
-                            let popup_entity = commands.spawn((
-                                Node {
-                                    display: Display::Flex,
-                                    flex_direction: FlexDirection::Column,
+                            // Container: full-screen overlay + positioned popup
+                            commands.entity(btn).with_children(|p| {
+                                p.spawn((Node {
                                     position_type: PositionType::Absolute,
-                                    top,
-                                    min_width: Val::Auto,
+                                    top: Val::Px(-2000.0),
+                                    left: Val::Px(-2000.0),
+                                    width: Val::Px(5000.0),
+                                    height: Val::Px(5000.0),
                                     ..default()
-                                },
-                                MenuPopup::default(),
-                                BackgroundColor(Color::srgba(0.15, 0.15, 0.2, 0.95)),
-                                GlobalZIndex(100),
-                            )).with_children(|p| {
-                                for (label, scope) in options {
-                                    p.spawn((
-                                        WidgetButton, Node { padding: UiRect::new(Val::Px(12.0), Val::Px(12.0), Val::Px(4.0), Val::Px(4.0)), border: UiRect::all(Val::Px(1.0)), ..default() },
-                                        SeekScopeOption(scope),
-                                        ButtonTheme::dark(),
-                                        Hovered::default(),
-                                        TabIndex(0),
-                                        BorderColor::all(Color::srgba(0.35, 0.35, 0.40, 1.0)),
-                                    )).with_child((Text::new(label), TextFont { font: f.clone().into(), font_size: FontSize::Px(12.0), ..default() }))
-                                    .observe(|ev: On<Activate>, q: Query<&SeekScopeOption>, q_cof: Query<&ChildOf>, mut state: ResMut<SeekPanelState>, mut tq: Query<&mut Text>, ht: Res<HudTexts>, mut commands: Commands| {
-                                        if let Ok(opt) = q.get(ev.entity) {
-                                            state.scope = opt.0.clone();
-                                            if let Some(text_id) = ht.seek_scope_text {
-                                                if let Ok(mut t) = tq.get_mut(text_id) {
-                                                    t.0 = format!("{} ▼", scope_label(&state.scope));
+                                }, ScopePopupOverlay, GlobalZIndex(99)))
+                                .observe(|ev: On<Pointer<Click>>, q_cof: Query<&ChildOf>, mut commands: Commands| {
+                                    if let Ok(cof) = q_cof.get(ev.entity) {
+                                        commands.entity(cof.parent()).despawn();
+                                    }
+                                })
+                                .with_children(|overlay| {
+                                    overlay.spawn((
+                                        Node {
+                                            display: Display::Flex,
+                                            flex_direction: FlexDirection::Column,
+                                            position_type: PositionType::Absolute,
+                                            bottom: Val::Px(0.0),
+                                            left: Val::Px(2000.0),
+                                            min_width: Val::Auto,
+                                            ..default()
+                                        },
+                                        MenuPopup::default(),
+                                        BackgroundColor(Color::srgba(0.15, 0.15, 0.2, 0.95)),
+                                        GlobalZIndex(100),
+                                    )).with_children(|p| {
+                                        for (label, scope) in options {
+                                            p.spawn((
+                                                WidgetButton, Node { padding: UiRect::new(Val::Px(12.0), Val::Px(12.0), Val::Px(4.0), Val::Px(4.0)), border: UiRect::all(Val::Px(1.0)), ..default() },
+                                                SeekScopeOption(scope),
+                                                ButtonTheme::dark(),
+                                                Hovered::default(),
+                                                TabIndex(0),
+                                                BorderColor::all(Color::srgba(0.35, 0.35, 0.40, 1.0)),
+                                            )).with_child((Text::new(label), TextFont { font: f.clone().into(), font_size: FontSize::Px(12.0), ..default() }))
+                                            .observe(|ev: On<Activate>, q: Query<&SeekScopeOption>, q_cof: Query<&ChildOf>, q_overlay: Query<Entity, With<ScopePopupOverlay>>, mut state: ResMut<SeekPanelState>, mut tq: Query<&mut Text>, ht: Res<HudTexts>, mut commands: Commands| {
+                                                if let Ok(opt) = q.get(ev.entity) {
+                                                    state.scope = opt.0.clone();
+                                                    if let Some(text_id) = ht.seek_scope_text {
+                                                        if let Ok(mut t) = tq.get_mut(text_id) {
+                                                            t.0 = format!("{} ▼", scope_label(&state.scope));
+                                                        }
+                                                    }
                                                 }
-                                            }
-                                        }
-                                        // Close popup: despawn the MenuPopup ancestor
-                                        if let Ok(cof) = q_cof.get(ev.entity) {
-                                            commands.entity(cof.parent()).despawn();
+                                                // Close: find overlay ancestor and despawn
+                                                if let Ok(cof) = q_cof.get(ev.entity) {
+                                                    let popup_entity = cof.parent();
+                                                    if let Ok(popup_cof) = q_cof.get(popup_entity) {
+                                                        if let Ok(overlay) = q_overlay.get(popup_cof.parent()) {
+                                                            commands.entity(overlay).despawn();
+                                                        }
+                                                    }
+                                                }
+                                            });
                                         }
                                     });
-                                }
-                            }).id();
-                            commands.entity(btn).add_child(popup_entity);
+                                });
+                            });
                         } else {
-                            commands.entity(popup.unwrap()).despawn();
+                            // Toggle off: despawn the overlay container
+                            commands.entity(overlay.unwrap()).despawn();
                         }
                     })
                     .with_children(|p| {
