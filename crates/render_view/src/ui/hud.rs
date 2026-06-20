@@ -346,7 +346,7 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
                 p.spawn(Node { position_type: PositionType::Relative, ..default() })
                 .with_children(|p| {
                     // Trigger button — observer must be on MenuButton for EntityEvent to fire
-                    p.spawn((MenuButton, Node { padding: UiRect::new(Val::Px(8.0), Val::Px(8.0), Val::Px(4.0), Val::Px(4.0)), border: UiRect::all(Val::Px(1.0)), ..default() },
+                    p.spawn((MenuButton, Pickable::default(), Node { padding: UiRect::new(Val::Px(8.0), Val::Px(8.0), Val::Px(4.0), Val::Px(4.0)), border: UiRect::all(Val::Px(1.0)), ..default() },
                         BackgroundColor(Color::srgba(0.18, 0.18, 0.22, 1.0)),
                         BorderColor::all(Color::srgba(0.35, 0.35, 0.40, 1.0)),
                         ButtonTheme::dark(),

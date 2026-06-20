@@ -1994,6 +1994,7 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "bevy_adapter",
+ "icu_provider",
  "presentation",
  "rand 0.8.6",
  "render_view",
@@ -3044,6 +3045,7 @@ checksum = "139c4cf31c8b5f33d7e199446eff9c1e02decfc2f0eec2c8d71f65befa45b421"
 dependencies = [
  "displaydoc",
  "icu_locale_core",
+ "log",
  "serde",
  "stable_deref_trait",
  "writeable",
