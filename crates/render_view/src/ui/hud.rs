@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use bevy::ui_widgets::{Activate, Button as WidgetButton, MenuButton, MenuEvent, MenuAction, MenuItem, MenuPopup};
+use bevy::ui_widgets::{Activate, Button as WidgetButton, MenuPopup};
 use bevy::picking::hover::Hovered;
 use bevy::ui::Pressed;
 use bevy::input_focus::tab_navigation::TabIndex;
@@ -340,101 +340,78 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
                 ht.mode_label = Some(p.spawn((Text::new("索敌"), TextFont { font: font.clone().into(), font_size: FontSize::Px(12.0), ..default() },
                     TextColor(Color::srgba(0.7, 0.85, 1.0, 1.0)))).id());
 
-                // Scope dropdown using MenuPopup (MenuButton + MenuEvent)
+                // Scope dropdown — WidgetButton + Activate (MenuButton broken in 0.19)
                 let mut scope_text_id = Entity::PLACEHOLDER;
                 let font_clone = font.clone();
                 p.spawn(Node { position_type: PositionType::Relative, ..default() })
-                .observe(move |ev: On<MenuEvent>,
-                    q_trigger: Query<(&ChildOf, &Children)>,
-                    q_anchor: Query<(&UiGlobalTransform, &ComputedNode)>,
-                    q_popup: Query<Entity, With<MenuPopup>>,
-                    q_window: Query<&ComputedUiRenderTargetInfo>,
-                    mut state: ResMut<SeekPanelState>, mut commands: Commands| {
-                    let Ok((trigger_cof, trigger_children)) = q_trigger.get(ev.source) else { return };
-                    let anchor = trigger_cof.parent();
-                    let Ok((anchor_gt, anchor_cn)) = q_anchor.get(anchor) else { return };
-                    let popup = trigger_children.iter().find_map(|c| q_popup.get(c).ok());
-                    match ev.action {
-                        MenuAction::Toggle => {
-                            if popup.is_none() {
-                                let options = [
-                                    ("全体", SeekScope::All),
-                                    ("民兵", SeekScope::ByType(SoldierType::Militia)),
-                                    ("步兵", SeekScope::ByType(SoldierType::Infantry)),
-                                    ("弓兵", SeekScope::ByType(SoldierType::Archer)),
-                                    ("骑兵", SeekScope::ByType(SoldierType::Cavalry)),
-                                ];
-                                let f = font_clone.clone();
-                                let est_popup_h = 5.0 * 24.0;
-                                let gap = 2.0;
-                                let trigger_top = anchor_gt.affine().translation.y;
-                                let window_h = q_window.iter().next().map(|w| w.logical_size().y).unwrap_or(800.0);
-                                let space_below = window_h - trigger_top - anchor_cn.size().y;
-                                let top = if trigger_top > est_popup_h + gap {
-                                    Val::Px(-(est_popup_h + gap))
-                                } else if space_below > est_popup_h + gap {
-                                    Val::Px(anchor_cn.size().y + gap)
-                                } else {
-                                    Val::Px(-(est_popup_h + gap))
-                                };
-                                let popup_entity = commands.spawn((
-                                    Node {
-                                        display: Display::Flex,
-                                        flex_direction: FlexDirection::Column,
-                                        position_type: PositionType::Absolute,
-                                        top,
-                                        min_width: Val::Auto,
-                                        ..default()
-                                    },
-                                    MenuPopup::default(),
-                                    BackgroundColor(Color::srgba(0.15, 0.15, 0.2, 0.95)),
-                                    GlobalZIndex(100),
-                                )).with_children(|p| {
-                                    for (label, scope) in options {
-                                        p.spawn((
-                                            WidgetButton, Node { padding: UiRect::new(Val::Px(12.0), Val::Px(12.0), Val::Px(4.0), Val::Px(4.0)), border: UiRect::all(Val::Px(1.0)), ..default() },
-                                            SeekScopeOption(scope),
-                                            ButtonTheme::dark(),
-                                            Hovered::default(),
-                                            TabIndex(0),
-                                            BorderColor::all(Color::srgba(0.35, 0.35, 0.40, 1.0)),
-                                        )).with_child((Text::new(label), TextFont { font: f.clone().into(), font_size: FontSize::Px(12.0), ..default() }))
-                                        .observe(|ev: On<Activate>, q: Query<&SeekScopeOption>, q_cof: Query<&ChildOf>, mut state: ResMut<SeekPanelState>, mut tq: Query<&mut Text>, ht: Res<HudTexts>, mut commands: Commands| {
-                                            if let Ok(opt) = q.get(ev.entity) {
-                                                state.scope = opt.0.clone();
-                                                if let Some(text_id) = ht.seek_scope_text {
-                                                    if let Ok(mut t) = tq.get_mut(text_id) {
-                                                        t.0 = format!("{} ▼", scope_label(&state.scope));
-                                                    }
-                                                }
-                                            }
-                                            if let Ok(cof) = q_cof.get(ev.entity) {
-                                                commands.entity(cof.parent()).despawn();
-                                            }
-                                        });
-                                    }
-                                }).id();
-                                commands.entity(ev.source).add_child(popup_entity);
-                            } else {
-                                commands.entity(popup.unwrap()).despawn();
-                            }
-                        }
-                        MenuAction::CloseAll => {
-                            if let Some(popup) = popup {
-                                commands.entity(popup).despawn();
-                            }
-                        }
-                        _ => {}
-                    }
-                })
                 .with_children(|p| {
-                    // Trigger button
-                    p.spawn((MenuButton, Node { padding: UiRect::new(Val::Px(8.0), Val::Px(8.0), Val::Px(4.0), Val::Px(4.0)), border: UiRect::all(Val::Px(1.0)), ..default() },
+                    p.spawn((WidgetButton, Node { padding: UiRect::new(Val::Px(8.0), Val::Px(8.0), Val::Px(4.0), Val::Px(4.0)), border: UiRect::all(Val::Px(1.0)), ..default() },
                         BackgroundColor(Color::srgba(0.18, 0.18, 0.22, 1.0)),
                         BorderColor::all(Color::srgba(0.35, 0.35, 0.40, 1.0)),
                         ButtonTheme::dark(),
                         Hovered::default(),
-                    )).with_children(|p| {
+                    ))
+                    .observe(move |ev: On<Activate>,
+                        q_children: Query<&Children>,
+                        q_popup: Query<Entity, With<MenuPopup>>,
+                        mut commands: Commands| {
+                        let btn = ev.entity;
+                        let Ok(children) = q_children.get(btn) else { return };
+                        let existing = children.iter().find_map(|c| q_popup.get(c).ok());
+                        if existing.is_none() {
+                            let options = [
+                                ("全体", SeekScope::All),
+                                ("民兵", SeekScope::ByType(SoldierType::Militia)),
+                                ("步兵", SeekScope::ByType(SoldierType::Infantry)),
+                                ("弓兵", SeekScope::ByType(SoldierType::Archer)),
+                                ("骑兵", SeekScope::ByType(SoldierType::Cavalry)),
+                            ];
+                            let f = font_clone.clone();
+                            let popup_entity = commands.spawn((
+                                Node {
+                                    display: Display::Flex,
+                                    flex_direction: FlexDirection::Column,
+                                    position_type: PositionType::Absolute,
+                                    bottom: Val::Percent(100.0),
+                                    left: Val::Px(0.0),
+                                    min_width: Val::Auto,
+                                    ..default()
+                                },
+                                MenuPopup::default(),
+                                BackgroundColor(Color::srgba(0.15, 0.15, 0.2, 0.95)),
+                                GlobalZIndex(100),
+                            )).with_children(|p| {
+                                for (label, scope) in options {
+                                    p.spawn((
+                                        WidgetButton, Node { padding: UiRect::new(Val::Px(12.0), Val::Px(12.0), Val::Px(4.0), Val::Px(4.0)), border: UiRect::all(Val::Px(1.0)), ..default() },
+                                        SeekScopeOption(scope),
+                                        ButtonTheme::dark(),
+                                        Hovered::default(),
+                                        TabIndex(0),
+                                        BorderColor::all(Color::srgba(0.35, 0.35, 0.40, 1.0)),
+                                    )).with_child((Text::new(label), TextFont { font: f.clone().into(), font_size: FontSize::Px(12.0), ..default() }))
+                                    .observe(|ev: On<Activate>, q: Query<&SeekScopeOption>, q_cof: Query<&ChildOf>, mut state: ResMut<SeekPanelState>, mut tq: Query<&mut Text>, ht: Res<HudTexts>, mut commands: Commands| {
+                                        if let Ok(opt) = q.get(ev.entity) {
+                                            state.scope = opt.0.clone();
+                                            if let Some(text_id) = ht.seek_scope_text {
+                                                if let Ok(mut t) = tq.get_mut(text_id) {
+                                                    t.0 = format!("{} ▼", scope_label(&state.scope));
+                                                }
+                                            }
+                                        }
+                                        // Close popup
+                                        if let Ok(cof) = q_cof.get(ev.entity) {
+                                            commands.entity(cof.parent()).despawn();
+                                        }
+                                    });
+                                }
+                            }).id();
+                            commands.entity(btn).add_child(popup_entity);
+                        } else {
+                            commands.entity(existing.unwrap()).despawn();
+                        }
+                    })
+                    .with_children(|p| {
                         scope_text_id = p.spawn((Text::new("全体 ▼"), TextFont { font: font.clone().into(), font_size: FontSize::Px(12.0), ..default() })).id();
                     });
                 });
