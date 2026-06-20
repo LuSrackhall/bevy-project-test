@@ -176,9 +176,9 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
 
         // ── Bottom zone 180px: Left 30% info + Right 70% command+compendium ──
         root.spawn((Node { width: Val::Percent(100.0), height: Val::Px(180.0),
-            flex_direction: FlexDirection::Row, ..default() }, BottomZone, Pickable::IGNORE))
+            flex_direction: FlexDirection::Row, ..default() }, BottomZone))
         .with_children(|bz| {
-            bz.spawn((Node { width: Val::Percent(30.0), height: Val::Percent(100.0), ..default() }, Pickable::IGNORE))
+            bz.spawn((Node { width: Val::Percent(30.0), height: Val::Percent(100.0), ..default() }))
               .with_children(|p| {
                 // Soldier panel
                 ht.s_root = Some(p.spawn((Node { width: Val::Percent(100.0), flex_direction: FlexDirection::Column,
@@ -334,7 +334,7 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
             p.spawn(Node { width: Val::Px(1.0), height: Val::Percent(80.0), ..default() });
 
             // Right: seek panel (scope dropdown + range input + issue button)
-            p.spawn((Node { flex_direction: FlexDirection::Row, align_items: AlignItems::Center, column_gap: Val::Px(6.0), ..default() }, SeekPanelRoot, Pickable::IGNORE))
+            p.spawn((Node { flex_direction: FlexDirection::Row, align_items: AlignItems::Center, column_gap: Val::Px(6.0), ..default() }, SeekPanelRoot))
             .with_children(|p| {
                 // Mode label
                 ht.mode_label = Some(p.spawn((Text::new("索敌"), TextFont { font: font.clone().into(), font_size: FontSize::Px(12.0), ..default() },
@@ -535,12 +535,12 @@ pub fn button_style_system(
 // ══════════ Update Systems ══════════
 
 pub fn update_top_bar(mut tq: Query<&mut Text>, ht: Res<HudTexts>,
-    mut sim: bevy::ecs::system::NonSendMut<SimulationWorld>, time: Res<Time>) {
+    mut sim: bevy::ecs::system::NonSendMut<SimulationWorld>, tick_clock: Res<bevy_adapter::tick::TickClock>) {
     let w = &mut sim.0;
     let (mut pc, mut pp, mut pm, mut es) = (0usize,0u32,0u32,0u32);
     { let mut q = w.query::<(&FactionComponent, &CityComponent)>(); for (f,c) in q.iter(w) { if f.0==Faction::Player { pc+=1; pp+=c.population; pm+=c.max_population; } } }
     { let mut q = w.query::<(&FactionComponent, &SoldierTypeComponent)>(); for (f,_) in q.iter(w) { if f.0==Faction::Enemy { es+=1; } } }
-    let e = time.elapsed().as_secs();
+    let e = (tick_clock.current_tick as f64 * tick_clock.tick_duration as f64) as u64;
     if let Some(id) = ht.cities { if let Ok(mut t)=tq.get_mut(id) { t.0=format!("城 {}",pc); } }
     if let Some(id) = ht.pop { if let Ok(mut t)=tq.get_mut(id) { t.0=format!("兵 {}/{}",pp,pm); } }
     if let Some(id) = ht.enemy { if let Ok(mut t)=tq.get_mut(id) { t.0=format!("敌 {}",es); } }
