@@ -5,6 +5,10 @@ pub mod ui;
 pub mod unit_info_bar;
 
 use bevy::prelude::*;
+use bevy::ui_widgets::{ButtonPlugin, MenuPlugin};
+use bevy::ui_widgets::popover::PopoverPlugin;
+use bevy::input_focus::InputDispatchPlugin;
+use bevy::input_focus::tab_navigation::TabNavigationPlugin;
 
 /// Game state enum — shared across the render view.
 /// Paused is a boolean resource, not a state variant.
@@ -39,6 +43,7 @@ impl Plugin for RenderViewPlugin {
             .init_state::<GameState>()
             .init_resource::<NeedsGameReset>()
             .init_resource::<crate::selection::SelectionState>()
+            .add_plugins((ButtonPlugin, MenuPlugin, PopoverPlugin, InputDispatchPlugin, TabNavigationPlugin))
             .add_plugins(crate::ui::UiPlugin)
             .add_systems(Startup, crate::camera::setup_camera)
             .init_resource::<crate::unit_info_bar::UnitInfoBarSettings>()
