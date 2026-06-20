@@ -690,23 +690,19 @@ fn find_entity_by_unit_id(world: &mut bevy::prelude::World, uid: simulation::typ
 pub fn scope_popup_close_system(
     mouse: Res<ButtonInput<MouseButton>>,
     mut state: ResMut<SeekPanelState>,
-    q_children: Query<&Children>,
     q_popup: Query<Entity, With<MenuPopup>>,
+    q_hover: Query<&Hovered>,
     mut commands: Commands,
 ) {
     let Some(popup_entity) = state.open_scope_popup else { return };
     if !mouse.just_pressed(MouseButton::Left) { return };
-    // Check if the popup still exists
     if q_popup.get(popup_entity).is_err() {
         state.open_scope_popup = None;
         return;
     }
-    // Close the popup — the button's observer will handle despawn on next click
-    // Here we just clear the popup from the button's children
-    if let Ok(children) = q_children.get(popup_entity) {
-        // popup_entity is a child of the button; despawn it
-        commands.entity(popup_entity).despawn();
-    }
+    // If any menu item is hovered, let its Activate observer handle the close
+    if q_hover.iter().any(|h| h.get()) { return; }
+    commands.entity(popup_entity).despawn();
     state.open_scope_popup = None;
 }
 
