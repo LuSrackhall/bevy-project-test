@@ -3,10 +3,7 @@
 ## Purpose
 
 TBD
-
 ## Requirements
-
-
 ### Requirement: 定点数类型体系
 
 simulation crate SHALL 提供 `Fixed(i64)` 定点数类型，使用低 8 位作为小数精度位（精度 1/256 ≈ 0.0039）。SHALL 提供 `FixedVec2 { x: Fixed, y: Fixed }` 二维向量类型。SHALL 实现所有必要的算术和比较 trait（`Add, Sub, Mul, Div, Eq, Ord, Hash`）。
@@ -94,7 +91,7 @@ simulation crate SHALL 使用 `SeedableRng` 特质的确定性 PRNG（`SmallRng`
 
 ### Requirement: 仿真层依赖限制
 
-simulation crate 的 `Cargo.toml` SHALL NOT 依赖 `bevy`（完整版）、`bevy_render`、`bevy_ui`、`bevy_window`、`bevy_input`、`bevy_audio`、`bevy_asset` 或任何图形/窗口/音频 crate。SHALL 仅依赖 `bevy_ecs` 核心子集（+ `serde`、`ron`、`rand`）。
+simulation crate 的 `Cargo.toml` SHALL NOT 依赖 `bevy`（完整版）、`bevy_render`、`bevy_ui`、`bevy_window`、`bevy_input`、`bevy_audio`、`bevy_asset` 或任何图形/窗口/音频 crate。SHALL 仅依赖 `bevy_ecs` 核心子集（+ `serde`、`ron`、`rand`）。`bevy_ecs` 版本 SHALL 为 `0.19`。
 
 #### Scenario: 编译时隔离验证
 
@@ -105,6 +102,11 @@ simulation crate 的 `Cargo.toml` SHALL NOT 依赖 `bevy`（完整版）、`bevy
 
 - **WHEN** 在 `crates/simulation/` 目录下执行 `cargo test`
 - **THEN** SHALL 在无 Bevy 完整运行时的情况下成功编译并运行所有测试
+
+#### Scenario: bevy_ecs 0.19 Resources as Components 兼容
+
+- **WHEN** simulation crate 中的 `#[derive(Resource)]` 类型在 bevy_ecs 0.19 中使用
+- **THEN** 资源作为组件存储在专用抽象实体上，不影响仿真层的 `world.resource::<T>()` 和 `world.resource_mut::<T>()` 读写语义
 
 ### Requirement: 士兵组件与系统
 
@@ -215,3 +217,4 @@ simulation crate SHALL 在初始化时从 `content/` 目录的 `.ron` 文件加�
 
 - **WHEN** 配置文件缺失或格式错误
 - **THEN** 系统 SHALL panic 并输出明确的错误信息指出缺失的字段和文件路径（开发阶段不静默降级）
+

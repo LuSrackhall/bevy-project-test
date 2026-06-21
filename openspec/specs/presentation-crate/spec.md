@@ -3,10 +3,7 @@
 ## Purpose
 
 TBD
-
 ## Requirements
-
-
 ### Requirement: LogicEntityRef 单向引用
 
 presentation crate SHALL 定义 `LogicEntityRef(pub UnitId)` 组件，挂载在渲染实体上指回逻辑实体。逻辑实体 SHALL NOT 持有任何指向渲染实体的引用。
@@ -23,22 +20,12 @@ presentation crate SHALL 定义 `LogicEntityRef(pub UnitId)` 组件，挂载在�
 
 ### Requirement: InterpolationData 插值数据
 
-presentation crate SHALL 在每个渲染实体上挂载 `InterpolationData { previous_logical_pos: Vec2, current_logical_pos: Vec2, is_new: bool }` 组件。SHALL 提供 `RenderInterpolationAlpha(pub f32)` 全局资源表示当前帧的插值因子。
+presentation crate SHALL 在每个渲染实体上挂载 `InterpolationData { previous_logical_pos: Vec2, current_logical_pos: Vec2, is_new: bool }` 组件。SHALL 提供 `RenderInterpolationAlpha(pub f32)` 全局资源表示当前帧的插值因子。bevy 版本 SHALL 为 `0.19`。
 
 #### Scenario: 每帧更新插值历史
 
 - **WHEN** simulation 在 Tick N 完成，单位从 `pos_A` 移动到 `pos_B`
 - **THEN** presentation 层的插值更新系统将 `previous_logical_pos` 设为 `pos_A`（浮点），`current_logical_pos` 设为 `pos_B`（浮点）
-
-#### Scenario: 新实体首帧无闪烁
-
-- **WHEN** 一个逻辑单位在 Tick N 中途诞生（如城池产兵）
-- **THEN** 该渲染实体的 `InterpolationData.is_new = true`，`previous_logical_pos == current_logical_pos`，`PresentationPosition` 直接等于逻辑位置，不执行插值计算
-
-#### Scenario: 第二帧开始正常插值
-
-- **WHEN** 新实体的 `is_new == true` 且经过第一个逻辑 Tick 后
-- **THEN** `is_new` 被设置为 `false`，后续帧正常执行插值计算
 
 ### Requirement: PresentationPosition 插值输出
 
@@ -93,3 +80,4 @@ presentation crate SHALL 仅在本层和 render_view 层使用浮点数。SHALL 
 
 - **WHEN** 尝试在 presentation 中修改 simulation 的 `LogicalPosition`（类型 `FixedVec2`）为 `Vec2` 浮点值
 - **THEN** 编译失败，因为 `LogicalPosition(FixedVec2)` 不接受 `Vec2`
+

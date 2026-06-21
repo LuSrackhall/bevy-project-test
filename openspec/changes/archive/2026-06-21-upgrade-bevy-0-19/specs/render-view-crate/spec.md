@@ -1,3 +1,66 @@
+## ADDED Requirements
+
+### Requirement: Scope 下拉菜单
+
+render_view crate SHALL 提供索引范围（seek scope）下拉菜单，使用 `WidgetButton` + `Activate` 事件实现（SHALL NOT 使用 `MenuButton`）。菜单 SHALL 包含全体/民兵/步兵/弓兵/骑兵五个选项。点击选项后菜单 SHALL 自动关闭。点击菜单外部 SHALL 关闭菜单。
+
+#### Scenario: 菜单弹出
+
+- **WHEN** 点击工具栏右侧「全体 ▼」按钮
+- **THEN** 弹出包含 5 个兵种选项的下拉菜单
+
+#### Scenario: 选项选择
+
+- **WHEN** 点击菜单中的「步兵」选项
+- **THEN** 按钮文字变为「步兵 ▼」，菜单关闭，`SeekPanelState.scope` 更新为 `ByType(Infantry)`
+
+#### Scenario: 点击外部关闭
+
+- **WHEN** 菜单弹出后点击游戏区域（菜单外）
+- **THEN** 菜单关闭
+
+#### Scenario: 按钮再次切换
+
+- **WHEN** 菜单弹出时再次点击「全体 ▼」按钮
+- **THEN** 菜单关闭
+
+### Requirement: 血条信息栏
+
+render_view crate SHALL 提供 `UnitInfoBar` 系统，为每个存活单位显示等级文字、血条（HP背景 + HP填充）、经验条（EXP背景 + EXP填充）、护盾条（可选）。血条背景矩形 SHALL 使用 `Sprite { color, custom_size }` 实现，SHALL NOT 使用 `bevy_prototype_lyon`。`TextFont` 构造 SHALL 使用 `FontSize::Px(...)` 替代裸 `f32`。
+
+#### Scenario: 血条背景渲染
+
+- **WHEN** 一个 HP 为 80/100 的单位被选中
+- **THEN** 血条背景为红色 `Sprite`，HP 填充为绿色 `Sprite`（宽度按比例），无第三方依赖
+
+#### Scenario: 护盾条渲染
+
+- **WHEN** 单位装备了护盾（`shield_max > 0`）
+- **THEN** 显示护盾条背景（灰色 `Sprite`）和护盾填充（白色 `Sprite`），以及护盾数值文字
+
+### Requirement: Pickable 事件穿透
+
+render_view crate SHALL 确保包含交互元素的 UI 容器 SHALL NOT 使用 `Pickable::IGNORE`。`Pickable::IGNORE` SHALL 仅用于不需要接收点击事件的纯背景/占位节点（如 `HudRoot`、spacer、纯文字面板）。
+
+#### Scenario: 城池兵种按钮可点击
+
+- **WHEN** 选中友方城池，底部面板显示兵种切换按钮
+- **THEN** 点击兵种按钮正常触发 `Activate` 事件
+
+#### Scenario: 工具栏按钮可点击
+
+- **WHEN** 游戏进行中，底部工具栏显示
+- **THEN** 点击工具栏按钮（圈选/框选/举盾/优先）正常触发 `Activate` 事件
+
+### Requirement: ICU4X 日志过滤
+
+render_view crate 的依赖链中 SHALL 启用 `icu_provider` 的 `logging` feature，确保 ICU4X 数据错误通过 `log` 通道输出而非 `eprintln!`。`LogPlugin` SHALL 配置 filter 过滤 `icu_provider=error`。
+
+#### Scenario: CJK 文字不刷屏
+
+- **WHEN** 游戏中显示包含 CJK 字符的文字
+- **THEN** 终端不输出 "ICU4X data error: No segmentation model for language: ja"
+
 ## MODIFIED Requirements
 
 ### Requirement: DebugShape 几何体渲染
@@ -62,30 +125,6 @@ render_view crate SHALL 提供 HUD，包含：顶部信息栏（城池数/人口
 - **WHEN** 进入游戏，各 UI 面板的文字元素加载完成
 - **THEN** 所有文字（等级、HP数值、EXP数值、按钮标签）正常显示，字体大小符合预期
 
-### Requirement: Scope 下拉菜单
-
-render_view crate SHALL 提供索引范围（seek scope）下拉菜单，使用 `WidgetButton` + `Activate` 事件实现（SHALL NOT 使用 `MenuButton`）。菜单 SHALL 包含全体/民兵/步兵/弓兵/骑兵五个选项。点击选项后菜单 SHALL 自动关闭。点击菜单外部 SHALL 关闭菜单。
-
-#### Scenario: 菜单弹出
-
-- **WHEN** 点击工具栏右侧「全体 ▼」按钮
-- **THEN** 弹出包含 5 个兵种选项的下拉菜单
-
-#### Scenario: 选项选择
-
-- **WHEN** 点击菜单中的「步兵」选项
-- **THEN** 按钮文字变为「步兵 ▼」，菜单关闭，`SeekPanelState.scope` 更新为 `ByType(Infantry)`
-
-#### Scenario: 点击外部关闭
-
-- **WHEN** 菜单弹出后点击游戏区域（菜单外）
-- **THEN** 菜单关闭
-
-#### Scenario: 按钮再次切换
-
-- **WHEN** 菜单弹出时再次点击「全体 ▼」按钮
-- **THEN** 菜单关闭
-
 ### Requirement: 主菜单系统
 
 主菜单 SHALL 提供 4 个地图大小按钮（小/中/大/巨大），点击后设 `NeedsGameReset::NewGame(MapSize)` 并进入 `Playing`。`TextFont` 构造 SHALL 使用 `FontSize::Px(...)` 替代裸 `f32`。
@@ -117,43 +156,6 @@ render_view crate SHALL 提供结算画面，在 `GameState::GameOver` 时显示
 
 - **WHEN** 所有玩家城池被消灭
 - **THEN** 结算画面显示"失败!"
-
-### Requirement: 血条信息栏
-
-render_view crate SHALL 提供 `UnitInfoBar` 系统，为每个存活单位显示等级文字、血条（HP背景 + HP填充）、经验条（EXP背景 + EXP填充）、护盾条（可选）。血条背景矩形 SHALL 使用 `Sprite { color, custom_size }` 实现，SHALL NOT 使用 `bevy_prototype_lyon`。`TextFont` 构造 SHALL 使用 `FontSize::Px(...)` 替代裸 `f32`。
-
-#### Scenario: 血条背景渲染
-
-- **WHEN** 一个 HP 为 80/100 的单位被选中
-- **THEN** 血条背景为红色 `Sprite`，HP 填充为绿色 `Sprite`（宽度按比例），无第三方依赖
-
-#### Scenario: 护盾条渲染
-
-- **WHEN** 单位装备了护盾（`shield_max > 0`）
-- **THEN** 显示护盾条背景（灰色 `Sprite`）和护盾填充（白色 `Sprite`），以及护盾数值文字
-
-### Requirement: Pickable 事件穿透
-
-render_view crate SHALL 确保包含交互元素的 UI 容器 SHALL NOT 使用 `Pickable::IGNORE`。`Pickable::IGNORE` SHALL 仅用于不需要接收点击事件的纯背景/占位节点（如 `HudRoot`、spacer、纯文字面板）。
-
-#### Scenario: 城池兵种按钮可点击
-
-- **WHEN** 选中友方城池，底部面板显示兵种切换按钮
-- **THEN** 点击兵种按钮正常触发 `Activate` 事件
-
-#### Scenario: 工具栏按钮可点击
-
-- **WHEN** 游戏进行中，底部工具栏显示
-- **THEN** 点击工具栏按钮（圈选/框选/举盾/优先）正常触发 `Activate` 事件
-
-### Requirement: ICU4X 日志过滤
-
-render_view crate 的依赖链中 SHALL 启用 `icu_provider` 的 `logging` feature，确保 ICU4X 数据错误通过 `log` 通道输出而非 `eprintln!`。`LogPlugin` SHALL 配置 filter 过滤 `icu_provider=error`。
-
-#### Scenario: CJK 文字不刷屏
-
-- **WHEN** 游戏中显示包含 CJK 字符的文字
-- **THEN** 终端不输出 "ICU4X data error: No segmentation model for language: ja"
 
 ### Requirement: 渲染层不写回仿真状态
 

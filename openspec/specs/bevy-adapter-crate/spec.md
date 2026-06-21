@@ -4,7 +4,6 @@
 
 TBD
 ## Requirements
-
 ### Requirement: MapBounds 资源
 bevy_adapter SHALL 提供 `MapBounds { width: f32, height: f32 }` 资源。在 `reset_game_system` 完成后从 `MapGenConfig` 创建。
 
@@ -32,19 +31,13 @@ bevy_adapter SHALL 维护 `UnitIdMapper` 资源，包含 `unit_to_entity: HashMa
 - **THEN** `mapper.unit_to_entity.get(&unit_id)` 在 O(1) 时间内返回 `Some(Entity)`
 
 ### Requirement: Tick 调度驱动
-bevy_adapter SHALL 提供 `TickClock` 资源、`GameActive(bool)` 资源和 `Paused(bool)` 资源。`tick_driver` SHALL 仅在 `GameActive == true` 且 `Paused == false` 时运行。`GameActive` 由 render_view 在进入/退出 Playing 时设置。`Paused` 由 render_view 的暂停系统设置。每帧累加 `time.delta_secs()`，当 `accumulator >= tick_duration` 时执行一次完整 Tick。
+
+bevy_adapter SHALL 提供 `TickClock` 资源、`GameActive(bool)` 资源和 `Paused(bool)` 资源。bevy 版本 SHALL 为 `0.19`。`insert_non_send_resource` 调用 SHALL 更新为 `insert_non_send`（Bevy 0.19 API 重命名）。
 
 #### Scenario: 固定频率触发
+
 - **WHEN** `tick_duration = 50ms`，而帧时间累积达到 100ms，且 `GameState::Playing` 且未暂停
 - **THEN** `tick_driver` 连续执行 2 次完整 Tick，`accumulator` 剩余 < 50ms
-
-#### Scenario: 主菜单时不 tick
-- **WHEN** `GameState::MainMenu`
-- **THEN** `tick_driver` 不运行，`TickClock` 不变化
-
-#### Scenario: 暂停时不 tick
-- **WHEN** `GameState::Playing` 且 `Paused.0 == true`
-- **THEN** `tick_driver` 不运行，`TickClock` 不变化
 
 ### Requirement: 输入→命令翻译
 
