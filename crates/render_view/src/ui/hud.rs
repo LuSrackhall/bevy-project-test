@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use bevy::ui_widgets::{Activate, Button as WidgetButton, MenuButton, MenuEvent, MenuAction, MenuItem, MenuPopup};
+use bevy::ui_widgets::{Activate, Button as WidgetButton, MenuPopup};
 use bevy::picking::hover::Hovered;
 use bevy::ui::Pressed;
 use bevy::input_focus::tab_navigation::TabIndex;
@@ -50,6 +50,7 @@ pub struct SeekPanelState {
     pub has_selection: bool,
     pub input_cursor_visible: bool,
     pub input_blink_timer: f32,
+    pub open_scope_popup: Option<Entity>,
 }
 
 impl Default for SeekPanelState {
@@ -61,6 +62,7 @@ impl Default for SeekPanelState {
             has_selection: false,
             input_cursor_visible: false,
             input_blink_timer: 0.0,
+            open_scope_popup: None,
         }
     }
 }
@@ -162,13 +164,13 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
             BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.5)),
         )).with_children(|p| {
             p.spawn(Node { flex_direction: FlexDirection::Row, column_gap: Val::Px(12.0), ..default() }).with_children(|p| {
-                ht.cities = Some(p.spawn((Text::new("城 0"), TextFont { font: font.clone(), font_size: 14.0, ..default() })).id());
-                ht.pop = Some(p.spawn((Text::new("兵 0/0"), TextFont { font: font.clone(), font_size: 14.0, ..default() })).id());
-                ht.enemy = Some(p.spawn((Text::new("敌 0"), TextFont { font: font.clone(), font_size: 14.0, ..default() })).id());
-                ht.time = Some(p.spawn((Text::new("T 0:00"), TextFont { font: font.clone(), font_size: 14.0, ..default() })).id());
+                ht.cities = Some(p.spawn((Text::new("城 0"), TextFont { font: font.clone().into(), font_size: FontSize::Px(14.0), ..default() })).id());
+                ht.pop = Some(p.spawn((Text::new("兵 0/0"), TextFont { font: font.clone().into(), font_size: FontSize::Px(14.0), ..default() })).id());
+                ht.enemy = Some(p.spawn((Text::new("敌 0"), TextFont { font: font.clone().into(), font_size: FontSize::Px(14.0), ..default() })).id());
+                ht.time = Some(p.spawn((Text::new("T 0:00"), TextFont { font: font.clone().into(), font_size: FontSize::Px(14.0), ..default() })).id());
             });
             // Toast message on the right
-            ht.toast_text = Some(p.spawn((Text::new(""), TextFont { font: font.clone(), font_size: 13.0, ..default() },
+            ht.toast_text = Some(p.spawn((Text::new(""), TextFont { font: font.clone().into(), font_size: FontSize::Px(13.0), ..default() },
                 TextColor(Color::srgb(1.0, 0.9, 0.3)))).id());
         });
 
@@ -176,18 +178,18 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
 
         // ── Bottom zone 180px: Left 30% info + Right 70% command+compendium ──
         root.spawn((Node { width: Val::Percent(100.0), height: Val::Px(180.0),
-            flex_direction: FlexDirection::Row, ..default() }, BottomZone, Pickable::IGNORE))
+            flex_direction: FlexDirection::Row, ..default() }, BottomZone))
         .with_children(|bz| {
-            bz.spawn((Node { width: Val::Percent(30.0), height: Val::Percent(100.0), ..default() }, Pickable::IGNORE))
+            bz.spawn((Node { width: Val::Percent(30.0), height: Val::Percent(100.0), ..default() }))
               .with_children(|p| {
                 // Soldier panel
                 ht.s_root = Some(p.spawn((Node { width: Val::Percent(100.0), flex_direction: FlexDirection::Column,
                     padding: UiRect::all(Val::Px(8.0)), row_gap: Val::Px(3.0), ..default() },
                     BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.6)), SoldierPanelRoot,
                 )).with_children(|p| {
-                    ht.s_header = Some(p.spawn((Text::new("点击单位以查看详情"), TextFont { font: font.clone(), font_size: 14.0, ..default() })).id());
+                    ht.s_header = Some(p.spawn((Text::new("点击单位以查看详情"), TextFont { font: font.clone().into(), font_size: FontSize::Px(14.0), ..default() })).id());
                     p.spawn(Node { flex_direction: FlexDirection::Row, align_items: AlignItems::Center, ..default() }).with_children(|p| {
-                        ht.s_hp_text = Some(p.spawn((Text::new(""), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id());
+                        ht.s_hp_text = Some(p.spawn((Text::new(""), TextFont { font: font.clone().into(), font_size: FontSize::Px(12.0), ..default() })).id());
                         p.spawn((Node { width: Val::Percent(60.0), height: Val::Px(10.0), margin: UiRect::left(Val::Px(6.0)), ..default() },
                             BackgroundColor(Color::srgba(0.2, 0.2, 0.2, 1.0)),
                         )).with_children(|p| {
@@ -195,10 +197,10 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
                                 BackgroundColor(Color::srgba(0.2, 0.8, 0.2, 1.0)), HpFillS)).id());
                         });
                     });
-                    ht.s_atk = Some(p.spawn((Text::new(""), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id());
-                    ht.s_spd = Some(p.spawn((Text::new(""), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id());
+                    ht.s_atk = Some(p.spawn((Text::new(""), TextFont { font: font.clone().into(), font_size: FontSize::Px(12.0), ..default() })).id());
+                    ht.s_spd = Some(p.spawn((Text::new(""), TextFont { font: font.clone().into(), font_size: FontSize::Px(12.0), ..default() })).id());
                     p.spawn(Node { flex_direction: FlexDirection::Row, align_items: AlignItems::Center, ..default() }).with_children(|p| {
-                        ht.s_exp_text = Some(p.spawn((Text::new(""), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id());
+                        ht.s_exp_text = Some(p.spawn((Text::new(""), TextFont { font: font.clone().into(), font_size: FontSize::Px(12.0), ..default() })).id());
                         p.spawn((Node { width: Val::Percent(50.0), height: Val::Px(8.0), margin: UiRect::left(Val::Px(6.0)), ..default() },
                             BackgroundColor(Color::srgba(0.1, 0.1, 0.3, 1.0)),
                         )).with_children(|p| {
@@ -206,17 +208,17 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
                                 BackgroundColor(Color::srgba(0.4, 0.5, 1.0, 1.0)), ExpFillS)).id());
                         });
                     });
-                    ht.s_effect = Some(p.spawn((Text::new(""), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id());
-                    ht.s_origin = Some(p.spawn((Text::new(""), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id());
+                    ht.s_effect = Some(p.spawn((Text::new(""), TextFont { font: font.clone().into(), font_size: FontSize::Px(12.0), ..default() })).id());
+                    ht.s_origin = Some(p.spawn((Text::new(""), TextFont { font: font.clone().into(), font_size: FontSize::Px(12.0), ..default() })).id());
                 }).id());
                 // City panel (hidden)
                 ht.c_root = Some(p.spawn((Node { width: Val::Percent(100.0), flex_direction: FlexDirection::Column,
                     padding: UiRect::all(Val::Px(8.0)), row_gap: Val::Px(3.0), display: Display::None, ..default() },
                     BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.6)), CityPanelRoot,
                 )).with_children(|p| {
-                    ht.c_info = Some(p.spawn((Text::new("[城池] Lv.?"), TextFont { font: font.clone(), font_size: 14.0, ..default() })).id());
+                    ht.c_info = Some(p.spawn((Text::new("[城池] Lv.?"), TextFont { font: font.clone().into(), font_size: FontSize::Px(14.0), ..default() })).id());
                     p.spawn(Node { flex_direction: FlexDirection::Row, align_items: AlignItems::Center, ..default() }).with_children(|p| {
-                        ht.c_hp_text = Some(p.spawn((Text::new("HP ?/?"), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id());
+                        ht.c_hp_text = Some(p.spawn((Text::new("HP ?/?"), TextFont { font: font.clone().into(), font_size: FontSize::Px(12.0), ..default() })).id());
                         p.spawn((Node { width: Val::Percent(50.0), height: Val::Px(10.0), margin: UiRect::left(Val::Px(6.0)), ..default() },
                             BackgroundColor(Color::srgba(0.2, 0.2, 0.2, 1.0)),
                         )).with_children(|p| {
@@ -224,13 +226,13 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
                                 BackgroundColor(Color::srgba(0.2, 0.8, 0.2, 1.0)), HpFillC)).id());
                         });
                     });
-                    ht.c_pop = Some(p.spawn((Text::new("兵 ?/?"), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id());
-                    ht.c_exp = Some(p.spawn((Text::new("经验 ?/?"), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id());
-                    ht.c_spawn = Some(p.spawn((Text::new("当前: 民兵"), TextFont { font: font.clone(), font_size: 13.0, ..default() })).id());
+                    ht.c_pop = Some(p.spawn((Text::new("兵 ?/?"), TextFont { font: font.clone().into(), font_size: FontSize::Px(12.0), ..default() })).id());
+                    ht.c_exp = Some(p.spawn((Text::new("经验 ?/?"), TextFont { font: font.clone().into(), font_size: FontSize::Px(12.0), ..default() })).id());
+                    ht.c_spawn = Some(p.spawn((Text::new("当前: 民兵"), TextFont { font: font.clone().into(), font_size: FontSize::Px(13.0), ..default() })).id());
                     p.spawn(Node { flex_direction: FlexDirection::Row, ..default() }).with_children(|p| {
                         for (st, label) in [(SoldierType::Militia,"民兵"),(SoldierType::Infantry,"步兵"),(SoldierType::Archer,"弓兵"),(SoldierType::Cavalry,"骑兵")] {
                             p.spawn((WidgetButton, Node { padding: UiRect::all(Val::Px(6.0)), margin: UiRect::all(Val::Px(3.0)), ..default() }, SpawnTypeBtn(st), ButtonTheme::default(), Hovered::default()))
-                                .with_child((Text::new(label), TextFont { font: font.clone(), font_size: 12.0, ..default() }))
+                                .with_child((Text::new(label), TextFont { font: font.clone().into(), font_size: FontSize::Px(12.0), ..default() }))
                                 .observe(|ev: On<Activate>, q: Query<&SpawnTypeBtn>, selection: Res<SelectionState>, mut sim: NonSendMut<SimulationWorld>| {
                                     let Ok(btn) = q.get(ev.entity) else { return };
                                     let w = &mut sim.0;
@@ -258,20 +260,20 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
                     padding: UiRect::all(Val::Px(8.0)), row_gap: Val::Px(4.0), ..default() },
                     BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.6)),
                 )).with_children(|p| {
-                    ht.cmd_info = Some(p.spawn((Text::new("无可用命令 — 请先选择单位"), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id());
+                    ht.cmd_info = Some(p.spawn((Text::new("无可用命令 — 请先选择单位"), TextFont { font: font.clone().into(), font_size: FontSize::Px(12.0), ..default() })).id());
                 });
                 p.spawn((Node { width: Val::Percent(100.0), flex_direction: FlexDirection::Column,
                     padding: UiRect::all(Val::Px(8.0)), row_gap: Val::Px(3.0), ..default() },
                     BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.6)),
                 )).with_children(|p| {
-                    ht.comp_header = Some(p.spawn((Text::new("悬停兵种按钮查看详情"), TextFont { font: font.clone(), font_size: 13.0, ..default() })).id());
-                    ht.comp_hp = Some(p.spawn((Text::new(""), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id());
-                    ht.comp_atk = Some(p.spawn((Text::new(""), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id());
-                    ht.comp_spd = Some(p.spawn((Text::new(""), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id());
-                    ht.comp_rng = Some(p.spawn((Text::new(""), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id());
-                    ht.comp_rad = Some(p.spawn((Text::new(""), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id());
-                    ht.comp_effect = Some(p.spawn((Text::new(""), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id());
-                    ht.comp_desc = Some(p.spawn((Text::new(""), TextFont { font: font.clone(), font_size: 11.0, ..default() })).id());
+                    ht.comp_header = Some(p.spawn((Text::new("悬停兵种按钮查看详情"), TextFont { font: font.clone().into(), font_size: FontSize::Px(13.0), ..default() })).id());
+                    ht.comp_hp = Some(p.spawn((Text::new(""), TextFont { font: font.clone().into(), font_size: FontSize::Px(12.0), ..default() })).id());
+                    ht.comp_atk = Some(p.spawn((Text::new(""), TextFont { font: font.clone().into(), font_size: FontSize::Px(12.0), ..default() })).id());
+                    ht.comp_spd = Some(p.spawn((Text::new(""), TextFont { font: font.clone().into(), font_size: FontSize::Px(12.0), ..default() })).id());
+                    ht.comp_rng = Some(p.spawn((Text::new(""), TextFont { font: font.clone().into(), font_size: FontSize::Px(12.0), ..default() })).id());
+                    ht.comp_rad = Some(p.spawn((Text::new(""), TextFont { font: font.clone().into(), font_size: FontSize::Px(12.0), ..default() })).id());
+                    ht.comp_effect = Some(p.spawn((Text::new(""), TextFont { font: font.clone().into(), font_size: FontSize::Px(12.0), ..default() })).id());
+                    ht.comp_desc = Some(p.spawn((Text::new(""), TextFont { font: font.clone().into(), font_size: FontSize::Px(11.0), ..default() })).id());
                 });
               });
         });
@@ -287,7 +289,7 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
                 for (label, marker) in [("O框选",0u8),("[ ]框选",1),("盾",2u8),("[>]优先",3)] {
                     let mut cmd = p.spawn((WidgetButton, Node { padding: UiRect::all(Val::Px(6.0)), ..default() }, ToolbarButton(marker), ButtonTheme::default(), Hovered::default()));
                     if marker == 2 { cmd.insert(ShieldButton); }
-                    cmd.with_child((Text::new(label), TextFont { font: font.clone(), font_size: 13.0, ..default() }))
+                    cmd.with_child((Text::new(label), TextFont { font: font.clone().into(), font_size: FontSize::Px(13.0), ..default() }))
                         .observe(|ev: On<Activate>, q: Query<&ToolbarButton>, mut sel: ResMut<SelectionState>, mut force: ResMut<ForceMoveNext>, mut sim: NonSendMut<SimulationWorld>, mut cmd_buf: ResMut<CommandBuffer>, tick_clock: Res<TickClock>| {
                             let Ok(btn) = q.get(ev.entity) else { return };
                             match btn.0 {
@@ -334,106 +336,88 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
             p.spawn(Node { width: Val::Px(1.0), height: Val::Percent(80.0), ..default() });
 
             // Right: seek panel (scope dropdown + range input + issue button)
-            p.spawn((Node { flex_direction: FlexDirection::Row, align_items: AlignItems::Center, column_gap: Val::Px(6.0), ..default() }, SeekPanelRoot, Pickable::IGNORE))
+            p.spawn((Node { flex_direction: FlexDirection::Row, align_items: AlignItems::Center, column_gap: Val::Px(6.0), ..default() }, SeekPanelRoot))
             .with_children(|p| {
                 // Mode label
-                ht.mode_label = Some(p.spawn((Text::new("索敌"), TextFont { font: font.clone(), font_size: 12.0, ..default() },
+                ht.mode_label = Some(p.spawn((Text::new("索敌"), TextFont { font: font.clone().into(), font_size: FontSize::Px(12.0), ..default() },
                     TextColor(Color::srgba(0.7, 0.85, 1.0, 1.0)))).id());
 
-                // Scope dropdown using MenuPopup
+                // Scope dropdown — WidgetButton + Activate (MenuButton broken in 0.19)
                 let mut scope_text_id = Entity::PLACEHOLDER;
                 let font_clone = font.clone();
                 p.spawn(Node { position_type: PositionType::Relative, ..default() })
-                .observe(move |ev: On<MenuEvent>,
-                    q_trigger: Query<(&ChildOf, &Children)>,
-                    q_anchor: Query<(&UiGlobalTransform, &ComputedNode)>,
-                    q_popup: Query<Entity, With<MenuPopup>>,
-                    q_window: Query<&ComputedUiRenderTargetInfo>,
-                    mut state: ResMut<SeekPanelState>, mut commands: Commands| {
-                    let Ok((trigger_cof, trigger_children)) = q_trigger.get(ev.source) else { return };
-                    let anchor = trigger_cof.parent();
-                    let Ok((anchor_gt, anchor_cn)) = q_anchor.get(anchor) else { return };
-                    let popup = trigger_children.iter().find_map(|c| q_popup.get(c).ok());
-                    match ev.action {
-                        MenuAction::Toggle => {
-                            if popup.is_none() {
-                                let options = [
-                                    ("全体", SeekScope::All),
-                                    ("民兵", SeekScope::ByType(SoldierType::Militia)),
-                                    ("步兵", SeekScope::ByType(SoldierType::Infantry)),
-                                    ("弓兵", SeekScope::ByType(SoldierType::Archer)),
-                                    ("骑兵", SeekScope::ByType(SoldierType::Cavalry)),
-                                ];
-                                let f = font_clone.clone();
-                                // 手动计算位置：优先放在按钮上方
-                                let est_popup_h = 5.0 * 24.0; // 5 items * ~24px each
-                                let gap = 2.0;
-                                let trigger_top = anchor_gt.affine().translation.y;
-                                let window_h = q_window.iter().next().map(|w| w.logical_size().y).unwrap_or(800.0);
-                                let space_below = window_h - trigger_top - anchor_cn.size().y;
-                                let top = if trigger_top > est_popup_h + gap {
-                                    Val::Px(-(est_popup_h + gap))
-                                } else if space_below > est_popup_h + gap {
-                                    Val::Px(anchor_cn.size().y + gap)
-                                } else {
-                                    Val::Px(-(est_popup_h + gap))
-                                };
-                                let popup_entity = commands.spawn((
-                                    Node {
-                                        display: Display::Flex,
-                                        flex_direction: FlexDirection::Column,
-                                        position_type: PositionType::Absolute,
-                                        top,
-                                        min_width: Val::Auto,
-                                        ..default()
-                                    },
-                                    MenuPopup::default(),
-                                    BackgroundColor(Color::srgba(0.15, 0.15, 0.2, 0.95)),
-                                    GlobalZIndex(100),
-                                )).with_children(|p| {
-                                    for (label, scope) in options {
-                                        p.spawn((
-                                            Node { padding: UiRect::new(Val::Px(12.0), Val::Px(12.0), Val::Px(4.0), Val::Px(4.0)), ..default() },
-                                            MenuItem,
-                                            SeekScopeOption(scope),
-                                            Hovered::default(),
-                                            TabIndex(0),
-                                            BackgroundColor(Color::srgba(0.2, 0.2, 0.25, 1.0)),
-                                        )).with_child((Text::new(label), TextFont { font: f.clone(), font_size: 12.0, ..default() }))
-                                        .observe(|ev: On<Activate>, q: Query<&SeekScopeOption>, mut state: ResMut<SeekPanelState>, mut tq: Query<&mut Text>, ht: Res<HudTexts>| {
-                                            if let Ok(opt) = q.get(ev.entity) {
-                                                state.scope = opt.0.clone();
-                                                if let Some(text_id) = ht.seek_scope_text {
-                                                    if let Ok(mut t) = tq.get_mut(text_id) {
-                                                        t.0 = format!("{} ▼", scope_label(&state.scope));
-                                                    }
-                                                }
-                                            }
-                                        });
-                                    }
-                                }).id();
-                                commands.entity(ev.source).add_child(popup_entity);
-                            } else {
-                                commands.entity(popup.unwrap()).despawn();
-                            }
-                        }
-                        MenuAction::Close | MenuAction::CloseAll => {
-                            if let Some(popup) = popup {
-                                commands.entity(popup).despawn();
-                            }
-                        }
-                        _ => {}
-                    }
-                })
                 .with_children(|p| {
-                    // Trigger button
-                    p.spawn((MenuButton, Node { padding: UiRect::new(Val::Px(8.0), Val::Px(8.0), Val::Px(4.0), Val::Px(4.0)), border: UiRect::all(Val::Px(1.0)), ..default() },
+                    p.spawn((WidgetButton, Node { padding: UiRect::new(Val::Px(8.0), Val::Px(8.0), Val::Px(4.0), Val::Px(4.0)), border: UiRect::all(Val::Px(1.0)), ..default() },
                         BackgroundColor(Color::srgba(0.18, 0.18, 0.22, 1.0)),
                         BorderColor::all(Color::srgba(0.35, 0.35, 0.40, 1.0)),
                         ButtonTheme::dark(),
                         Hovered::default(),
-                    )).with_children(|p| {
-                        scope_text_id = p.spawn((Text::new("全体 ▼"), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id();
+                    ))
+                    .observe(move |ev: On<Activate>,
+                        q_children: Query<&Children>,
+                        q_popup: Query<Entity, With<MenuPopup>>,
+                        mut state: ResMut<SeekPanelState>,
+                        mut commands: Commands| {
+                        let btn = ev.entity;
+                        let Ok(children) = q_children.get(btn) else { return };
+                        let existing = children.iter().find_map(|c| q_popup.get(c).ok());
+                        if existing.is_none() {
+                            let options = [
+                                ("全体", SeekScope::All),
+                                ("民兵", SeekScope::ByType(SoldierType::Militia)),
+                                ("步兵", SeekScope::ByType(SoldierType::Infantry)),
+                                ("弓兵", SeekScope::ByType(SoldierType::Archer)),
+                                ("骑兵", SeekScope::ByType(SoldierType::Cavalry)),
+                            ];
+                            let f = font_clone.clone();
+                            let popup_entity = commands.spawn((
+                                Node {
+                                    display: Display::Flex,
+                                    flex_direction: FlexDirection::Column,
+                                    position_type: PositionType::Absolute,
+                                    bottom: Val::Percent(100.0),
+                                    left: Val::Px(0.0),
+                                    min_width: Val::Auto,
+                                    ..default()
+                                },
+                                MenuPopup::default(),
+                                BackgroundColor(Color::srgba(0.15, 0.15, 0.2, 0.95)),
+                                GlobalZIndex(100),
+                            )).with_children(|p| {
+                                for (label, scope) in options {
+                                    p.spawn((
+                                        WidgetButton, Node { padding: UiRect::new(Val::Px(12.0), Val::Px(12.0), Val::Px(4.0), Val::Px(4.0)), border: UiRect::all(Val::Px(1.0)), ..default() },
+                                        SeekScopeOption(scope),
+                                        ButtonTheme::dark(),
+                                        Hovered::default(),
+                                        TabIndex(0),
+                                        BorderColor::all(Color::srgba(0.35, 0.35, 0.40, 1.0)),
+                                    )).with_child((Text::new(label), TextFont { font: f.clone().into(), font_size: FontSize::Px(12.0), ..default() }))
+                                    .observe(|ev: On<Activate>, q: Query<&SeekScopeOption>, q_cof: Query<&ChildOf>, mut state: ResMut<SeekPanelState>, mut tq: Query<&mut Text>, ht: Res<HudTexts>, mut commands: Commands| {
+                                        if let Ok(opt) = q.get(ev.entity) {
+                                            state.scope = opt.0.clone();
+                                            if let Some(text_id) = ht.seek_scope_text {
+                                                if let Ok(mut t) = tq.get_mut(text_id) {
+                                                    t.0 = format!("{} ▼", scope_label(&state.scope));
+                                                }
+                                            }
+                                        }
+                                        state.open_scope_popup = None;
+                                        if let Ok(cof) = q_cof.get(ev.entity) {
+                                            commands.entity(cof.parent()).despawn();
+                                        }
+                                    });
+                                }
+                            }).id();
+                            state.open_scope_popup = Some(popup_entity);
+                            commands.entity(btn).add_child(popup_entity);
+                        } else {
+                            commands.entity(existing.unwrap()).despawn();
+                            state.open_scope_popup = None;
+                        }
+                    })
+                    .with_children(|p| {
+                        scope_text_id = p.spawn((Text::new("全体 ▼"), TextFont { font: font.clone().into(), font_size: FontSize::Px(12.0), ..default() })).id();
                     });
                 });
                 ht.seek_scope_text = Some(scope_text_id);
@@ -447,7 +431,7 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
                     ButtonTheme::dark(),
                     Hovered::default(),
                 )).with_children(|p| {
-                    range_text_id = p.spawn((Text::new("10"), TextFont { font: font.clone(), font_size: 12.0, ..default() })).id();
+                    range_text_id = p.spawn((Text::new("10"), TextFont { font: font.clone().into(), font_size: FontSize::Px(12.0), ..default() })).id();
                 })
                 .observe(|_ev: On<Activate>, mut state: ResMut<SeekPanelState>, mut tq: Query<&mut Text>, ht: Res<HudTexts>| {
                     if !state.input_active {
@@ -470,7 +454,7 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
                     BorderColor::all(Color::srgba(0.25, 0.55, 0.30, 1.0)),
                     ButtonTheme::green(),
                     Hovered::default(),
-                )).with_child((Text::new("下发"), TextFont { font: font.clone(), font_size: 12.0, ..default() }))
+                )).with_child((Text::new("下发"), TextFont { font: font.clone().into(), font_size: FontSize::Px(12.0), ..default() }))
                 .observe(|_ev: On<Activate>, state: Res<SeekPanelState>, selection: Res<SelectionState>, mut cmd_buf: ResMut<CommandBuffer>, tick_clock: Res<TickClock>, mut toast: ResMut<ToastMessage>, mut sim: NonSendMut<SimulationWorld>| {
                     let next_tick = tick_clock.current_tick + 1;
                     let has_sel = !selection.selected_unit_ids.is_empty();
@@ -535,12 +519,12 @@ pub fn button_style_system(
 // ══════════ Update Systems ══════════
 
 pub fn update_top_bar(mut tq: Query<&mut Text>, ht: Res<HudTexts>,
-    mut sim: bevy::ecs::system::NonSendMut<SimulationWorld>, time: Res<Time>) {
+    mut sim: bevy::ecs::system::NonSendMut<SimulationWorld>, tick_clock: Res<bevy_adapter::tick::TickClock>) {
     let w = &mut sim.0;
     let (mut pc, mut pp, mut pm, mut es) = (0usize,0u32,0u32,0u32);
     { let mut q = w.query::<(&FactionComponent, &CityComponent)>(); for (f,c) in q.iter(w) { if f.0==Faction::Player { pc+=1; pp+=c.population; pm+=c.max_population; } } }
     { let mut q = w.query::<(&FactionComponent, &SoldierTypeComponent)>(); for (f,_) in q.iter(w) { if f.0==Faction::Enemy { es+=1; } } }
-    let e = time.elapsed().as_secs();
+    let e = (tick_clock.current_tick as f64 * tick_clock.tick_duration as f64) as u64;
     if let Some(id) = ht.cities { if let Ok(mut t)=tq.get_mut(id) { t.0=format!("城 {}",pc); } }
     if let Some(id) = ht.pop { if let Ok(mut t)=tq.get_mut(id) { t.0=format!("兵 {}/{}",pp,pm); } }
     if let Some(id) = ht.enemy { if let Ok(mut t)=tq.get_mut(id) { t.0=format!("敌 {}",es); } }
@@ -699,6 +683,27 @@ fn clear_compendium(tq: &mut Query<&mut Text>, ht: &HudTexts) {
 fn find_entity_by_unit_id(world: &mut bevy::prelude::World, uid: simulation::types::UnitId) -> Option<bevy::prelude::Entity> {
     let mut q = world.query::<(bevy::prelude::Entity, &simulation::soldier::UnitIdComponent)>();
     q.iter(world).find(|(_, id)| id.0 == uid).map(|(e, _)| e)
+}
+
+// ══════════ Scope Popup Close on Outside Click ══════════
+
+pub fn scope_popup_close_system(
+    mouse: Res<ButtonInput<MouseButton>>,
+    mut state: ResMut<SeekPanelState>,
+    q_popup: Query<Entity, With<MenuPopup>>,
+    q_hover: Query<&Hovered>,
+    mut commands: Commands,
+) {
+    let Some(popup_entity) = state.open_scope_popup else { return };
+    if !mouse.just_pressed(MouseButton::Left) { return };
+    if q_popup.get(popup_entity).is_err() {
+        state.open_scope_popup = None;
+        return;
+    }
+    // If any menu item is hovered, let its Activate observer handle the close
+    if q_hover.iter().any(|h| h.get()) { return; }
+    commands.entity(popup_entity).despawn();
+    state.open_scope_popup = None;
 }
 
 // ══════════ Seek Panel Mode System ══════════

@@ -45,8 +45,8 @@ pub fn setup_main_menu(mut commands: Commands, asset_server: Res<AssetServer>) {
         MainMenuUI,
     ))
     .with_children(|parent| {
-        parent.spawn((Text::new("城池争霸"), TextFont { font: font.clone(), font_size: 48.0, ..default() }));
-        parent.spawn((Text::new("选择地图大小"), TextFont { font: font.clone(), font_size: 20.0, ..default() },
+        parent.spawn((Text::new("城池争霸"), TextFont { font: font.clone().into(), font_size: FontSize::Px(48.0), ..default() }));
+        parent.spawn((Text::new("选择地图大小"), TextFont { font: font.clone().into(), font_size: FontSize::Px(20.0), ..default() },
             Node { margin: UiRect::top(Val::Px(20.0)), ..default() }));
         // Map size buttons row
         parent.spawn(Node { flex_direction: FlexDirection::Row, column_gap: Val::Px(10.0),
@@ -56,7 +56,7 @@ pub fn setup_main_menu(mut commands: Commands, asset_server: Res<AssetServer>) {
                     row.spawn((WidgetButton, Node { padding: UiRect::all(Val::Px(15.0)), border: UiRect::all(Val::Px(2.0)), ..default() },
                         btn, ButtonTheme::default(), Hovered::default(),
                         BorderColor::all(Color::srgba(0.35, 0.35, 0.40, 1.0))))
-                        .with_child((Text::new(btn.label()), TextFont { font: font.clone(), font_size: 18.0, ..default() }))
+                        .with_child((Text::new(btn.label()), TextFont { font: font.clone().into(), font_size: FontSize::Px(18.0), ..default() }))
                         .observe(|_ev: On<Activate>, q: Query<&MapSizeBtn>, mut next: ResMut<NextState<crate::GameState>>, mut needs_reset: ResMut<crate::NeedsGameReset>| {
                             if let Ok(btn) = q.get(_ev.entity) {
                                 *needs_reset = crate::NeedsGameReset::NewGame(btn.map_size());

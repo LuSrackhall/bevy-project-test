@@ -1,11 +1,12 @@
 use bevy::prelude::*;
 use bevy::window::{WindowResolution, MonitorSelection};
-use bevy_prototype_lyon::prelude::*;
 
 use bevy_adapter::BevyAdapterPlugin;
 use bevy_adapter::tick::SimulationWorld;
 use presentation::PresentationPlugin;
 use render_view::RenderViewPlugin;
+
+use bevy::log::LogPlugin;
 
 fn main() {
     App::new()
@@ -17,10 +18,12 @@ fn main() {
                     ..default()
                 }),
                 ..default()
+            }).set(LogPlugin {
+                filter: "warn,icu_provider=error".to_string(),
+                ..default()
             }),
-            ShapePlugin,
         ))
-        .insert_non_send_resource(SimulationWorld(simulation::init_simulation_world(0)))
+        .insert_non_send(SimulationWorld(simulation::init_simulation_world(0)))
         .add_plugins((BevyAdapterPlugin, PresentationPlugin, RenderViewPlugin))
         .run();
 }

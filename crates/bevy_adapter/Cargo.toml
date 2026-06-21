@@ -5,4 +5,4 @@ edition = "2021"
 
 [dependencies]
 simulation = { path = "../simulation" }
-bevy = "0.18"
+bevy = "0.19"

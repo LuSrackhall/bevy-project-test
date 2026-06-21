@@ -8,8 +8,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-bevy = "0.18"
-bevy_prototype_lyon = "0.16"
+bevy = "0.19"
+icu_provider = { version = "2", features = ["logging"] }
 rand = "0.8"
 simulation = { path = "crates/simulation" }
 bevy_adapter = { path = "crates/bevy_adapter" }

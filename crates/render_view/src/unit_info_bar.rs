@@ -1,6 +1,4 @@
 use bevy::prelude::*;
-use bevy_prototype_lyon::prelude::*;
-use bevy_prototype_lyon::shapes;
 use bevy_adapter::tick::SimulationWorld;
 use simulation::soldier::*;
 use crate::selection::SelectionState;
@@ -294,7 +292,7 @@ fn create_bar(
             // Level text
             lvl_text_e = parent.spawn((
                 Text2d::new(format!("Lv.{}", info.level)),
-                TextFont { font: font.clone(), font_size: 10.0, ..default() },
+                TextFont { font: font.clone().into(), font_size: FontSize::Px(10.0), ..default() },
                 TextColor(Color::WHITE),
                 Transform::from_xyz(-20.0, 6.0, 0.02),
                 Visibility::Inherited,
@@ -308,11 +306,11 @@ fn create_bar(
 
                 // Shield bg
                 parent.spawn((
-                    ShapeBuilder::with(&shapes::Rectangle {
-                        extents: Vec2::new(SHIELD_BAR_W, SHIELD_BAR_H),
-                        origin: shapes::RectangleOrigin::Center,
-                        radii: None,
-                    }).fill(SHIELD_BG).build(),
+                    Sprite {
+                        color: SHIELD_BG,
+                        custom_size: Some(Vec2::new(SHIELD_BAR_W, SHIELD_BAR_H)),
+                        ..default()
+                    },
                     Transform::from_xyz(0.0, 8.0, 0.0),
                     Visibility::Inherited,
                 ));
@@ -332,7 +330,7 @@ fn create_bar(
                 // Shield numeric
                 shield_num_e = parent.spawn((
                     Text2d::new(format!("{}/{}", info.shield_hp, info.shield_max)),
-                    TextFont { font: font.clone(), font_size: 8.0, ..default() },
+                    TextFont { font: font.clone().into(), font_size: FontSize::Px(8.0), ..default() },
                     TextColor(Color::WHITE),
                     Transform::from_xyz(22.0, 8.0, 0.02),
                     Visibility::Inherited,
@@ -342,11 +340,11 @@ fn create_bar(
 
             // HP bg
             parent.spawn((
-                ShapeBuilder::with(&shapes::Rectangle {
-                    extents: Vec2::new(HP_BAR_W, HP_BAR_H),
-                    origin: shapes::RectangleOrigin::Center,
-                    radii: None,
-                }).fill(HP_BG).build(),
+                Sprite {
+                    color: HP_BG,
+                    custom_size: Some(Vec2::new(HP_BAR_W, HP_BAR_H)),
+                    ..default()
+                },
                 Transform::from_xyz(0.0, 2.0, 0.0),
                 Visibility::Inherited,
             ));
@@ -366,11 +364,11 @@ fn create_bar(
 
             // EXP bg
             parent.spawn((
-                ShapeBuilder::with(&shapes::Rectangle {
-                    extents: Vec2::new(EXP_BAR_W, EXP_BAR_H),
-                    origin: shapes::RectangleOrigin::Center,
-                    radii: None,
-                }).fill(EXP_BG).build(),
+                Sprite {
+                    color: EXP_BG,
+                    custom_size: Some(Vec2::new(EXP_BAR_W, EXP_BAR_H)),
+                    ..default()
+                },
                 Transform::from_xyz(0.0, -3.0, 0.0),
                 Visibility::Inherited,
             ));
@@ -391,7 +389,7 @@ fn create_bar(
             // HP numeric
             hp_num_e = parent.spawn((
                 Text2d::new(format!("{}/{}", info.hp_cur, info.hp_max)),
-                TextFont { font: font.clone(), font_size: 8.0, ..default() },
+                TextFont { font: font.clone().into(), font_size: FontSize::Px(8.0), ..default() },
                 TextColor(Color::WHITE),
                 Transform::from_xyz(22.0, 2.0, 0.02),
                 Visibility::Inherited,
@@ -401,7 +399,7 @@ fn create_bar(
             // EXP numeric
             exp_num_e = parent.spawn((
                 Text2d::new(format!("{}/{}", info.exp, EXP_MAX)),
-                TextFont { font: font.clone(), font_size: 8.0, ..default() },
+                TextFont { font: font.clone().into(), font_size: FontSize::Px(8.0), ..default() },
                 TextColor(Color::WHITE),
                 Transform::from_xyz(22.0, -3.0, 0.02),
                 Visibility::Inherited,
