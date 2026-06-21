@@ -20,60 +20,21 @@ Sync the worktree with the latest main branch, let the user choose a merge metho
 
    Announce: "Using change: <name>"
 
-2. **Phase 1: Main sync check**
+2. **Phase 1: Catchup with main**
 
-   Check if local main and origin/main are in sync:
+   Run the **myspec-catchup** skill to sync main and re-verify the implementation.
 
-   ```bash
-   git fetch origin
-   LOCAL_MAIN=$(git rev-parse main)
-   ORIGIN_MAIN=$(git rev-parse origin/main)
-   ```
+   myspec-catchup handles:
+   - Checking local main vs origin/main
+   - Pulling/pushing with user confirmation
+   - Merging main into the worktree (resolving conflicts)
+   - Re-running myspec-verify to confirm the implementation still works
 
-   **If origin/main is ahead of local main:**
-   > "origin/main has N new commit(s) that local main does not have. Should I pull to update local main?"
+   If myspec-catchup reports any issues, do NOT proceed to merge. Fix issues first.
 
-   Use AskUserQuestion. If user confirms:
-   ```bash
-   git checkout main
-   git pull origin main
-   git checkout change/<name>
-   git merge main
-   ```
-   If conflicts arise during `git merge main`, resolve them in the worktree. Report conflicts to the user and assist with resolution.
+   If myspec-catchup completes successfully, continue to Phase 2.
 
-   **If local main is ahead of origin/main:**
-   > "Local main has N new commit(s) not pushed to origin. Should I push to origin?"
-
-   Use AskUserQuestion. If user confirms:
-   ```bash
-   git checkout main
-   git push origin main
-   git checkout change/<name>
-   ```
-
-   **If in sync:**
-   > "Local main and origin/main are in sync. Skipping sync step."
-
-   **IMPORTANT:** All main branch operations (pull, push) MUST be confirmed by the user. Never execute main branch operations without explicit user approval.
-
-3. **Phase 1.5: Post-sync re-verification**
-
-   After syncing main into the worktree (or if already in sync), re-verify the implementation:
-
-   a. **Run myspec-verify skill** to re-check that the implementation still holds against the updated baseline. This includes:
-   - Document verification (Completeness/Correctness/Coherence)
-   - User acceptance (user must re-confirm after sync)
-   - Iteration if issues are found
-
-   b. **If verification or user acceptance fails:**
-   > "Post-sync verification failed. Please fix issues before merging."
-   > Return to myspec-apply or myspec-verify as needed. Do NOT proceed to merge.
-
-   c. **If verification passes and user accepts:**
-   > "Post-sync verification passed. Ready to merge."
-
-4. **Phase 2: Merge method selection**
+3. **Phase 2: Merge method selection**
 
    Present three merge methods using AskUserQuestion:
 

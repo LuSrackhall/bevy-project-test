@@ -178,7 +178,9 @@ Ask the user: **"是否创建工作树隔离这次变更？"**
 设计文档已提交。根据项目配置告知用户下一步：
 
 **如果使用 myspec-driven schema：**
-> "设计文档已写入 `<path>`。运行 `/opsx:propose` 或 `/opsx:ff` 生成实施 artifact。如果 openspec 提示 'change 已存在'，选择继续已有 change。"
+> "设计文档已写入 `<path>`。运行 **myspec-propose** 技能生成实施 artifact。如果提示 'change 已存在'，选择继续已有 change。"
+>
+> "propose 完成后，依次运行：myspec-apply → myspec-verify → myspec-merge。"
 
 **如果使用其他 schema 或无 schema：**
 > "设计文档已写入 `<path>`。请根据项目工作流继续。"
