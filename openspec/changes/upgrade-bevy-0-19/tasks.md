@@ -9,7 +9,7 @@
 
 ## 2. 版本号与 Feature Flag 更新
 
-- [x] 2.1 更新 `Cargo.toml`（根）：`bevy = "0.19"`
+- [x] 2.1 更新 `Cargo.toml`（根）：`bevy = "0.19"`，添加 `icu_provider = { version = "2", features = ["logging"] }`
 - [x] 2.2 更新 `crates/simulation/Cargo.toml`：`bevy_ecs = "0.19"`
 - [x] 2.3 更新 `crates/bevy_adapter/Cargo.toml`：`bevy = "0.19"`
 - [x] 2.4 更新 `crates/presentation/Cargo.toml`：`bevy = "0.19"`
@@ -29,22 +29,30 @@
 
 ## 5. UI Widget 插件注册调整
 
-- [x] 5.1 从 `render_view/src/lib.rs` 中移除手动注册的 `ButtonPlugin`、`MenuPlugin`、`PopoverPlugin`、`InputDispatchPlugin`、`TabNavigationPlugin`（确认已含于 `DefaultPlugins`）
-- [x] 5.2 如 `DefaultPlugins` 未自动包含上述插件，则保留手动注册
+- [x] 5.1 确认所有 widget 插件均含于 `DefaultPlugins`，无需手动注册
+- [x] 5.2 发现 `MenuButton` 在 Bevy 0.19 中存在 picking 问题，scope 下拉菜单改用 `WidgetButton` + `Activate` 实现
 
 ## 6. 编译修复
 
-- [x] 6.1 执行 `cargo build`，修复所有编译错误（Observer 生命周期、Command trait、Node 新字段等）
-- [x] 6.2 检查 `simulation` 层是否使用了 `World::clear_entities`，如有则改为 `World::clear_all` 或添加显式资源保留逻辑
+- [x] 6.1 修复 `MenuAction::Close` 已移除，改用 `MenuAction::CloseAll`
+- [x] 6.2 检查 `simulation` 层未使用 `World::clear_entities`，无需修改
 
-## 7. 功能验证
+## 7. 额外 Bug 修复
 
-- [x] 7.1 运行程序，验证主菜单正常显示和交互
-- [x] 7.2 进入游戏，验证 HUD（顶部栏、底部面板、工具栏）正常显示
-- [x] 7.3 验证选择系统：点选、框选、选中指示器、拖拽框视觉
-- [x] 7.4 验证血条/经验条/护盾条正常显示和更新
-- [x] 7.5 验证暂停菜单和结算画面
-- [x] 7.6 验证文字显示正常（无空白、字体大小正确）
+- [x] 7.1 HUD 时间显示改用 `TickClock` 替代 `Time::elapsed()`，修复暂停后时间跳跃和重启不归零（原有 bug）
+- [x] 7.2 移除 `BottomZone`、左侧面板、`SeekPanelRoot` 上的 `Pickable::IGNORE`，修复 Bevy 0.19 中事件传播阻断（迁移行为变更）
+- [x] 7.3 启用 `icu_provider` 的 `logging` feature，让 ICU4X CJK 分段警告通过 log 通道输出并被 `LogPlugin` 过滤
+- [x] 7.4 实现 scope 下拉菜单点击外部关闭功能（`scope_popup_close_system`）
+
+## 8. 功能验证（用户手动测试）
+
+- [x] 8.1 主菜单正常显示和交互
+- [x] 8.2 HUD（顶部栏、底部面板、工具栏）正常显示
+- [x] 8.3 选择系统：点选、框选、选中指示器、拖拽框视觉
+- [x] 8.4 血条/经验条/护盾条正常显示和更新
+- [x] 8.5 暂停菜单和结算画面
+- [x] 8.6 文字显示正常（无空白、字体大小正确）
+- [x] 8.7 Scope 下拉菜单：弹出、选择、关闭、点击外部关闭
 
 ---
 
