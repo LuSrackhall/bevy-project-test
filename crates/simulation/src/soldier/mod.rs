@@ -242,7 +242,7 @@ pub fn soldier_movement_system(world: &mut World) {
                 let deviation = facing::angle_distance(facing.angle, desired);
                 let factor = Fixed::ONE - deviation / Fixed::from_int(180);
                 let factor = factor.max(Fixed::ZERO);
-                speed_fixed = speed_fixed * factor;
+                speed_fixed *= factor;
             }
 
             let delta = target_pos - pos.0;
@@ -328,8 +328,8 @@ pub fn overlap_resolution_system(world: &mut World) {
                     let overlap = min_dist - dist.0;
                     if overlap > 0 {
                         let push = Fixed(overlap / 2);
-                        total_push.x = total_push.x + (diff.x / dist) * push;
-                        total_push.y = total_push.y + (diff.y / dist) * push;
+                        total_push.x += (diff.x / dist) * push;
+                        total_push.y += (diff.y / dist) * push;
                     }
                 }
                 if total_push.x.0 != 0 || total_push.y.0 != 0 {
@@ -367,7 +367,7 @@ pub fn city_spawn_system(world: &mut World) {
 
     for (entity, pos, faction, spawn_type, _cooldown, can_spawn) in cities {
         if can_spawn {
-            let new_id = { world.resource_mut::<IdGenerator>().next() };
+            let new_id = { world.resource_mut::<IdGenerator>().next_id() };
             let jx = (new_id.0 % 16) as i32 - 8;
             let jy = ((new_id.0 >> 4) % 16) as i32 - 8;
             let spawn_pos = FixedVec2::new(pos.x + Fixed::from_int(30 + jx), pos.y + Fixed::from_int(jy));
@@ -767,7 +767,7 @@ mod seek_stance_tests {
 
     /// Spawn a player soldier at a position with a given type.
     fn spawn_player_soldier(world: &mut World, pos: FixedVec2, stype: SoldierType) -> UnitId {
-        let uid = world.resource_mut::<IdGenerator>().next();
+        let uid = world.resource_mut::<IdGenerator>().next_id();
         let cfg = world.resource::<SoldierConfig>().get(stype).clone();
         let shield_hp = world.resource::<CombatGlobalConfig>().shield.initial_hp;
         world.spawn((
@@ -786,7 +786,7 @@ mod seek_stance_tests {
 
     /// Spawn an enemy soldier at a position.
     fn spawn_enemy_soldier(world: &mut World, pos: FixedVec2) -> UnitId {
-        let uid = world.resource_mut::<IdGenerator>().next();
+        let uid = world.resource_mut::<IdGenerator>().next_id();
         let shield_hp = world.resource::<CombatGlobalConfig>().shield.initial_hp;
         world.spawn((
             UnitIdComponent(uid), SoldierMarker, LogicalPosition(pos),
@@ -1100,7 +1100,7 @@ mod shield_lifecycle_tests {
     use crate::combat::drop_shield_on_death;
 
     fn spawn_infantry(world: &mut World, pos: FixedVec2, faction: Faction) -> UnitId {
-        let uid = world.resource_mut::<IdGenerator>().next();
+        let uid = world.resource_mut::<IdGenerator>().next_id();
         let cfg = world.resource::<SoldierConfig>().get(SoldierType::Infantry).clone();
         let shield_hp = world.resource::<CombatGlobalConfig>().shield.initial_hp;
         let e = world.spawn((
@@ -1121,7 +1121,7 @@ mod shield_lifecycle_tests {
     }
 
     fn spawn_militia(world: &mut World, pos: FixedVec2, faction: Faction) -> UnitId {
-        let uid = world.resource_mut::<IdGenerator>().next();
+        let uid = world.resource_mut::<IdGenerator>().next_id();
         let cfg = world.resource::<SoldierConfig>().get(SoldierType::Militia).clone();
         world.spawn((
             UnitIdComponent(uid), SoldierMarker, LogicalPosition(pos),
@@ -1344,7 +1344,7 @@ mod shield_lifecycle_tests {
         let mut world = init_simulation_world(42);
 
         // Spawn an archer
-        let uid = world.resource_mut::<IdGenerator>().next();
+        let uid = world.resource_mut::<IdGenerator>().next_id();
         let cfg = world.resource::<SoldierConfig>().get(SoldierType::Archer).clone();
         world.spawn((
             UnitIdComponent(uid), SoldierMarker, LogicalPosition(FixedVec2::new(Fixed::from_int(10), Fixed::from_int(10))),

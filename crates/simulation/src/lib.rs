@@ -15,7 +15,7 @@ use crate::command::*;
 use crate::soldier::config::SoldierConfig;
 use crate::city::config::CityGlobalConfig;
 use crate::combat::config::CombatGlobalConfig;
-use crate::map::config::MapGenConfig;
+
 
 /// Initialize a new simulation world with all configs and resources.
 pub fn init_simulation_world(seed: u64) -> World {

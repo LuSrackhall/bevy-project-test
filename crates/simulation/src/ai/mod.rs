@@ -15,9 +15,9 @@ fn rng_range(rng: &mut DeterministicRng, min: u32, max: u32) -> u32 {
 const AI_TICK_INTERVAL: u32 = 40;
 
 pub fn ai_decide(world: &mut World, current_tick: u32) {
-    if current_tick % AI_TICK_INTERVAL != 0 { return; }
+    if !current_tick.is_multiple_of(AI_TICK_INTERVAL) { return; }
 
-    let soldier_config = world.resource::<SoldierConfig>().clone();
+    let _soldier_config = world.resource::<SoldierConfig>().clone();
 
     // Collect AI (Enemy) cities
     let ai_cities: Vec<(UnitId, FixedVec2, u32, u32)> = {
@@ -57,7 +57,7 @@ pub fn ai_decide(world: &mut World, current_tick: u32) {
     // Expansion + Attack + Upgrade
     let mut commands: Vec<GameCommand> = Vec::new();
 
-    for &(ai_city_id, ai_pos, ai_level, _ai_max_level) in &ai_cities {
+    for &(_ai_city_id, ai_pos, ai_level, _ai_max_level) in &ai_cities {
         // Expansion: target nearest neutral city
         if !neutral_cities.is_empty() {
             let mut by_dist: Vec<(usize, i64)> = neutral_cities.iter()
@@ -67,7 +67,7 @@ pub fn ai_decide(world: &mut World, current_tick: u32) {
             by_dist.sort_by_key(|(_, d)| *d);
 
             let (idx, _) = by_dist[0];
-            let (target_city_id, target_pos, _, target_hp) = neutral_cities[idx];
+            let (_target_city_id, target_pos, _, _target_hp) = neutral_cities[idx];
             let radius_sq = Fixed::from_int(500) * Fixed::from_int(500);
 
             let ai_nearby = soldiers.iter()
@@ -96,7 +96,7 @@ pub fn ai_decide(world: &mut World, current_tick: u32) {
             by_dist.sort_by_key(|(_, d)| *d);
 
             for &(idx, _) in &by_dist {
-                let (target_city_id, target_pos, player_level) = player_cities[idx];
+                let (_target_city_id, target_pos, player_level) = player_cities[idx];
                 if ai_level >= player_level {
                     let radius_sq = Fixed::from_int(500) * Fixed::from_int(500);
                     let ai_nearby = soldiers.iter()
@@ -107,7 +107,7 @@ pub fn ai_decide(world: &mut World, current_tick: u32) {
                         .count();
 
                     if ai_nearby as f32 > player_nearby as f32 * 1.3 && ai_nearby > 0 {
-                        for &(sid, spos, sfac, has_target, _) in &soldiers {
+                        for &(sid, _spos, sfac, has_target, _) in &soldiers {
                             if sfac == Faction::Enemy && !has_target {
                                 commands.push(GameCommand {
                                     tick: current_tick + 1,
@@ -133,10 +133,11 @@ pub fn ai_decide(world: &mut World, current_tick: u32) {
                 .collect()
         };
         for city_id in low_hp_cities {
-            let st = match {
+            let rng_val = {
                 let mut rng = world.resource_mut::<DeterministicRng>();
                 rng_range(&mut rng, 0, 3)
-            } {
+            };
+            let st = match rng_val {
                 0 => SoldierType::Infantry,
                 1 => SoldierType::Archer,
                 _ => SoldierType::Cavalry,

@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use bevy::window::{WindowResolution, MonitorSelection};
+use bevy::window::MonitorSelection;
 
 use bevy_adapter::BevyAdapterPlugin;
 use bevy_adapter::tick::SimulationWorld;

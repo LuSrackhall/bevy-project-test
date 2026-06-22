@@ -141,7 +141,7 @@ pub fn generate_map(world: &mut World, map_size: MapSize) {
 
         let unit_id = {
             let mut id_gen = world.resource_mut::<IdGenerator>();
-            id_gen.next()
+            id_gen.next_id()
         };
 
         world.spawn((

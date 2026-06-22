@@ -30,14 +30,14 @@ impl Plugin for UiPlugin {
                 hud::toast_tick_system,
                 hud::toast_display_system,
                 hud::selection_summary_toast_system,
-            ).run_if(in_state(crate::GameState::Playing).and(not(resource_exists_and_equals(bevy_adapter::Paused(true))))))
+            ).run_if(in_state(crate::GameState::Playing).and_then(not(resource_exists_and_equals(bevy_adapter::Paused(true))))))
             .add_systems(OnEnter(crate::GameState::GameOver), gameover::setup_gameover)
             .add_systems(OnExit(crate::GameState::GameOver), gameover::cleanup_gameover)
             // Pause visibility toggle
             .add_systems(Update, update_pause_visibility.run_if(in_state(crate::GameState::Playing)))
             // Esc to pause (only when Playing and not paused)
             .add_systems(Update, handle_pause_input
-                .run_if(in_state(crate::GameState::Playing).and(not(resource_exists_and_equals(bevy_adapter::Paused(true))))));
+                .run_if(in_state(crate::GameState::Playing).and_then(not(resource_exists_and_equals(bevy_adapter::Paused(true))))));
     }
 }
 

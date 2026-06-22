@@ -1,6 +1,5 @@
 use bevy::prelude::*;
 use simulation::command::*;
-use simulation::types::*;
 
 /// One-shot toggle for force-move on next command.
 #[derive(Resource, Default)]
