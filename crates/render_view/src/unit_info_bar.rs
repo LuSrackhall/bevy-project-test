@@ -1,8 +1,8 @@
+use crate::camera::MainCamera;
+use crate::selection::SelectionState;
 use bevy::prelude::*;
 use bevy_adapter::tick::SimulationWorld;
 use simulation::soldier::*;
-use crate::selection::SelectionState;
-use crate::camera::MainCamera;
 use std::collections::HashMap;
 
 // ══════════ Components ══════════
@@ -64,7 +64,9 @@ pub struct UnitInfoBarSettings {
 
 impl Default for UnitInfoBarSettings {
     fn default() -> Self {
-        Self { mode: InfoBarMode::Classic }
+        Self {
+            mode: InfoBarMode::Classic,
+        }
     }
 }
 
@@ -116,10 +118,35 @@ pub(crate) struct BarParts {
 
 // ══════════ Query type aliases ══════════
 
-type HpFillQuery<'w, 's> = Query<'w, 's, (&'static mut Sprite, &'static mut Transform), (With<HpFill>, Without<ExpFill>, Without<ShieldFill>)>;
-type ExpFillQuery<'w, 's> = Query<'w, 's, (&'static mut Sprite, &'static mut Transform), (With<ExpFill>, Without<HpFill>, Without<ShieldFill>)>;
-type ShieldFillQuery<'w, 's> = Query<'w, 's, (&'static mut Sprite, &'static mut Transform), (With<ShieldFill>, Without<HpFill>, Without<ExpFill>)>;
-type BarVisQuery<'w, 's> = Query<'w, 's, (&'static mut Transform, &'static mut Visibility), (With<BarRoot>, Without<HpFill>, Without<ExpFill>, Without<ShieldFill>)>;
+type HpFillQuery<'w, 's> = Query<
+    'w,
+    's,
+    (&'static mut Sprite, &'static mut Transform),
+    (With<HpFill>, Without<ExpFill>, Without<ShieldFill>),
+>;
+type ExpFillQuery<'w, 's> = Query<
+    'w,
+    's,
+    (&'static mut Sprite, &'static mut Transform),
+    (With<ExpFill>, Without<HpFill>, Without<ShieldFill>),
+>;
+type ShieldFillQuery<'w, 's> = Query<
+    'w,
+    's,
+    (&'static mut Sprite, &'static mut Transform),
+    (With<ShieldFill>, Without<HpFill>, Without<ExpFill>),
+>;
+type BarVisQuery<'w, 's> = Query<
+    'w,
+    's,
+    (&'static mut Transform, &'static mut Visibility),
+    (
+        With<BarRoot>,
+        Without<HpFill>,
+        Without<ExpFill>,
+        Without<ShieldFill>,
+    ),
+>;
 
 // ══════════ Main System ══════════
 
@@ -153,11 +180,12 @@ pub(crate) fn unit_info_bar_system(
     {
         let mut q = world.query::<(Entity, &UnitIdComponent, &LogicalPosition, &Health, &Level)>();
         for (entity, id, pos, hp, lvl) in q.iter(world) {
-            let (shield_hp, shield_max) = if let Some(shield) = world.get::<simulation::types::ShieldItem>(entity) {
-                (shield.hp, shield.max_hp)
-            } else {
-                (0, 0)
-            };
+            let (shield_hp, shield_max) =
+                if let Some(shield) = world.get::<simulation::types::ShieldItem>(entity) {
+                    (shield.hp, shield.max_hp)
+                } else {
+                    (0, 0)
+                };
             units.push(UnitBarInfo {
                 unit_id: id.0,
                 world_pos: Vec2::new(pos.0.x.to_float(), pos.0.y.to_float()),
@@ -244,7 +272,12 @@ pub(crate) fn unit_info_bar_system(
         let should_show = match settings.mode {
             InfoBarMode::Always => true,
             InfoBarMode::Selected => is_selected || is_hovered,
-            InfoBarMode::Smart => is_selected || info.hp_cur < info.hp_max || info.exp > 0 || info.shield_hp < info.shield_max,
+            InfoBarMode::Smart => {
+                is_selected
+                    || info.hp_cur < info.hp_max
+                    || info.exp > 0
+                    || info.shield_hp < info.shield_max
+            }
             InfoBarMode::Classic => is_selected || is_hovered,
         };
 
@@ -257,12 +290,18 @@ pub(crate) fn unit_info_bar_system(
                 bar_parts.insert(info.unit_id, parts);
             } else {
                 update_bar(
-                    parts, info, should_show,
-                    &mut root_xform_vis, &mut text_q,
-                    &mut shield_fill_q, &mut hp_fill_q, &mut exp_fill_q,
+                    parts,
+                    info,
+                    should_show,
+                    &mut root_xform_vis,
+                    &mut text_q,
+                    &mut shield_fill_q,
+                    &mut hp_fill_q,
+                    &mut exp_fill_q,
                 );
             }
-        } else {            let parts = create_bar(&mut commands, info, should_show, &font);
+        } else {
+            let parts = create_bar(&mut commands, info, should_show, &font);
             bar_parts.insert(info.unit_id, parts);
         }
     }
@@ -276,7 +315,11 @@ fn create_bar(
     visible: bool,
     font: &Handle<Font>,
 ) -> BarParts {
-    let root_vis = if visible { Visibility::Inherited } else { Visibility::Hidden };
+    let root_vis = if visible {
+        Visibility::Inherited
+    } else {
+        Visibility::Hidden
+    };
     let bar_pos = info.world_pos + Vec2::new(0.0, BAR_OFFSET_Y);
     let hp_ratio = info.hp_cur as f32 / info.hp_max.max(1) as f32;
     let exp_ratio = (info.exp as f32 / EXP_MAX as f32).min(1.0);
@@ -298,14 +341,20 @@ fn create_bar(
         ))
         .with_children(|parent| {
             // Level text
-            lvl_text_e = parent.spawn((
-                Text2d::new(format!("Lv.{}", info.level)),
-                TextFont { font: font.clone().into(), font_size: FontSize::Px(10.0), ..default() },
-                TextColor(Color::WHITE),
-                Transform::from_xyz(-20.0, 6.0, 0.02),
-                Visibility::Inherited,
-                LvlText,
-            )).id();
+            lvl_text_e = parent
+                .spawn((
+                    Text2d::new(format!("Lv.{}", info.level)),
+                    TextFont {
+                        font: font.clone().into(),
+                        font_size: FontSize::Px(10.0),
+                        ..default()
+                    },
+                    TextColor(Color::WHITE),
+                    Transform::from_xyz(-20.0, 6.0, 0.02),
+                    Visibility::Inherited,
+                    LvlText,
+                ))
+                .id();
 
             // Shield bar (only if unit has a shield)
             if info.shield_max > 0 {
@@ -324,26 +373,34 @@ fn create_bar(
                 ));
 
                 // Shield fill
-                shield_fill_e = parent.spawn((
-                    Sprite {
-                        color: SHIELD_FILL,
-                        custom_size: Some(Vec2::new(shield_w, SHIELD_BAR_H)),
-                        ..default()
-                    },
-                    Transform::from_xyz(-SHIELD_BAR_W / 2.0 + shield_w / 2.0, 8.0, 0.01),
-                    Visibility::Inherited,
-                    ShieldFill,
-                )).id();
+                shield_fill_e = parent
+                    .spawn((
+                        Sprite {
+                            color: SHIELD_FILL,
+                            custom_size: Some(Vec2::new(shield_w, SHIELD_BAR_H)),
+                            ..default()
+                        },
+                        Transform::from_xyz(-SHIELD_BAR_W / 2.0 + shield_w / 2.0, 8.0, 0.01),
+                        Visibility::Inherited,
+                        ShieldFill,
+                    ))
+                    .id();
 
                 // Shield numeric
-                shield_num_e = parent.spawn((
-                    Text2d::new(format!("{}/{}", info.shield_hp, info.shield_max)),
-                    TextFont { font: font.clone().into(), font_size: FontSize::Px(8.0), ..default() },
-                    TextColor(Color::WHITE),
-                    Transform::from_xyz(22.0, 8.0, 0.02),
-                    Visibility::Inherited,
-                    ShieldNumText,
-                )).id();
+                shield_num_e = parent
+                    .spawn((
+                        Text2d::new(format!("{}/{}", info.shield_hp, info.shield_max)),
+                        TextFont {
+                            font: font.clone().into(),
+                            font_size: FontSize::Px(8.0),
+                            ..default()
+                        },
+                        TextColor(Color::WHITE),
+                        Transform::from_xyz(22.0, 8.0, 0.02),
+                        Visibility::Inherited,
+                        ShieldNumText,
+                    ))
+                    .id();
             }
 
             // HP bg
@@ -359,16 +416,18 @@ fn create_bar(
 
             // HP fill (Sprite for reliable rendering)
             let hp_w = HP_BAR_W * hp_ratio;
-            hp_fill_e = parent.spawn((
-                Sprite {
-                    color: HP_FILL,
-                    custom_size: Some(Vec2::new(hp_w, HP_BAR_H)),
-                    ..default()
-                },
-                Transform::from_xyz(-HP_BAR_W / 2.0 + hp_w / 2.0, 2.0, 0.01),
-                Visibility::Inherited,
-                HpFill,
-            )).id();
+            hp_fill_e = parent
+                .spawn((
+                    Sprite {
+                        color: HP_FILL,
+                        custom_size: Some(Vec2::new(hp_w, HP_BAR_H)),
+                        ..default()
+                    },
+                    Transform::from_xyz(-HP_BAR_W / 2.0 + hp_w / 2.0, 2.0, 0.01),
+                    Visibility::Inherited,
+                    HpFill,
+                ))
+                .id();
 
             // EXP bg
             parent.spawn((
@@ -383,36 +442,50 @@ fn create_bar(
 
             // EXP fill (Sprite for reliable rendering)
             let exp_w = EXP_BAR_W * exp_ratio;
-            exp_fill_e = parent.spawn((
-                Sprite {
-                    color: EXP_FILL,
-                    custom_size: Some(Vec2::new(exp_w, EXP_BAR_H)),
-                    ..default()
-                },
-                Transform::from_xyz(-EXP_BAR_W / 2.0 + exp_w / 2.0, -3.0, 0.01),
-                Visibility::Inherited,
-                ExpFill,
-            )).id();
+            exp_fill_e = parent
+                .spawn((
+                    Sprite {
+                        color: EXP_FILL,
+                        custom_size: Some(Vec2::new(exp_w, EXP_BAR_H)),
+                        ..default()
+                    },
+                    Transform::from_xyz(-EXP_BAR_W / 2.0 + exp_w / 2.0, -3.0, 0.01),
+                    Visibility::Inherited,
+                    ExpFill,
+                ))
+                .id();
 
             // HP numeric
-            hp_num_e = parent.spawn((
-                Text2d::new(format!("{}/{}", info.hp_cur, info.hp_max)),
-                TextFont { font: font.clone().into(), font_size: FontSize::Px(8.0), ..default() },
-                TextColor(Color::WHITE),
-                Transform::from_xyz(22.0, 2.0, 0.02),
-                Visibility::Inherited,
-                HpNumText,
-            )).id();
+            hp_num_e = parent
+                .spawn((
+                    Text2d::new(format!("{}/{}", info.hp_cur, info.hp_max)),
+                    TextFont {
+                        font: font.clone().into(),
+                        font_size: FontSize::Px(8.0),
+                        ..default()
+                    },
+                    TextColor(Color::WHITE),
+                    Transform::from_xyz(22.0, 2.0, 0.02),
+                    Visibility::Inherited,
+                    HpNumText,
+                ))
+                .id();
 
             // EXP numeric
-            exp_num_e = parent.spawn((
-                Text2d::new(format!("{}/{}", info.exp, EXP_MAX)),
-                TextFont { font: font.clone().into(), font_size: FontSize::Px(8.0), ..default() },
-                TextColor(Color::WHITE),
-                Transform::from_xyz(22.0, -3.0, 0.02),
-                Visibility::Inherited,
-                ExpNumText,
-            )).id();
+            exp_num_e = parent
+                .spawn((
+                    Text2d::new(format!("{}/{}", info.exp, EXP_MAX)),
+                    TextFont {
+                        font: font.clone().into(),
+                        font_size: FontSize::Px(8.0),
+                        ..default()
+                    },
+                    TextColor(Color::WHITE),
+                    Transform::from_xyz(22.0, -3.0, 0.02),
+                    Visibility::Inherited,
+                    ExpNumText,
+                ))
+                .id();
         })
         .id();
 
@@ -446,7 +519,11 @@ fn update_bar(
     if let Ok((mut t, mut v)) = root_xform_vis.get_mut(parts.root) {
         t.translation.x = bar_pos.x;
         t.translation.y = bar_pos.y;
-        *v = if should_show { Visibility::Inherited } else { Visibility::Hidden };
+        *v = if should_show {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        };
     }
 
     if !should_show {

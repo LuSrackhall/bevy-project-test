@@ -1,7 +1,7 @@
+use crate::ui::hud::ButtonTheme;
+use bevy::picking::hover::Hovered;
 use bevy::prelude::*;
 use bevy::ui_widgets::{Activate, Button as WidgetButton};
-use bevy::picking::hover::Hovered;
-use crate::ui::hud::ButtonTheme;
 
 #[derive(Component)]
 pub struct PauseUI;
@@ -40,4 +40,8 @@ pub fn spawn_pause_menu(commands: &mut Commands, font: &Handle<Font>) {
 }
 
 #[derive(Component)]
-pub(crate) enum PauseBtn { Resume, Restart, Menu }
+pub(crate) enum PauseBtn {
+    Resume,
+    Restart,
+    Menu,
+}

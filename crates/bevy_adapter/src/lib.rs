@@ -1,14 +1,14 @@
+pub mod binding;
+pub mod input;
+pub mod lifecycle;
 pub mod mapper;
 pub mod tick;
-pub mod lifecycle;
-pub mod input;
-pub mod binding;
 
+use crate::input::ForceMoveNext;
+use crate::mapper::UnitIdMapper;
+use crate::tick::{PendingEvents, TickClock};
 use bevy::prelude::*;
 use simulation::command::CommandBuffer;
-use crate::mapper::UnitIdMapper;
-use crate::tick::{TickClock, PendingEvents};
-use crate::input::ForceMoveNext;
 
 /// Owned by bevy_adapter; set by render_view to gate tick/sync systems.
 #[derive(Resource, Default, PartialEq)]
@@ -36,15 +36,16 @@ pub struct MapBounds {
 pub struct CurrentMapSize(pub simulation::map::MapSize);
 
 impl Default for CurrentMapSize {
-    fn default() -> Self { Self(simulation::map::MapSize::Small) }
+    fn default() -> Self {
+        Self(simulation::map::MapSize::Small)
+    }
 }
 
 pub struct BevyAdapterPlugin;
 
 impl Plugin for BevyAdapterPlugin {
     fn build(&self, app: &mut App) {
-        app
-            .init_resource::<UnitIdMapper>()
+        app.init_resource::<UnitIdMapper>()
             .init_resource::<TickClock>()
             .init_resource::<CommandBuffer>()
             .init_resource::<PendingEvents>()
@@ -52,9 +53,16 @@ impl Plugin for BevyAdapterPlugin {
             .init_resource::<GameActive>()
             .init_resource::<Paused>()
             .init_resource::<CurrentMapSize>()
-            .add_systems(Update, (
-                crate::tick::tick_driver_system,
-                crate::lifecycle::sync_entities_system,
-            ).run_if(resource_exists_and_equals(GameActive(true)).and_then(not(resource_exists_and_equals(Paused(true))))));
+            .add_systems(
+                Update,
+                (
+                    crate::tick::tick_driver_system,
+                    crate::lifecycle::sync_entities_system,
+                )
+                    .run_if(
+                        resource_exists_and_equals(GameActive(true))
+                            .and_then(not(resource_exists_and_equals(Paused(true)))),
+                    ),
+            );
     }
 }

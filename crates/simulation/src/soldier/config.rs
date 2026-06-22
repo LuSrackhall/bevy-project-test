@@ -1,9 +1,9 @@
 //! Soldier configuration — loaded from content/units.ron
 
+use crate::types::SoldierType;
 use bevy_ecs::prelude::Resource;
 use serde::Deserialize;
 use std::collections::HashMap;
-use crate::types::SoldierType;
 
 /// Per-unit-type configuration.
 #[derive(Clone, Debug, Deserialize)]
@@ -37,16 +37,36 @@ pub struct SoldierUnitConfig {
     pub collision_radius: u32,
 }
 
-fn default_arrow_speed() -> u32 { 20 }
-fn default_range_base() -> u32 { 380 }
-fn default_range_max() -> u32 { 600 }
-fn default_range_max_level() -> u32 { 4 }
-fn default_overshoot_base() -> u32 { 20 }
-fn default_overshoot_per_level() -> u32 { 20 }
-fn default_pierce_base() -> f32 { 0.05 }
-fn default_pierce_per_level() -> f32 { 0.02 }
-fn default_pierce_unlock() -> u32 { 2 }
-fn default_collision_radius() -> u32 { 6 }
+fn default_arrow_speed() -> u32 {
+    20
+}
+fn default_range_base() -> u32 {
+    380
+}
+fn default_range_max() -> u32 {
+    600
+}
+fn default_range_max_level() -> u32 {
+    4
+}
+fn default_overshoot_base() -> u32 {
+    20
+}
+fn default_overshoot_per_level() -> u32 {
+    20
+}
+fn default_pierce_base() -> f32 {
+    0.05
+}
+fn default_pierce_per_level() -> f32 {
+    0.02
+}
+fn default_pierce_unlock() -> u32 {
+    2
+}
+fn default_collision_radius() -> u32 {
+    6
+}
 
 impl SoldierUnitConfig {
     /// Compute attack range for archers based on level.
@@ -55,7 +75,9 @@ impl SoldierUnitConfig {
         let base = self.attack_range_base;
         let range = self.attack_range_max - self.attack_range_base;
         let steps = self.attack_range_max_level - 1;
-        if steps == 0 { return base; }
+        if steps == 0 {
+            return base;
+        }
         base + (lvl - 1) * range / steps
     }
 
@@ -67,21 +89,31 @@ impl SoldierUnitConfig {
     /// Compute flight ticks for an arrow based on level.
     pub fn compute_flight_ticks(&self, level: u32) -> u32 {
         let total_distance = self.compute_attack_range(level) + self.compute_overshoot(level);
-        if self.arrow_speed == 0 { return 10; }
+        if self.arrow_speed == 0 {
+            return 10;
+        }
         total_distance.div_ceil(self.arrow_speed)
     }
 
     /// Max flight ticks (used for precomputation).
     pub fn max_flight_ticks(&self) -> u32 {
-        let max_dist = self.attack_range_max + self.overshoot_base + (self.attack_range_max_level - 1) * self.overshoot_per_level;
-        if self.arrow_speed == 0 { return 34; }
+        let max_dist = self.attack_range_max
+            + self.overshoot_base
+            + (self.attack_range_max_level - 1) * self.overshoot_per_level;
+        if self.arrow_speed == 0 {
+            return 34;
+        }
         max_dist.div_ceil(self.arrow_speed)
     }
 
     /// Pierce chance for given level.
     pub fn compute_pierce_chance(&self, level: u32) -> f32 {
-        if level < self.pierce_unlock_level { return 0.0; }
-        (self.pierce_base_chance + (level - self.pierce_unlock_level) as f32 * self.pierce_per_level).max(0.0)
+        if level < self.pierce_unlock_level {
+            return 0.0;
+        }
+        (self.pierce_base_chance
+            + (level - self.pierce_unlock_level) as f32 * self.pierce_per_level)
+            .max(0.0)
     }
 }
 
@@ -94,8 +126,8 @@ pub struct SoldierConfig {
 impl SoldierConfig {
     /// Load from a RON string.
     pub fn from_ron(ron_str: &str) -> Result<Self, String> {
-        let raw: HashMap<String, SoldierUnitConfig> = ron::from_str(ron_str)
-            .map_err(|e| format!("Failed to parse units.ron: {}", e))?;
+        let raw: HashMap<String, SoldierUnitConfig> =
+            ron::from_str(ron_str).map_err(|e| format!("Failed to parse units.ron: {}", e))?;
 
         let mut units = HashMap::new();
         for (key, config) in raw {
@@ -113,7 +145,8 @@ impl SoldierConfig {
 
     /// Get config for a soldier type (panics if missing — should be loaded at startup).
     pub fn get(&self, stype: SoldierType) -> &SoldierUnitConfig {
-        self.units.get(&stype)
+        self.units
+            .get(&stype)
             .unwrap_or_else(|| panic!("Soldier config missing for {:?}", stype))
     }
 }

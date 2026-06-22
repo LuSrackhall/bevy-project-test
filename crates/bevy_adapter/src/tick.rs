@@ -6,13 +6,17 @@ use simulation::SimulationEvents;
 #[derive(Resource)]
 pub struct TickClock {
     pub current_tick: u32,
-    pub tick_duration: f32,  // seconds (0.05 for 20Hz)
+    pub tick_duration: f32, // seconds (0.05 for 20Hz)
     pub accumulator: f32,
 }
 
 impl Default for TickClock {
     fn default() -> Self {
-        Self { current_tick: 0, tick_duration: 0.05, accumulator: 0.0 }
+        Self {
+            current_tick: 0,
+            tick_duration: 0.05,
+            accumulator: 0.0,
+        }
     }
 }
 
@@ -43,13 +47,16 @@ pub fn tick_driver_system(
         tick_clock.current_tick += 1;
 
         // Copy Bevy-side commands into simulation world before tick
-        let commands_for_tick: Vec<GameCommand> = cmd_buf.0
+        let commands_for_tick: Vec<GameCommand> = cmd_buf
+            .0
             .iter()
             .filter(|c| c.tick == tick_clock.current_tick)
             .cloned()
             .collect();
         {
-            let mut sim_cmds = sim_world.0.resource_mut::<simulation::command::CommandBuffer>();
+            let mut sim_cmds = sim_world
+                .0
+                .resource_mut::<simulation::command::CommandBuffer>();
             for cmd in commands_for_tick {
                 sim_cmds.0.push(cmd);
             }

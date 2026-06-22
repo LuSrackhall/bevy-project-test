@@ -1,7 +1,7 @@
+use crate::ui::hud::ButtonTheme;
+use bevy::picking::hover::Hovered;
 use bevy::prelude::*;
 use bevy::ui_widgets::{Activate, Button as WidgetButton};
-use bevy::picking::hover::Hovered;
-use crate::ui::hud::ButtonTheme;
 use simulation::map::MapSize;
 
 #[derive(Component)]
@@ -69,5 +69,7 @@ pub fn setup_main_menu(mut commands: Commands, asset_server: Res<AssetServer>) {
 }
 
 pub fn cleanup_main_menu(mut commands: Commands, query: Query<Entity, With<MainMenuUI>>) {
-    for e in query.iter() { commands.entity(e).despawn(); }
+    for e in query.iter() {
+        commands.entity(e).despawn();
+    }
 }

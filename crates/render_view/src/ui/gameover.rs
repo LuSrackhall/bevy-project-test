@@ -1,7 +1,7 @@
+use crate::ui::hud::ButtonTheme;
+use bevy::picking::hover::Hovered;
 use bevy::prelude::*;
 use bevy::ui_widgets::{Activate, Button as WidgetButton};
-use bevy::picking::hover::Hovered;
-use crate::ui::hud::ButtonTheme;
 
 #[derive(Component)]
 pub struct GameOverUI;
@@ -34,8 +34,13 @@ pub fn setup_gameover(mut commands: Commands, asset_server: Res<AssetServer>) {
 }
 
 pub fn cleanup_gameover(mut commands: Commands, query: Query<Entity, With<GameOverUI>>) {
-    for e in query.iter() { commands.entity(e).despawn(); }
+    for e in query.iter() {
+        commands.entity(e).despawn();
+    }
 }
 
 #[derive(Component)]
-pub(crate) enum EndBtn { Restart, Menu }
+pub(crate) enum EndBtn {
+    Restart,
+    Menu,
+}

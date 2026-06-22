@@ -1,16 +1,16 @@
-use bevy::prelude::*;
-use bevy::ui_widgets::{Activate, Button as WidgetButton, MenuPopup};
-use bevy::picking::hover::Hovered;
-use bevy::ui::Pressed;
-use bevy::input_focus::tab_navigation::TabIndex;
-use simulation::types::*;
-use simulation::soldier::*;
-use simulation::city::config::CityGlobalConfig;
-use simulation::soldier::config::SoldierConfig;
-use simulation::command::*;
-use bevy_adapter::tick::{SimulationWorld, TickClock};
-use bevy_adapter::input::ForceMoveNext;
 use crate::selection::SelectionState;
+use bevy::input_focus::tab_navigation::TabIndex;
+use bevy::picking::hover::Hovered;
+use bevy::prelude::*;
+use bevy::ui::Pressed;
+use bevy::ui_widgets::{Activate, Button as WidgetButton, MenuPopup};
+use bevy_adapter::input::ForceMoveNext;
+use bevy_adapter::tick::{SimulationWorld, TickClock};
+use simulation::city::config::CityGlobalConfig;
+use simulation::command::*;
+use simulation::soldier::config::SoldierConfig;
+use simulation::soldier::*;
+use simulation::types::*;
 use std::collections::HashMap;
 
 // ══════════ Resources ══════════
@@ -18,22 +18,42 @@ use std::collections::HashMap;
 #[derive(Resource, Default)]
 pub(crate) struct HudTexts {
     // top bar
-    cities: Option<Entity>, pop: Option<Entity>, enemy: Option<Entity>, time: Option<Entity>,
+    cities: Option<Entity>,
+    pop: Option<Entity>,
+    enemy: Option<Entity>,
+    time: Option<Entity>,
     // toast
     pub(crate) toast_text: Option<Entity>,
     // soldier panel
-    s_root: Option<Entity>, s_header: Option<Entity>, s_hp_text: Option<Entity>, s_hp_fill: Option<Entity>,
-    s_atk: Option<Entity>, s_spd: Option<Entity>, s_exp_text: Option<Entity>, s_exp_fill: Option<Entity>,
-    s_effect: Option<Entity>, s_origin: Option<Entity>,
+    s_root: Option<Entity>,
+    s_header: Option<Entity>,
+    s_hp_text: Option<Entity>,
+    s_hp_fill: Option<Entity>,
+    s_atk: Option<Entity>,
+    s_spd: Option<Entity>,
+    s_exp_text: Option<Entity>,
+    s_exp_fill: Option<Entity>,
+    s_effect: Option<Entity>,
+    s_origin: Option<Entity>,
     // city panel
-    c_root: Option<Entity>, c_info: Option<Entity>, c_hp_text: Option<Entity>, c_hp_fill: Option<Entity>,
-    c_pop: Option<Entity>, c_exp: Option<Entity>, c_spawn: Option<Entity>,
+    c_root: Option<Entity>,
+    c_info: Option<Entity>,
+    c_hp_text: Option<Entity>,
+    c_hp_fill: Option<Entity>,
+    c_pop: Option<Entity>,
+    c_exp: Option<Entity>,
+    c_spawn: Option<Entity>,
     // command card
     cmd_info: Option<Entity>,
     // compendium
-    comp_header: Option<Entity>, comp_hp: Option<Entity>, comp_atk: Option<Entity>,
-    comp_spd: Option<Entity>, comp_rng: Option<Entity>, comp_rad: Option<Entity>,
-    comp_effect: Option<Entity>, comp_desc: Option<Entity>,
+    comp_header: Option<Entity>,
+    comp_hp: Option<Entity>,
+    comp_atk: Option<Entity>,
+    comp_spd: Option<Entity>,
+    comp_rng: Option<Entity>,
+    comp_rad: Option<Entity>,
+    comp_effect: Option<Entity>,
+    comp_desc: Option<Entity>,
     // seek panel
     pub(crate) seek_scope_text: Option<Entity>,
     pub(crate) seek_range_text: Option<Entity>,
@@ -132,27 +152,47 @@ impl ButtonTheme {
     }
 }
 
-#[derive(Component)] pub(crate) struct HudRoot;
-#[derive(Component)] struct BottomZone;
-#[derive(Component)] pub(crate) struct HpFillS;
-#[derive(Component)] pub(crate) struct ExpFillS;
-#[derive(Component)] pub(crate) struct HpFillC;
-#[derive(Component)] pub(crate) struct CityPanelRoot;
-#[derive(Component)] pub(crate) struct SoldierPanelRoot;
-#[derive(Component, Clone, Copy)] pub(crate) struct SpawnTypeBtn(pub SoldierType);
-#[derive(Component)] pub struct ToolbarButton(pub u8);
-#[derive(Component)] pub struct ShieldButton;
+#[derive(Component)]
+pub(crate) struct HudRoot;
+#[derive(Component)]
+struct BottomZone;
+#[derive(Component)]
+pub(crate) struct HpFillS;
+#[derive(Component)]
+pub(crate) struct ExpFillS;
+#[derive(Component)]
+pub(crate) struct HpFillC;
+#[derive(Component)]
+pub(crate) struct CityPanelRoot;
+#[derive(Component)]
+pub(crate) struct SoldierPanelRoot;
+#[derive(Component, Clone, Copy)]
+pub(crate) struct SpawnTypeBtn(pub SoldierType);
+#[derive(Component)]
+pub struct ToolbarButton(pub u8);
+#[derive(Component)]
+pub struct ShieldButton;
 
 // Seek panel components
-#[derive(Component)] pub(crate) struct SeekPanelRoot;
-#[derive(Component)] #[expect(dead_code)] pub(crate) struct SeekScopeDropdown; // the trigger button showing current scope
-#[derive(Component, Clone)] pub(crate) struct SeekScopeOption(pub SeekScope); // dropdown option
-#[derive(Component)] pub(crate) struct SeekRangeInput; // the range input box
-#[derive(Component)] pub(crate) struct SeekIssueBtn; // the issue button
+#[derive(Component)]
+pub(crate) struct SeekPanelRoot;
+#[derive(Component)]
+#[expect(dead_code)]
+pub(crate) struct SeekScopeDropdown; // the trigger button showing current scope
+#[derive(Component, Clone)]
+pub(crate) struct SeekScopeOption(pub SeekScope); // dropdown option
+#[derive(Component)]
+pub(crate) struct SeekRangeInput; // the range input box
+#[derive(Component)]
+pub(crate) struct SeekIssueBtn; // the issue button
 
 // ══════════ Setup ══════════
 
-pub(crate) fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server: Res<AssetServer>) {
+pub(crate) fn setup_hud(
+    mut commands: Commands,
+    mut ht: ResMut<HudTexts>,
+    asset_server: Res<AssetServer>,
+) {
     let font = asset_server.load("fonts/Arial Unicode.ttf");
     commands.spawn((Node { width: Val::Percent(100.0), height: Val::Percent(100.0),
         flex_direction: FlexDirection::Column, justify_content: JustifyContent::SpaceBetween, ..default() }, HudRoot, Pickable::IGNORE))
@@ -483,7 +523,13 @@ pub(crate) fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_
 /// Also handles Pressed component removal via RemovedComponents.
 #[allow(clippy::type_complexity)]
 pub(crate) fn button_style_system(
-    mut q: Query<(&mut BackgroundColor, &mut BorderColor, &Hovered, Has<Pressed>, &ButtonTheme)>,
+    mut q: Query<(
+        &mut BackgroundColor,
+        &mut BorderColor,
+        &Hovered,
+        Has<Pressed>,
+        &ButtonTheme,
+    )>,
     changed: Query<Entity, Or<(Changed<Hovered>, Changed<Pressed>)>>,
     mut removed_pressed: RemovedComponents<Pressed>,
 ) {
@@ -519,17 +565,53 @@ pub(crate) fn button_style_system(
 
 // ══════════ Update Systems ══════════
 
-pub(crate) fn update_top_bar(mut tq: Query<&mut Text>, ht: Res<HudTexts>,
-    mut sim: bevy::ecs::system::NonSendMut<SimulationWorld>, tick_clock: Res<bevy_adapter::tick::TickClock>) {
+pub(crate) fn update_top_bar(
+    mut tq: Query<&mut Text>,
+    ht: Res<HudTexts>,
+    mut sim: bevy::ecs::system::NonSendMut<SimulationWorld>,
+    tick_clock: Res<bevy_adapter::tick::TickClock>,
+) {
     let w = &mut sim.0;
-    let (mut pc, mut pp, mut pm, mut es) = (0usize,0u32,0u32,0u32);
-    { let mut q = w.query::<(&FactionComponent, &CityComponent)>(); for (f,c) in q.iter(w) { if f.0==Faction::Player { pc+=1; pp+=c.population; pm+=c.max_population; } } }
-    { let mut q = w.query::<(&FactionComponent, &SoldierTypeComponent)>(); for (f,_) in q.iter(w) { if f.0==Faction::Enemy { es+=1; } } }
+    let (mut pc, mut pp, mut pm, mut es) = (0usize, 0u32, 0u32, 0u32);
+    {
+        let mut q = w.query::<(&FactionComponent, &CityComponent)>();
+        for (f, c) in q.iter(w) {
+            if f.0 == Faction::Player {
+                pc += 1;
+                pp += c.population;
+                pm += c.max_population;
+            }
+        }
+    }
+    {
+        let mut q = w.query::<(&FactionComponent, &SoldierTypeComponent)>();
+        for (f, _) in q.iter(w) {
+            if f.0 == Faction::Enemy {
+                es += 1;
+            }
+        }
+    }
     let e = (tick_clock.current_tick as f64 * tick_clock.tick_duration as f64) as u64;
-    if let Some(id) = ht.cities { if let Ok(mut t)=tq.get_mut(id) { t.0=format!("城 {}",pc); } }
-    if let Some(id) = ht.pop { if let Ok(mut t)=tq.get_mut(id) { t.0=format!("兵 {}/{}",pp,pm); } }
-    if let Some(id) = ht.enemy { if let Ok(mut t)=tq.get_mut(id) { t.0=format!("敌 {}",es); } }
-    if let Some(id) = ht.time { if let Ok(mut t)=tq.get_mut(id) { t.0=format!("T {}:{:02}",e/60,e%60); } }
+    if let Some(id) = ht.cities {
+        if let Ok(mut t) = tq.get_mut(id) {
+            t.0 = format!("城 {}", pc);
+        }
+    }
+    if let Some(id) = ht.pop {
+        if let Ok(mut t) = tq.get_mut(id) {
+            t.0 = format!("兵 {}/{}", pp, pm);
+        }
+    }
+    if let Some(id) = ht.enemy {
+        if let Ok(mut t) = tq.get_mut(id) {
+            t.0 = format!("敌 {}", es);
+        }
+    }
+    if let Some(id) = ht.time {
+        if let Ok(mut t) = tq.get_mut(id) {
+            t.0 = format!("T {}:{:02}", e / 60, e % 60);
+        }
+    }
 }
 
 #[allow(clippy::type_complexity)]
@@ -543,7 +625,8 @@ pub(crate) fn update_bottom_panel(
         Query<&mut Node, With<CityPanelRoot>>,
     )>,
     hovered_st: Res<HoveredSoldierType>,
-    ht: Res<HudTexts>, selection: Res<SelectionState>,
+    ht: Res<HudTexts>,
+    selection: Res<SelectionState>,
     mut sim: bevy::ecs::system::NonSendMut<SimulationWorld>,
 ) {
     let w = &mut sim.0;
@@ -556,43 +639,131 @@ pub(crate) fn update_bottom_panel(
     let has_soldiers = !selection.selected_unit_ids.is_empty();
 
     // Toggle panel visibility: city and soldier share the same spot
-    if let Some(e) = ht.s_root { if let Ok(mut n) = node_params.p3().get_mut(e) { n.display = if !has_city { Display::Flex } else { Display::None }; } }
-    if let Some(e) = ht.c_root { if let Ok(mut n) = node_params.p4().get_mut(e) { n.display = if has_city { Display::Flex } else { Display::None }; } }
+    if let Some(e) = ht.s_root {
+        if let Ok(mut n) = node_params.p3().get_mut(e) {
+            n.display = if !has_city {
+                Display::Flex
+            } else {
+                Display::None
+            };
+        }
+    }
+    if let Some(e) = ht.c_root {
+        if let Ok(mut n) = node_params.p4().get_mut(e) {
+            n.display = if has_city {
+                Display::Flex
+            } else {
+                Display::None
+            };
+        }
+    }
 
     // ── Update city panel ──
     if let Some(ce) = city_entity {
         if let Some(city) = w.entity(ce).get::<CityComponent>() {
-                let r = city.health_current as f32 / city.health_max.max(1) as f32;
-                set_text(&mut tq, ht.c_info, &format!("[城池] Lv.{} (最高Lv.{})", city.level, city.max_level));
-                set_text(&mut tq, ht.c_hp_text, &format!("HP {}/{}", city.health_current, city.health_max));
-                set_text(&mut tq, ht.c_pop, &format!("兵 {}/{}", city.population, city.max_population));
-                let cc = w.resource::<CityGlobalConfig>();
-                let req = (city.health_max as f32 * cc.level_up_cost_multiplier * city.level as f32) as u64;
-                set_text(&mut tq, ht.c_exp, &format!("经验 {}/{}", city.level_exp, req));
-                set_text(&mut tq, ht.c_spawn, &format!("当前: {}", match city.spawn_type {
-                    SoldierType::Militia=>"民兵",SoldierType::Infantry=>"步兵",SoldierType::Archer=>"弓兵",SoldierType::Cavalry=>"骑兵" }));
-                if let Some(f) = ht.c_hp_fill { if let Ok((mut n,mut bg))=node_params.p2().get_mut(f) {
-                    n.width=Val::Percent(r*100.0); bg.0=if r>0.5{Color::srgba(0.2,0.8,0.2,1.0)}else{Color::srgba(0.9,0.2,0.2,1.0)}; } }
+            let r = city.health_current as f32 / city.health_max.max(1) as f32;
+            set_text(
+                &mut tq,
+                ht.c_info,
+                &format!("[城池] Lv.{} (最高Lv.{})", city.level, city.max_level),
+            );
+            set_text(
+                &mut tq,
+                ht.c_hp_text,
+                &format!("HP {}/{}", city.health_current, city.health_max),
+            );
+            set_text(
+                &mut tq,
+                ht.c_pop,
+                &format!("兵 {}/{}", city.population, city.max_population),
+            );
+            let cc = w.resource::<CityGlobalConfig>();
+            let req =
+                (city.health_max as f32 * cc.level_up_cost_multiplier * city.level as f32) as u64;
+            set_text(
+                &mut tq,
+                ht.c_exp,
+                &format!("经验 {}/{}", city.level_exp, req),
+            );
+            set_text(
+                &mut tq,
+                ht.c_spawn,
+                &format!(
+                    "当前: {}",
+                    match city.spawn_type {
+                        SoldierType::Militia => "民兵",
+                        SoldierType::Infantry => "步兵",
+                        SoldierType::Archer => "弓兵",
+                        SoldierType::Cavalry => "骑兵",
+                    }
+                ),
+            );
+            if let Some(f) = ht.c_hp_fill {
+                if let Ok((mut n, mut bg)) = node_params.p2().get_mut(f) {
+                    n.width = Val::Percent(r * 100.0);
+                    bg.0 = if r > 0.5 {
+                        Color::srgba(0.2, 0.8, 0.2, 1.0)
+                    } else {
+                        Color::srgba(0.9, 0.2, 0.2, 1.0)
+                    };
+                }
             }
         }
+    }
 
     // ── Update soldier panel ──
     if has_soldiers && !has_city {
         let ids = &selection.selected_unit_ids;
         let sc = w.resource::<SoldierConfig>().clone();
-        struct SI { st:SoldierType, hp:u32, mhp:u32, atk:u32, spd:u32, rng:u32, rad:u32, lv:u32, exp:u32 }
+        struct SI {
+            st: SoldierType,
+            hp: u32,
+            mhp: u32,
+            atk: u32,
+            spd: u32,
+            rng: u32,
+            rad: u32,
+            lv: u32,
+            exp: u32,
+        }
         let soldiers: Vec<SI> = {
-            let mut q = w.query::<(Entity,&UnitIdComponent,&Health,&Attack,&Movement,&SoldierTypeComponent,&Level)>();
-            ids.iter().filter_map(|uid| q.iter(w).find(|(_,id,_,_,_,_,_)| id.0==*uid).map(|(_,_,hp,atk,mov,st,lvl)| {
-                let c = sc.get(st.0);
-                SI{st:st.0,hp:hp.current,mhp:hp.max,atk:atk.damage,spd:mov.speed,rng:atk.range,rad:c.collision_radius,lv:lvl.level,exp:lvl.exp}
-            })).collect()
+            let mut q = w.query::<(
+                Entity,
+                &UnitIdComponent,
+                &Health,
+                &Attack,
+                &Movement,
+                &SoldierTypeComponent,
+                &Level,
+            )>();
+            ids.iter()
+                .filter_map(|uid| {
+                    q.iter(w).find(|(_, id, _, _, _, _, _)| id.0 == *uid).map(
+                        |(_, _, hp, atk, mov, st, lvl)| {
+                            let c = sc.get(st.0);
+                            SI {
+                                st: st.0,
+                                hp: hp.current,
+                                mhp: hp.max,
+                                atk: atk.damage,
+                                spd: mov.speed,
+                                rng: atk.range,
+                                rad: c.collision_radius,
+                                lv: lvl.level,
+                                exp: lvl.exp,
+                            }
+                        },
+                    )
+                })
+                .collect()
         };
         if soldiers.len() == 1 {
             let s = &soldiers[0];
             let (label, effect) = match s.st {
-                SoldierType::Militia=>("民兵","无"), SoldierType::Infantry=>("步兵","举盾: 可举盾大幅减伤"),
-                SoldierType::Archer=>("弓兵","远程+穿透: 箭矢可穿透"), SoldierType::Cavalry=>("骑兵","闪避+无畏: 受伤时可闪避")
+                SoldierType::Militia => ("民兵", "无"),
+                SoldierType::Infantry => ("步兵", "举盾: 可举盾大幅减伤"),
+                SoldierType::Archer => ("弓兵", "远程+穿透: 箭矢可穿透"),
+                SoldierType::Cavalry => ("骑兵", "闪避+无畏: 受伤时可闪避"),
             };
             set_text(&mut tq, ht.s_header, &format!("{} Lv.{}", label, s.lv));
             set_text(&mut tq, ht.s_hp_text, &format!("HP {}/{}", s.hp, s.mhp));
@@ -601,44 +772,155 @@ pub(crate) fn update_bottom_panel(
             set_text(&mut tq, ht.s_effect, &format!("特殊: {}", effect));
             set_text(&mut tq, ht.s_exp_text, &format!("EXP {}/{}", s.exp, 100u32));
             set_text(&mut tq, ht.s_origin, "");
-            if let Some(f) = ht.s_hp_fill { if let Ok((mut n,mut bg))=node_params.p0().get_mut(f) {
-                let r = s.hp as f32/s.mhp.max(1) as f32;
-                n.width=Val::Percent(r*100.0); bg.0=if r>0.5{Color::srgba(0.2,0.8,0.2,1.0)}else{Color::srgba(0.9,0.2,0.2,1.0)}; } }
-            if let Some(f) = ht.s_exp_fill { if let Ok((mut n,_))=node_params.p1().get_mut(f) { n.width=Val::Percent((s.exp as f32/100.0*100.0).min(100.0)); } }
+            if let Some(f) = ht.s_hp_fill {
+                if let Ok((mut n, mut bg)) = node_params.p0().get_mut(f) {
+                    let r = s.hp as f32 / s.mhp.max(1) as f32;
+                    n.width = Val::Percent(r * 100.0);
+                    bg.0 = if r > 0.5 {
+                        Color::srgba(0.2, 0.8, 0.2, 1.0)
+                    } else {
+                        Color::srgba(0.9, 0.2, 0.2, 1.0)
+                    };
+                }
+            }
+            if let Some(f) = ht.s_exp_fill {
+                if let Ok((mut n, _)) = node_params.p1().get_mut(f) {
+                    n.width = Val::Percent((s.exp as f32 / 100.0 * 100.0).min(100.0));
+                }
+            }
         } else if !soldiers.is_empty() {
-            let mut counts: HashMap<SoldierType,u32> = HashMap::new();
-            let (mut thp,mut tmax,mut tatk) = (0u32,0u32,0u32);
-            for s in &soldiers { *counts.entry(s.st).or_default()+=1; thp+=s.hp; tmax+=s.mhp; tatk+=s.atk; }
-            let parts: Vec<String> = counts.iter().map(|(st,c)| format!("{}{}",c,match st{SoldierType::Militia=>"民",SoldierType::Infantry=>"步",SoldierType::Archer=>"弓",SoldierType::Cavalry=>"骑"})).collect();
-            set_text(&mut tq, ht.s_header, &format!("选中 {} 单位", soldiers.len()));
+            let mut counts: HashMap<SoldierType, u32> = HashMap::new();
+            let (mut thp, mut tmax, mut tatk) = (0u32, 0u32, 0u32);
+            for s in &soldiers {
+                *counts.entry(s.st).or_default() += 1;
+                thp += s.hp;
+                tmax += s.mhp;
+                tatk += s.atk;
+            }
+            let parts: Vec<String> = counts
+                .iter()
+                .map(|(st, c)| {
+                    format!(
+                        "{}{}",
+                        c,
+                        match st {
+                            SoldierType::Militia => "民",
+                            SoldierType::Infantry => "步",
+                            SoldierType::Archer => "弓",
+                            SoldierType::Cavalry => "骑",
+                        }
+                    )
+                })
+                .collect();
+            set_text(
+                &mut tq,
+                ht.s_header,
+                &format!("选中 {} 单位", soldiers.len()),
+            );
             set_text(&mut tq, ht.s_hp_text, &format!("HP {}/{}", thp, tmax));
-            set_text(&mut tq, ht.s_atk, &format!("均ATK {}", tatk/soldiers.len().max(1) as u32));
+            set_text(
+                &mut tq,
+                ht.s_atk,
+                &format!("均ATK {}", tatk / soldiers.len().max(1) as u32),
+            );
             set_text(&mut tq, ht.s_spd, &parts.join("  "));
-            for id in [ht.s_exp_text,ht.s_effect,ht.s_origin].into_iter().flatten() { if let Ok(mut t)=tq.get_mut(id) { t.0.clear(); } }
-            if let Some(f)=ht.s_exp_fill { if let Ok((mut n,_))=node_params.p1().get_mut(f) { n.width=Val::Percent(0.0); } }
-            let r = thp as f32/tmax.max(1) as f32;
-            if let Some(f)=ht.s_hp_fill { if let Ok((mut n,mut bg))=node_params.p0().get_mut(f) { n.width=Val::Percent(r*100.0); bg.0=if r>0.5{Color::srgba(0.2,0.8,0.2,1.0)}else{Color::srgba(0.9,0.2,0.2,1.0)}; } }
+            for id in [ht.s_exp_text, ht.s_effect, ht.s_origin]
+                .into_iter()
+                .flatten()
+            {
+                if let Ok(mut t) = tq.get_mut(id) {
+                    t.0.clear();
+                }
+            }
+            if let Some(f) = ht.s_exp_fill {
+                if let Ok((mut n, _)) = node_params.p1().get_mut(f) {
+                    n.width = Val::Percent(0.0);
+                }
+            }
+            let r = thp as f32 / tmax.max(1) as f32;
+            if let Some(f) = ht.s_hp_fill {
+                if let Ok((mut n, mut bg)) = node_params.p0().get_mut(f) {
+                    n.width = Val::Percent(r * 100.0);
+                    bg.0 = if r > 0.5 {
+                        Color::srgba(0.2, 0.8, 0.2, 1.0)
+                    } else {
+                        Color::srgba(0.9, 0.2, 0.2, 1.0)
+                    };
+                }
+            }
         }
     } else {
         // No selection: show placeholder in soldier panel
         set_text(&mut tq, ht.s_header, "点击单位以查看详情");
-        for id in [ht.s_hp_text,ht.s_atk,ht.s_spd,ht.s_exp_text,ht.s_effect,ht.s_origin].into_iter().flatten() { if let Ok(mut t)=tq.get_mut(id) { t.0.clear(); } }
-        if let Some(f)=ht.s_hp_fill { if let Ok((mut n,_))=node_params.p0().get_mut(f) { n.width=Val::Percent(0.0); } }
-        if let Some(f)=ht.s_exp_fill { if let Ok((mut n,_))=node_params.p1().get_mut(f) { n.width=Val::Percent(0.0); } }
+        for id in [
+            ht.s_hp_text,
+            ht.s_atk,
+            ht.s_spd,
+            ht.s_exp_text,
+            ht.s_effect,
+            ht.s_origin,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if let Ok(mut t) = tq.get_mut(id) {
+                t.0.clear();
+            }
+        }
+        if let Some(f) = ht.s_hp_fill {
+            if let Ok((mut n, _)) = node_params.p0().get_mut(f) {
+                n.width = Val::Percent(0.0);
+            }
+        }
+        if let Some(f) = ht.s_exp_fill {
+            if let Ok((mut n, _)) = node_params.p1().get_mut(f) {
+                n.width = Val::Percent(0.0);
+            }
+        }
     }
 
     // ── Command card summary ──
     let summary = if has_soldiers && !has_city {
-        let mut counts: HashMap<SoldierType,u32> = HashMap::new();
+        let mut counts: HashMap<SoldierType, u32> = HashMap::new();
         for uid in &selection.selected_unit_ids {
-            if let Some((_,_,st)) = w.query::<(Entity,&UnitIdComponent,&SoldierTypeComponent)>().iter(w).find(|(_,id,_)| id.0==*uid) { *counts.entry(st.0).or_default()+=1; }
+            if let Some((_, _, st)) = w
+                .query::<(Entity, &UnitIdComponent, &SoldierTypeComponent)>()
+                .iter(w)
+                .find(|(_, id, _)| id.0 == *uid)
+            {
+                *counts.entry(st.0).or_default() += 1;
+            }
         }
-        let parts: Vec<String> = counts.iter().map(|(st,c)| format!("{}{}",c,match st{SoldierType::Militia=>"民",SoldierType::Infantry=>"步",SoldierType::Archer=>"弓",SoldierType::Cavalry=>"骑"})).collect();
-        if parts.is_empty() { String::new() } else { parts.join(" ") }
-    } else { String::new() };
+        let parts: Vec<String> = counts
+            .iter()
+            .map(|(st, c)| {
+                format!(
+                    "{}{}",
+                    c,
+                    match st {
+                        SoldierType::Militia => "民",
+                        SoldierType::Infantry => "步",
+                        SoldierType::Archer => "弓",
+                        SoldierType::Cavalry => "骑",
+                    }
+                )
+            })
+            .collect();
+        if parts.is_empty() {
+            String::new()
+        } else {
+            parts.join(" ")
+        }
+    } else {
+        String::new()
+    };
     if let Some(id) = ht.cmd_info {
         if let Ok(mut t) = tq.get_mut(id) {
-            t.0 = if summary.is_empty() { "无可用命令 — 请先选择单位".into() } else { format!("选中: {}", summary) };
+            t.0 = if summary.is_empty() {
+                "无可用命令 — 请先选择单位".into()
+            } else {
+                format!("选中: {}", summary)
+            };
         }
     }
 
@@ -653,36 +935,93 @@ pub(crate) fn update_bottom_panel(
 }
 
 fn set_text(tq: &mut Query<&mut Text>, e: Option<Entity>, s: &str) {
-    if let Some(id) = e { if let Ok(mut t) = tq.get_mut(id) { t.0 = s.into(); } }
+    if let Some(id) = e {
+        if let Ok(mut t) = tq.get_mut(id) {
+            t.0 = s.into();
+        }
+    }
 }
 
 fn show_compendium(tq: &mut Query<&mut Text>, ht: &HudTexts, st: SoldierType) {
-    let (name, hp, atk, spd, rng, rad, effect, desc): (&str,u32,u32,u32,u32,u32,&str,&str) = match st {
-        SoldierType::Militia => ("民兵",100,16,80,30,6,"无","基础步兵，成本低廉，适合快速补充兵力。"),
-        SoldierType::Infantry => ("步兵",100,20,80,30,7,"举盾: 可举盾大幅减伤","重装步兵，可举盾大幅减伤，攻城主力。"),
-        SoldierType::Archer => ("弓兵",100,20,80,600,5,"远程+穿透: 箭矢可穿透","远程射手，箭矢可穿透敌人，对建筑伤害极低。"),
-        SoldierType::Cavalry => ("骑兵",140,20,200,30,10,"闪避+无畏: 受伤时可闪避","重骑兵，高速冲锋陷阵。受伤时可闪避近战攻击。"),
-    };
-    set_text(tq, ht.comp_header, &format!("{} 图鉴",name));
-    set_text(tq, ht.comp_hp, &format!("HP {}",hp));
-    set_text(tq, ht.comp_atk, &format!("ATK {}",atk));
-    set_text(tq, ht.comp_spd, &format!("SPD {}",spd));
-    set_text(tq, ht.comp_rng, &format!("RNG {}",rng));
-    set_text(tq, ht.comp_rad, &format!("RAD {}",rad));
-    set_text(tq, ht.comp_effect, &format!("特殊: {}",effect));
+    let (name, hp, atk, spd, rng, rad, effect, desc): (&str, u32, u32, u32, u32, u32, &str, &str) =
+        match st {
+            SoldierType::Militia => (
+                "民兵",
+                100,
+                16,
+                80,
+                30,
+                6,
+                "无",
+                "基础步兵，成本低廉，适合快速补充兵力。",
+            ),
+            SoldierType::Infantry => (
+                "步兵",
+                100,
+                20,
+                80,
+                30,
+                7,
+                "举盾: 可举盾大幅减伤",
+                "重装步兵，可举盾大幅减伤，攻城主力。",
+            ),
+            SoldierType::Archer => (
+                "弓兵",
+                100,
+                20,
+                80,
+                600,
+                5,
+                "远程+穿透: 箭矢可穿透",
+                "远程射手，箭矢可穿透敌人，对建筑伤害极低。",
+            ),
+            SoldierType::Cavalry => (
+                "骑兵",
+                140,
+                20,
+                200,
+                30,
+                10,
+                "闪避+无畏: 受伤时可闪避",
+                "重骑兵，高速冲锋陷阵。受伤时可闪避近战攻击。",
+            ),
+        };
+    set_text(tq, ht.comp_header, &format!("{} 图鉴", name));
+    set_text(tq, ht.comp_hp, &format!("HP {}", hp));
+    set_text(tq, ht.comp_atk, &format!("ATK {}", atk));
+    set_text(tq, ht.comp_spd, &format!("SPD {}", spd));
+    set_text(tq, ht.comp_rng, &format!("RNG {}", rng));
+    set_text(tq, ht.comp_rad, &format!("RAD {}", rad));
+    set_text(tq, ht.comp_effect, &format!("特殊: {}", effect));
     set_text(tq, ht.comp_desc, desc);
 }
 
 fn clear_compendium(tq: &mut Query<&mut Text>, ht: &HudTexts) {
-    for id in [ht.comp_hp,ht.comp_atk,ht.comp_spd,ht.comp_rng,ht.comp_rad,ht.comp_effect,ht.comp_desc].into_iter().flatten() {
-        if let Ok(mut t) = tq.get_mut(id) { t.0.clear(); }
+    for id in [
+        ht.comp_hp,
+        ht.comp_atk,
+        ht.comp_spd,
+        ht.comp_rng,
+        ht.comp_rad,
+        ht.comp_effect,
+        ht.comp_desc,
+    ]
+    .into_iter()
+    .flatten()
+    {
+        if let Ok(mut t) = tq.get_mut(id) {
+            t.0.clear();
+        }
     }
     set_text(tq, ht.comp_header, "悬停兵种按钮查看详情");
 }
 
 // ══════════ Button Systems ══════════
 
-fn find_entity_by_unit_id(world: &mut bevy::prelude::World, uid: simulation::types::UnitId) -> Option<bevy::prelude::Entity> {
+fn find_entity_by_unit_id(
+    world: &mut bevy::prelude::World,
+    uid: simulation::types::UnitId,
+) -> Option<bevy::prelude::Entity> {
     let mut q = world.query::<(bevy::prelude::Entity, &simulation::soldier::UnitIdComponent)>();
     q.iter(world).find(|(_, id)| id.0 == uid).map(|(e, _)| e)
 }
@@ -696,14 +1035,20 @@ pub(crate) fn scope_popup_close_system(
     q_hover: Query<&Hovered>,
     mut commands: Commands,
 ) {
-    let Some(popup_entity) = state.open_scope_popup else { return };
-    if !mouse.just_pressed(MouseButton::Left) { return };
+    let Some(popup_entity) = state.open_scope_popup else {
+        return;
+    };
+    if !mouse.just_pressed(MouseButton::Left) {
+        return;
+    };
     if q_popup.get(popup_entity).is_err() {
         state.open_scope_popup = None;
         return;
     }
     // If any menu item is hovered, let its Activate observer handle the close
-    if q_hover.iter().any(|h| h.get()) { return; }
+    if q_hover.iter().any(|h| h.get()) {
+        return;
+    }
     commands.entity(popup_entity).despawn();
     state.open_scope_popup = None;
 }
@@ -722,7 +1067,9 @@ pub(crate) fn seek_panel_mode_system(
     if now_selected != state.has_selection {
         state.has_selection = now_selected;
         // Don't reset while user is actively typing in input
-        if state.input_active { return; }
+        if state.input_active {
+            return;
+        }
         state.range_value = 0;
     }
     // Update mode label
@@ -769,10 +1116,22 @@ pub(crate) fn seek_panel_count_system(
             for (id, st, fac) in q.iter(w) {
                 if id.0 == *uid && fac.0 == Faction::Player {
                     match st.0 {
-                        SoldierType::Militia => { counts[0] += 1; counts[4] += 1; }
-                        SoldierType::Infantry => { counts[1] += 1; counts[4] += 1; }
-                        SoldierType::Archer => { counts[2] += 1; counts[4] += 1; }
-                        SoldierType::Cavalry => { counts[3] += 1; counts[4] += 1; }
+                        SoldierType::Militia => {
+                            counts[0] += 1;
+                            counts[4] += 1;
+                        }
+                        SoldierType::Infantry => {
+                            counts[1] += 1;
+                            counts[4] += 1;
+                        }
+                        SoldierType::Archer => {
+                            counts[2] += 1;
+                            counts[4] += 1;
+                        }
+                        SoldierType::Cavalry => {
+                            counts[3] += 1;
+                            counts[4] += 1;
+                        }
                     }
                     break;
                 }
@@ -784,10 +1143,22 @@ pub(crate) fn seek_panel_count_system(
         for (st, fac) in q.iter(w) {
             if fac.0 == Faction::Player {
                 match st.0 {
-                    SoldierType::Militia => { counts[0] += 1; counts[4] += 1; }
-                    SoldierType::Infantry => { counts[1] += 1; counts[4] += 1; }
-                    SoldierType::Archer => { counts[2] += 1; counts[4] += 1; }
-                    SoldierType::Cavalry => { counts[3] += 1; counts[4] += 1; }
+                    SoldierType::Militia => {
+                        counts[0] += 1;
+                        counts[4] += 1;
+                    }
+                    SoldierType::Infantry => {
+                        counts[1] += 1;
+                        counts[4] += 1;
+                    }
+                    SoldierType::Archer => {
+                        counts[2] += 1;
+                        counts[4] += 1;
+                    }
+                    SoldierType::Cavalry => {
+                        counts[3] += 1;
+                        counts[4] += 1;
+                    }
                 }
             }
         }
@@ -858,28 +1229,64 @@ pub(crate) fn seek_panel_input_system(
         let s = state.range_value.to_string();
         if keyboard.just_pressed(KeyCode::Backspace) {
             if s.len() > 1 {
-                if let Ok(v) = s[..s.len()-1].parse::<u32>() { state.range_value = v; }
+                if let Ok(v) = s[..s.len() - 1].parse::<u32>() {
+                    state.range_value = v;
+                }
             } else {
                 state.range_value = 0;
             }
             changed = true;
         } else {
-            let digit = if keyboard.just_pressed(KeyCode::Digit0) || keyboard.just_pressed(KeyCode::Numpad0) { Some(0) }
-            else if keyboard.just_pressed(KeyCode::Digit1) || keyboard.just_pressed(KeyCode::Numpad1) { Some(1) }
-            else if keyboard.just_pressed(KeyCode::Digit2) || keyboard.just_pressed(KeyCode::Numpad2) { Some(2) }
-            else if keyboard.just_pressed(KeyCode::Digit3) || keyboard.just_pressed(KeyCode::Numpad3) { Some(3) }
-            else if keyboard.just_pressed(KeyCode::Digit4) || keyboard.just_pressed(KeyCode::Numpad4) { Some(4) }
-            else if keyboard.just_pressed(KeyCode::Digit5) || keyboard.just_pressed(KeyCode::Numpad5) { Some(5) }
-            else if keyboard.just_pressed(KeyCode::Digit6) || keyboard.just_pressed(KeyCode::Numpad6) { Some(6) }
-            else if keyboard.just_pressed(KeyCode::Digit7) || keyboard.just_pressed(KeyCode::Numpad7) { Some(7) }
-            else if keyboard.just_pressed(KeyCode::Digit8) || keyboard.just_pressed(KeyCode::Numpad8) { Some(8) }
-            else if keyboard.just_pressed(KeyCode::Digit9) || keyboard.just_pressed(KeyCode::Numpad9) { Some(9) }
-            else { None };
+            let digit = if keyboard.just_pressed(KeyCode::Digit0)
+                || keyboard.just_pressed(KeyCode::Numpad0)
+            {
+                Some(0)
+            } else if keyboard.just_pressed(KeyCode::Digit1)
+                || keyboard.just_pressed(KeyCode::Numpad1)
+            {
+                Some(1)
+            } else if keyboard.just_pressed(KeyCode::Digit2)
+                || keyboard.just_pressed(KeyCode::Numpad2)
+            {
+                Some(2)
+            } else if keyboard.just_pressed(KeyCode::Digit3)
+                || keyboard.just_pressed(KeyCode::Numpad3)
+            {
+                Some(3)
+            } else if keyboard.just_pressed(KeyCode::Digit4)
+                || keyboard.just_pressed(KeyCode::Numpad4)
+            {
+                Some(4)
+            } else if keyboard.just_pressed(KeyCode::Digit5)
+                || keyboard.just_pressed(KeyCode::Numpad5)
+            {
+                Some(5)
+            } else if keyboard.just_pressed(KeyCode::Digit6)
+                || keyboard.just_pressed(KeyCode::Numpad6)
+            {
+                Some(6)
+            } else if keyboard.just_pressed(KeyCode::Digit7)
+                || keyboard.just_pressed(KeyCode::Numpad7)
+            {
+                Some(7)
+            } else if keyboard.just_pressed(KeyCode::Digit8)
+                || keyboard.just_pressed(KeyCode::Numpad8)
+            {
+                Some(8)
+            } else if keyboard.just_pressed(KeyCode::Digit9)
+                || keyboard.just_pressed(KeyCode::Numpad9)
+            {
+                Some(9)
+            } else {
+                None
+            };
 
             if let Some(d) = digit {
                 let new_s = format!("{}{}", s, d);
                 if new_s.len() <= 4 {
-                    if let Ok(v) = new_s.parse::<u32>() { state.range_value = v; }
+                    if let Ok(v) = new_s.parse::<u32>() {
+                        state.range_value = v;
+                    }
                     changed = true;
                 }
             }
@@ -911,9 +1318,13 @@ fn count_matching(unit_ids: &[UnitId], scope: &SeekScope, sim: &mut SimulationWo
         SeekScope::ByType(target_type) => {
             let w = &mut sim.0;
             let mut q = w.query::<(&UnitIdComponent, &SoldierTypeComponent)>();
-            unit_ids.iter().filter(|uid| {
-                q.iter(w).any(|(id, st)| id.0 == **uid && st.0 == *target_type)
-            }).count()
+            unit_ids
+                .iter()
+                .filter(|uid| {
+                    q.iter(w)
+                        .any(|(id, st)| id.0 == **uid && st.0 == *target_type)
+                })
+                .count()
         }
     }
 }
@@ -951,10 +1362,14 @@ pub(crate) fn selection_summary_toast_system(
     mut sim_world: bevy::ecs::system::NonSendMut<SimulationWorld>,
 ) {
     let now = selection.selected_unit_ids.len();
-    if now == *prev_count { return; }
+    if now == *prev_count {
+        return;
+    }
     *prev_count = now;
 
-    if now == 0 { return; } // don't clear existing toast on deselect
+    if now == 0 {
+        return;
+    } // don't clear existing toast on deselect
 
     // Build summary
     let w = &mut sim_world.0;
@@ -983,15 +1398,18 @@ pub(crate) fn selection_summary_toast_system(
         toast.text = format!("选中 {} 个{}", count, name);
     } else {
         // Mixed types
-        let parts: Vec<String> = counts.iter().map(|(st, c)| {
-            let name = match st {
-                SoldierType::Militia => "民兵",
-                SoldierType::Infantry => "步兵",
-                SoldierType::Archer => "弓兵",
-                SoldierType::Cavalry => "骑兵",
-            };
-            format!("{}{}", name, c)
-        }).collect();
+        let parts: Vec<String> = counts
+            .iter()
+            .map(|(st, c)| {
+                let name = match st {
+                    SoldierType::Militia => "民兵",
+                    SoldierType::Infantry => "步兵",
+                    SoldierType::Archer => "弓兵",
+                    SoldierType::Cavalry => "骑兵",
+                };
+                format!("{}{}", name, c)
+            })
+            .collect();
         toast.text = format!("选中 {} 个单位: {}", now, parts.join(" "));
     }
     toast.remaining_ticks = TOAST_DURATION_TICKS;
@@ -1012,16 +1430,20 @@ pub(crate) fn shield_button_visibility_system(
 
     for uid in &sel.selected_unit_ids {
         let e = find_entity_by_unit_id(world, *uid);
-        let is_infantry = e.and_then(|e| world.get::<simulation::soldier::SoldierTypeComponent>(e))
+        let is_infantry = e
+            .and_then(|e| world.get::<simulation::soldier::SoldierTypeComponent>(e))
             .map(|st| st.0 == simulation::types::SoldierType::Infantry)
             .unwrap_or(false);
 
         if is_infantry {
             has_infantry = true;
-            let is_blocking = e.and_then(|e| world.get::<simulation::soldier::ShieldComponent>(e))
+            let is_blocking = e
+                .and_then(|e| world.get::<simulation::soldier::ShieldComponent>(e))
                 .map(|sc| sc.state == simulation::types::ShieldState::Blocking)
                 .unwrap_or(false);
-            if !is_blocking { all_blocking = false; }
+            if !is_blocking {
+                all_blocking = false;
+            }
         }
     }
 

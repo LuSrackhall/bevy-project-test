@@ -75,8 +75,8 @@ pub struct FacingConfig {
 /// Attack windup mechanics.
 #[derive(Clone, Debug, Deserialize)]
 pub struct AttackWindupConfig {
-    pub windup_ticks: u32,          // 3 ticks = 0.15s for non-cavalry
-    pub cavalry_no_windup: bool,    // true = cavalry attacks instantly
+    pub windup_ticks: u32,       // 3 ticks = 0.15s for non-cavalry
+    pub cavalry_no_windup: bool, // true = cavalry attacks instantly
 }
 
 /// Top-level combat configuration.
@@ -98,7 +98,6 @@ pub struct CombatGlobalConfig {
 impl CombatGlobalConfig {
     /// Load from a RON string.
     pub fn from_ron(ron_str: &str) -> Result<Self, String> {
-        ron::from_str(ron_str)
-            .map_err(|e| format!("Failed to parse combat.ron: {}", e))
+        ron::from_str(ron_str).map_err(|e| format!("Failed to parse combat.ron: {}", e))
     }
 }

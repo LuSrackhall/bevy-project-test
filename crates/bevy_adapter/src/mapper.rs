@@ -1,6 +1,6 @@
 use bevy::prelude::*;
-use std::collections::HashMap;
 use simulation::types::UnitId;
+use std::collections::HashMap;
 
 /// Bidirectional O(1) mapping between simulation UnitId and Bevy Entity.
 #[derive(Resource, Default)]

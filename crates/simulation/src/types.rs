@@ -3,10 +3,10 @@
 //! All spatial and game-state values use fixed-point arithmetic.
 //! No floating-point types are allowed in simulation logic.
 
-use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign};
+use bevy_ecs::prelude::{Component, Resource};
 use rand::rngs::SmallRng;
 use rand::{RngCore, SeedableRng};
-use bevy_ecs::prelude::{Component, Resource};
+use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign};
 
 // ═══════════════════════════════════════════════════════════════
 // Fixed-point number: i64 with 8 fractional bits
@@ -69,13 +69,17 @@ impl Fixed {
 impl Add for Fixed {
     type Output = Fixed;
     #[inline]
-    fn add(self, rhs: Fixed) -> Fixed { Fixed(self.0 + rhs.0) }
+    fn add(self, rhs: Fixed) -> Fixed {
+        Fixed(self.0 + rhs.0)
+    }
 }
 
 impl Sub for Fixed {
     type Output = Fixed;
     #[inline]
-    fn sub(self, rhs: Fixed) -> Fixed { Fixed(self.0 - rhs.0) }
+    fn sub(self, rhs: Fixed) -> Fixed {
+        Fixed(self.0 - rhs.0)
+    }
 }
 
 impl Mul for Fixed {
@@ -100,12 +104,16 @@ impl Div for Fixed {
 
 impl AddAssign for Fixed {
     #[inline]
-    fn add_assign(&mut self, rhs: Fixed) { self.0 += rhs.0; }
+    fn add_assign(&mut self, rhs: Fixed) {
+        self.0 += rhs.0;
+    }
 }
 
 impl SubAssign for Fixed {
     #[inline]
-    fn sub_assign(&mut self, rhs: Fixed) { self.0 -= rhs.0; }
+    fn sub_assign(&mut self, rhs: Fixed) {
+        self.0 -= rhs.0;
+    }
 }
 
 impl MulAssign for Fixed {
@@ -135,9 +143,14 @@ pub struct FixedVec2 {
 }
 
 impl FixedVec2 {
-    pub const ZERO: FixedVec2 = FixedVec2 { x: Fixed::ZERO, y: Fixed::ZERO };
+    pub const ZERO: FixedVec2 = FixedVec2 {
+        x: Fixed::ZERO,
+        y: Fixed::ZERO,
+    };
 
-    pub fn new(x: Fixed, y: Fixed) -> Self { FixedVec2 { x, y } }
+    pub fn new(x: Fixed, y: Fixed) -> Self {
+        FixedVec2 { x, y }
+    }
 
     /// Squared length — use this for distance comparisons per Const. 7.1.
     /// NEVER compute sqrt for distance checks.
@@ -157,13 +170,19 @@ impl FixedVec2 {
     /// Component-wise maximum.
     #[inline]
     pub fn min(self, other: FixedVec2) -> FixedVec2 {
-        FixedVec2 { x: self.x.min(other.x), y: self.y.min(other.y) }
+        FixedVec2 {
+            x: self.x.min(other.x),
+            y: self.y.min(other.y),
+        }
     }
 
     /// Component-wise minimum.
     #[inline]
     pub fn max(self, other: FixedVec2) -> FixedVec2 {
-        FixedVec2 { x: self.x.max(other.x), y: self.y.max(other.y) }
+        FixedVec2 {
+            x: self.x.max(other.x),
+            y: self.y.max(other.y),
+        }
     }
 }
 
@@ -171,7 +190,10 @@ impl Add for FixedVec2 {
     type Output = FixedVec2;
     #[inline]
     fn add(self, rhs: FixedVec2) -> FixedVec2 {
-        FixedVec2 { x: self.x + rhs.x, y: self.y + rhs.y }
+        FixedVec2 {
+            x: self.x + rhs.x,
+            y: self.y + rhs.y,
+        }
     }
 }
 
@@ -179,7 +201,10 @@ impl Sub for FixedVec2 {
     type Output = FixedVec2;
     #[inline]
     fn sub(self, rhs: FixedVec2) -> FixedVec2 {
-        FixedVec2 { x: self.x - rhs.x, y: self.y - rhs.y }
+        FixedVec2 {
+            x: self.x - rhs.x,
+            y: self.y - rhs.y,
+        }
     }
 }
 
@@ -187,7 +212,10 @@ impl Mul<Fixed> for FixedVec2 {
     type Output = FixedVec2;
     #[inline]
     fn mul(self, rhs: Fixed) -> FixedVec2 {
-        FixedVec2 { x: self.x * rhs, y: self.y * rhs }
+        FixedVec2 {
+            x: self.x * rhs,
+            y: self.y * rhs,
+        }
     }
 }
 
@@ -195,7 +223,10 @@ impl Div<Fixed> for FixedVec2 {
     type Output = FixedVec2;
     #[inline]
     fn div(self, rhs: Fixed) -> FixedVec2 {
-        FixedVec2 { x: self.x / rhs, y: self.y / rhs }
+        FixedVec2 {
+            x: self.x / rhs,
+            y: self.y / rhs,
+        }
     }
 }
 
@@ -214,7 +245,9 @@ pub struct UnitId(pub u64);
 pub struct IdGenerator(u64);
 
 impl IdGenerator {
-    pub fn new() -> Self { IdGenerator(0) }
+    pub fn new() -> Self {
+        IdGenerator(0)
+    }
 
     pub fn next_id(&mut self) -> UnitId {
         let id = UnitId(self.0);
@@ -222,7 +255,6 @@ impl IdGenerator {
         id
     }
 }
-
 
 // ═══════════════════════════════════════════════════════════════
 // Enums
@@ -285,8 +317,8 @@ pub struct FacingDirection {
 /// Attack windup state — non-cavalry units pause briefly before attacking.
 #[derive(Component, Clone, Debug)]
 pub struct AttackWindup {
-    pub remaining_ticks: u32,      // ticks remaining in windup; 0 = not winding up
-    pub target: Option<UnitId>,    // target to attack when windup completes
+    pub remaining_ticks: u32,   // ticks remaining in windup; 0 = not winding up
+    pub target: Option<UnitId>, // target to attack when windup completes
 }
 
 // ═══════════════════════════════════════════════════════════════

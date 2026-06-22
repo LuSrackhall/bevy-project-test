@@ -1,5 +1,5 @@
-pub mod debug_shape;
 pub mod camera;
+pub mod debug_shape;
 pub mod selection;
 pub mod ui;
 pub mod unit_info_bar;
@@ -32,41 +32,56 @@ pub struct RenderViewPlugin;
 
 impl Plugin for RenderViewPlugin {
     fn build(&self, app: &mut App) {
-        app
-            .init_state::<GameState>()
+        app.init_state::<GameState>()
             .init_resource::<NeedsGameReset>()
             .init_resource::<crate::selection::SelectionState>()
             .add_plugins(crate::ui::UiPlugin)
             .add_systems(Startup, crate::camera::setup_camera)
             .init_resource::<crate::unit_info_bar::UnitInfoBarSettings>()
             // Lifecycle: reset on enter Playing, cleanup on exit
-            .add_systems(OnEnter(GameState::Playing), reset_game_system.before(crate::ui::hud::setup_hud))
-            .add_systems(OnEnter(GameState::Playing), crate::ui::hud::setup_hud.after(reset_game_system))
+            .add_systems(
+                OnEnter(GameState::Playing),
+                reset_game_system.before(crate::ui::hud::setup_hud),
+            )
+            .add_systems(
+                OnEnter(GameState::Playing),
+                crate::ui::hud::setup_hud.after(reset_game_system),
+            )
             .add_systems(OnExit(GameState::Playing), cleanup_playing_system)
             // Gameplay systems: only when Playing AND not paused
-            .add_systems(Update, (
-                crate::debug_shape::draw_debug_shapes_system,
-                crate::debug_shape::draw_dropped_shields_system,
-                crate::debug_shape::draw_boundary_walls_system,
-                crate::unit_info_bar::unit_info_bar_system,
-                crate::unit_info_bar::info_bar_mode_toggle_system,
-                crate::selection::selection_click_system,
-                crate::selection::drag_select_system,
-                crate::selection::selection_shortcut_system,
-                crate::selection::selection_visual_system,
-                crate::selection::drag_visual_system,
-                crate::selection::command_issue_system,
-                crate::selection::seek_stance_shortcut_system,
-                crate::selection::waypoint_cleanup_system,
-                check_victory_system,
-            ).run_if(in_state(GameState::Playing).and_then(not(resource_exists_and_equals(bevy_adapter::Paused(true))))))
+            .add_systems(
+                Update,
+                (
+                    crate::debug_shape::draw_debug_shapes_system,
+                    crate::debug_shape::draw_dropped_shields_system,
+                    crate::debug_shape::draw_boundary_walls_system,
+                    crate::unit_info_bar::unit_info_bar_system,
+                    crate::unit_info_bar::info_bar_mode_toggle_system,
+                    crate::selection::selection_click_system,
+                    crate::selection::drag_select_system,
+                    crate::selection::selection_shortcut_system,
+                    crate::selection::selection_visual_system,
+                    crate::selection::drag_visual_system,
+                    crate::selection::command_issue_system,
+                    crate::selection::seek_stance_shortcut_system,
+                    crate::selection::waypoint_cleanup_system,
+                    check_victory_system,
+                )
+                    .run_if(
+                        in_state(GameState::Playing)
+                            .and_then(not(resource_exists_and_equals(bevy_adapter::Paused(true)))),
+                    ),
+            )
             // Camera: always active
-            .add_systems(Update, (
-                crate::camera::camera_drag_system,
-                crate::camera::camera_edge_scroll_system,
-                crate::camera::camera_zoom_system,
-                crate::camera::center_on_player_city,
-            ));
+            .add_systems(
+                Update,
+                (
+                    crate::camera::camera_drag_system,
+                    crate::camera::camera_edge_scroll_system,
+                    crate::camera::camera_zoom_system,
+                    crate::camera::center_on_player_city,
+                ),
+            );
     }
 }
 
@@ -164,25 +179,33 @@ fn reset_game_system(
 
         // Backfill: create Bevy entities for all simulation entities
         {
-            use bevy_adapter::binding::{LogicEntityRef, PresentationPosition, InterpolationData};
-            use simulation::soldier::{UnitIdComponent, LogicalPosition};
+            use bevy_adapter::binding::{InterpolationData, LogicEntityRef, PresentationPosition};
+            use simulation::soldier::{LogicalPosition, UnitIdComponent};
             let world = &mut sim_world.0;
             let to_spawn: Vec<(simulation::types::UnitId, Vec2)> = {
                 let mut query = world.query::<(Entity, &UnitIdComponent, &LogicalPosition)>();
-                query.iter(world)
-                    .map(|(_, id, pos)| (id.0, bevy::math::Vec2::new(pos.0.x.to_float(), pos.0.y.to_float())))
+                query
+                    .iter(world)
+                    .map(|(_, id, pos)| {
+                        (
+                            id.0,
+                            bevy::math::Vec2::new(pos.0.x.to_float(), pos.0.y.to_float()),
+                        )
+                    })
                     .collect()
             };
             for (unit_id, float_pos) in to_spawn {
-                let entity = commands.spawn((
-                    LogicEntityRef(unit_id),
-                    PresentationPosition(float_pos),
-                    InterpolationData {
-                        previous_logical_pos: float_pos,
-                        current_logical_pos: float_pos,
-                        is_new: true,
-                    },
-                )).id();
+                let entity = commands
+                    .spawn((
+                        LogicEntityRef(unit_id),
+                        PresentationPosition(float_pos),
+                        InterpolationData {
+                            previous_logical_pos: float_pos,
+                            current_logical_pos: float_pos,
+                            is_new: true,
+                        },
+                    ))
+                    .id();
                 mapper.register(unit_id, entity);
             }
         }

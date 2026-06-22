@@ -1,12 +1,12 @@
-use bevy::prelude::*;
+use crate::camera::MainCamera;
 use bevy::picking::hover::HoverMap;
 use bevy::picking::pointer::PointerId;
-use bevy_adapter::tick::SimulationWorld;
+use bevy::prelude::*;
 use bevy_adapter::input::ForceMoveNext;
-use simulation::types::*;
-use simulation::soldier::*;
+use bevy_adapter::tick::SimulationWorld;
 use simulation::command::*;
-use crate::camera::MainCamera;
+use simulation::soldier::*;
+use simulation::types::*;
 
 /// Returns true if the mouse cursor is currently over any UI element.
 /// Uses HoverMap from Bevy's picking system, which is automatically maintained.
@@ -53,7 +53,10 @@ impl SelectionState {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub enum SelectionMode { Circle, Rect }
+pub enum SelectionMode {
+    Circle,
+    Rect,
+}
 
 #[derive(Component)]
 pub struct Waypoint;
@@ -63,7 +66,10 @@ const DRAG_THRESHOLD: f32 = 10.0;
 // ══════════ Screen-to-world helper ══════════
 
 fn screen_to_world(
-    cursor: Vec2, _window: &Window, camera: &Camera, camera_transform: &GlobalTransform,
+    cursor: Vec2,
+    _window: &Window,
+    camera: &Camera,
+    camera_transform: &GlobalTransform,
 ) -> Option<Vec2> {
     camera.viewport_to_world_2d(camera_transform, cursor).ok()
 }
@@ -81,25 +87,48 @@ pub fn selection_click_system(
     mut sim_world: bevy::ecs::system::NonSendMut<SimulationWorld>,
     mut selection: ResMut<SelectionState>,
 ) {
-    if !mouse.just_pressed(MouseButton::Left) { return; }
+    if !mouse.just_pressed(MouseButton::Left) {
+        return;
+    }
     // Skip if any UI element is being pressed (prevents clearing selection on UI clicks)
-    if is_cursor_over_ui(&hover_map, &nodes) { return; }
-    let Ok(window) = q_windows.single() else { return };
-    let Some(cursor) = window.cursor_position() else { return };
-    let Ok((camera, cam_t)) = camera_query.single() else { return };
-    let Some(world_pos) = screen_to_world(cursor, window, camera, cam_t) else { return };
+    if is_cursor_over_ui(&hover_map, &nodes) {
+        return;
+    }
+    let Ok(window) = q_windows.single() else {
+        return;
+    };
+    let Some(cursor) = window.cursor_position() else {
+        return;
+    };
+    let Ok((camera, cam_t)) = camera_query.single() else {
+        return;
+    };
+    let Some(world_pos) = screen_to_world(cursor, window, camera, cam_t) else {
+        return;
+    };
 
     let world = &mut sim_world.0;
 
     // Priority 1: click a friendly city
     let mut hit_city: Option<UnitId> = None;
     {
-        let mut q = world.query::<(&LogicalPosition, &FactionComponent, &UnitIdComponent, &CityRadius, &CityMarker)>();
+        let mut q = world.query::<(
+            &LogicalPosition,
+            &FactionComponent,
+            &UnitIdComponent,
+            &CityRadius,
+            &CityMarker,
+        )>();
         for (pos, fac, id, radius, _) in q.iter(world) {
-            if fac.0 != Faction::Player { continue; }
+            if fac.0 != Faction::Player {
+                continue;
+            }
             let dx = pos.0.x.to_float() - world_pos.x;
             let dy = pos.0.y.to_float() - world_pos.y;
-            if (dx*dx+dy*dy) < (radius.0 as f32).powi(2) { hit_city = Some(id.0); break; }
+            if (dx * dx + dy * dy) < (radius.0 as f32).powi(2) {
+                hit_city = Some(id.0);
+                break;
+            }
         }
     }
     if let Some(cid) = hit_city {
@@ -113,12 +142,22 @@ pub fn selection_click_system(
     // Priority 2: click a friendly soldier
     let mut hit: Option<UnitId> = None;
     {
-        let mut q = world.query::<(&LogicalPosition, &FactionComponent, &UnitIdComponent, &SoldierMarker)>();
+        let mut q = world.query::<(
+            &LogicalPosition,
+            &FactionComponent,
+            &UnitIdComponent,
+            &SoldierMarker,
+        )>();
         for (pos, fac, id, _) in q.iter(world) {
-            if fac.0 != Faction::Player { continue; }
+            if fac.0 != Faction::Player {
+                continue;
+            }
             let dx = pos.0.x.to_float() - world_pos.x;
             let dy = pos.0.y.to_float() - world_pos.y;
-            if (dx*dx+dy*dy) < 144.0 { hit = Some(id.0); break; }
+            if (dx * dx + dy * dy) < 144.0 {
+                hit = Some(id.0);
+                break;
+            }
         }
     }
     if let Some(uid) = hit {
@@ -152,8 +191,12 @@ pub fn drag_select_system(
     mut sim_world: bevy::ecs::system::NonSendMut<SimulationWorld>,
     mut selection: ResMut<SelectionState>,
 ) {
-    let Ok(window) = q_windows.single() else { return };
-    let Ok((camera, cam_t)) = camera_query.single() else { return };
+    let Ok(window) = q_windows.single() else {
+        return;
+    };
+    let Ok((camera, cam_t)) = camera_query.single() else {
+        return;
+    };
 
     // Get cursor position; if outside window and not dragging, skip
     let cursor = window.cursor_position();
@@ -172,7 +215,9 @@ pub fn drag_select_system(
         } else if !is_cursor_over_ui(&hover_map, &nodes) {
             // No active drag: check UI guard as before
             if mouse.pressed(MouseButton::Left) {
-                let Some(world_pos) = screen_to_world(cursor_pos, window, camera, cam_t) else { return };
+                let Some(world_pos) = screen_to_world(cursor_pos, window, camera, cam_t) else {
+                    return;
+                };
                 selection.drag_current = Some(world_pos);
                 if let Some(start) = selection.drag_start {
                     if start.distance(world_pos) > DRAG_THRESHOLD {
@@ -191,10 +236,18 @@ pub fn drag_select_system(
         if let (Some(start), Some(end)) = (selection.drag_start, selection.drag_current) {
             let world = &mut sim_world.0;
             selection.selected_city = None;
-            let mut query = world.query::<(&LogicalPosition, &FactionComponent, &UnitIdComponent, &SoldierMarker)>();
-            let new_sel: Vec<UnitId> = query.iter(world)
+            let mut query = world.query::<(
+                &LogicalPosition,
+                &FactionComponent,
+                &UnitIdComponent,
+                &SoldierMarker,
+            )>();
+            let new_sel: Vec<UnitId> = query
+                .iter(world)
                 .filter(|(pos, fac, _, _)| {
-                    if fac.0 != Faction::Player { return false; }
+                    if fac.0 != Faction::Player {
+                        return false;
+                    }
                     let p = Vec2::new(pos.0.x.to_float(), pos.0.y.to_float());
                     match selection.selection_mode {
                         SelectionMode::Rect => {
@@ -233,7 +286,8 @@ pub fn selection_shortcut_system(
         let world = &mut sim_world.0;
         let mut query = world.query::<(&FactionComponent, &UnitIdComponent, &SoldierMarker)>();
         selection.selected_city = None;
-        selection.selected_unit_ids = query.iter(world)
+        selection.selected_unit_ids = query
+            .iter(world)
             .filter(|(fac, _, _)| fac.0 == Faction::Player)
             .map(|(_, id, _)| id.0)
             .collect();
@@ -269,9 +323,15 @@ pub fn drag_visual_system(
     selection: Res<SelectionState>,
     _cam_query: Query<&Projection, With<crate::camera::MainCamera>>,
 ) {
-    if !selection.is_dragging { return; }
-    let Some(start) = selection.drag_start else { return };
-    let Some(end) = selection.drag_current else { return };
+    if !selection.is_dragging {
+        return;
+    }
+    let Some(start) = selection.drag_start else {
+        return;
+    };
+    let Some(end) = selection.drag_current else {
+        return;
+    };
 
     let color = Color::srgba(0.2, 1.0, 0.2, 0.5);
 
@@ -304,19 +364,35 @@ pub fn command_issue_system(
     tick_clock: Res<bevy_adapter::tick::TickClock>,
     force_next: Option<ResMut<ForceMoveNext>>,
 ) {
-    if !mouse.just_pressed(MouseButton::Right) { return; }
-    if selection.selected_unit_ids.is_empty() { return; }
+    if !mouse.just_pressed(MouseButton::Right) {
+        return;
+    }
+    if selection.selected_unit_ids.is_empty() {
+        return;
+    }
     // Skip if any UI element is being pressed (prevents issuing commands when clicking UI)
-    if is_cursor_over_ui(&hover_map, &nodes) { return; }
+    if is_cursor_over_ui(&hover_map, &nodes) {
+        return;
+    }
 
-    let Ok(window) = q_windows.single() else { return };
-    let Some(cursor) = window.cursor_position() else { return };
-    let Ok((camera, cam_t)) = camera_query.single() else { return };
-    let Some(world_pos) = screen_to_world(cursor, window, camera, cam_t) else { return };
+    let Ok(window) = q_windows.single() else {
+        return;
+    };
+    let Some(cursor) = window.cursor_position() else {
+        return;
+    };
+    let Ok((camera, cam_t)) = camera_query.single() else {
+        return;
+    };
+    let Some(world_pos) = screen_to_world(cursor, window, camera, cam_t) else {
+        return;
+    };
 
     let shift = keyboard.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
     let force = shift || force_next.as_ref().is_some_and(|f| f.active);
-    if let Some(mut f) = force_next { f.active = false; }
+    if let Some(mut f) = force_next {
+        f.active = false;
+    }
 
     let world = &mut sim_world.0;
     let next_tick = tick_clock.current_tick + 1;
@@ -338,7 +414,9 @@ pub fn command_issue_system(
     }
     if let Some(target) = hit_enemy {
         for &uid in &selection.selected_unit_ids {
-            cmd_buf.push(GameCommand { tick: next_tick, player_id: 0,
+            cmd_buf.push(GameCommand {
+                tick: next_tick,
+                player_id: 0,
                 action: Action::Attack { unit: uid, target },
             });
         }
@@ -348,7 +426,12 @@ pub fn command_issue_system(
     // Priority 2: enemy/neutral city
     let mut hit_city: Option<UnitId> = None;
     {
-        let mut query = world.query::<(&LogicalPosition, &FactionComponent, &CityRadius, &UnitIdComponent)>();
+        let mut query = world.query::<(
+            &LogicalPosition,
+            &FactionComponent,
+            &CityRadius,
+            &UnitIdComponent,
+        )>();
         for (pos, fac, radius, id) in query.iter(world) {
             if fac.0 != Faction::Player {
                 let dx = pos.0.x.to_float() - world_pos.x;
@@ -363,7 +446,9 @@ pub fn command_issue_system(
     }
     if let Some(target) = hit_city {
         for &uid in &selection.selected_unit_ids {
-            cmd_buf.push(GameCommand { tick: next_tick, player_id: 0,
+            cmd_buf.push(GameCommand {
+                tick: next_tick,
+                player_id: 0,
                 action: Action::Attack { unit: uid, target },
             });
         }
@@ -373,7 +458,12 @@ pub fn command_issue_system(
     // Priority 3: friendly city
     let mut hit_friendly: Option<UnitId> = None;
     {
-        let mut query = world.query::<(&LogicalPosition, &FactionComponent, &CityRadius, &UnitIdComponent)>();
+        let mut query = world.query::<(
+            &LogicalPosition,
+            &FactionComponent,
+            &CityRadius,
+            &UnitIdComponent,
+        )>();
         for (pos, fac, radius, id) in query.iter(world) {
             if fac.0 == Faction::Player {
                 let dx = pos.0.x.to_float() - world_pos.x;
@@ -387,8 +477,13 @@ pub fn command_issue_system(
     }
     if let Some(target) = hit_friendly {
         for &uid in &selection.selected_unit_ids {
-            cmd_buf.push(GameCommand { tick: next_tick, player_id: 0,
-                action: Action::ReturnToCity { unit: uid, city: target },
+            cmd_buf.push(GameCommand {
+                tick: next_tick,
+                player_id: 0,
+                action: Action::ReturnToCity {
+                    unit: uid,
+                    city: target,
+                },
             });
         }
         return;
@@ -405,7 +500,11 @@ pub fn command_issue_system(
         } else {
             Action::MoveTo { unit: uid, target }
         };
-        cmd_buf.push(GameCommand { tick: next_tick, player_id: 0, action });
+        cmd_buf.push(GameCommand {
+            tick: next_tick,
+            player_id: 0,
+            action,
+        });
     }
 }
 
@@ -420,9 +519,7 @@ pub fn waypoint_cleanup_system(
     for (wp_entity, wp_transform) in waypoint_query.iter() {
         let _wp_pos = wp_transform.translation.xy();
         let mut query = world.query::<(&Movement,)>();
-        let has_targeter = query.iter(world).any(|(mov,)| {
-            mov.target.is_some()
-        });
+        let has_targeter = query.iter(world).any(|(mov,)| mov.target.is_some());
         if !has_targeter {
             commands.entity(wp_entity).despawn();
         }
@@ -439,13 +536,22 @@ pub fn seek_stance_shortcut_system(
     tick_clock: Res<bevy_adapter::tick::TickClock>,
     sim_world: bevy::ecs::system::NonSendMut<SimulationWorld>,
 ) {
-    if !keyboard.just_pressed(KeyCode::KeyS) { return; }
-    if selection.selected_unit_ids.is_empty() { return; }
+    if !keyboard.just_pressed(KeyCode::KeyS) {
+        return;
+    }
+    if selection.selected_unit_ids.is_empty() {
+        return;
+    }
     // Don't trigger when seek panel input is active
-    if seek_state.input_active { return; }
+    if seek_state.input_active {
+        return;
+    }
     // Don't trigger when Ctrl/Cmd is held (that would be Ctrl+S etc.)
     if keyboard.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight])
-        || keyboard.any_pressed([KeyCode::SuperLeft, KeyCode::SuperRight]) { return; }
+        || keyboard.any_pressed([KeyCode::SuperLeft, KeyCode::SuperRight])
+    {
+        return;
+    }
 
     let _world = &sim_world.0;
     let next_tick = tick_clock.current_tick + 1;

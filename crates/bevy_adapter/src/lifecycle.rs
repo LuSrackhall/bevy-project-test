@@ -1,8 +1,8 @@
-use bevy::prelude::*;
-use simulation::soldier::*;
+use crate::binding::{InterpolationData, LogicEntityRef, PresentationPosition};
 use crate::mapper::UnitIdMapper;
 use crate::tick::PendingEvents;
-use crate::binding::{LogicEntityRef, PresentationPosition, InterpolationData};
+use bevy::prelude::*;
+use simulation::soldier::*;
 
 /// Sync simulation entities to Bevy entities based on pending tick events.
 pub fn sync_entities_system(
@@ -13,18 +13,22 @@ pub fn sync_entities_system(
     for events in pending.events.drain(..) {
         // Spawn new entities
         for ev in &events.spawned {
-            if mapper.entity_of(ev.unit_id).is_some() { continue; }
+            if mapper.entity_of(ev.unit_id).is_some() {
+                continue;
+            }
 
             let float_pos = Vec2::new(ev.pos.x.to_float(), ev.pos.y.to_float());
-            let entity = commands.spawn((
-                LogicEntityRef(ev.unit_id),
-                PresentationPosition(float_pos),
-                InterpolationData {
-                    previous_logical_pos: float_pos,
-                    current_logical_pos: float_pos,
-                    is_new: true,
-                },
-            )).id();
+            let entity = commands
+                .spawn((
+                    LogicEntityRef(ev.unit_id),
+                    PresentationPosition(float_pos),
+                    InterpolationData {
+                        previous_logical_pos: float_pos,
+                        current_logical_pos: float_pos,
+                        is_new: true,
+                    },
+                ))
+                .id();
             mapper.register(ev.unit_id, entity);
         }
 
@@ -47,22 +51,25 @@ pub fn backfill_entities_system(
     let world = &mut sim_world.0;
     let to_spawn: Vec<(simulation::types::UnitId, Vec2)> = {
         let mut query = world.query::<(Entity, &UnitIdComponent, &LogicalPosition)>();
-        query.iter(world)
+        query
+            .iter(world)
             .filter(|(_, id, _)| mapper.entity_of(id.0).is_none())
             .map(|(_, id, pos)| (id.0, Vec2::new(pos.0.x.to_float(), pos.0.y.to_float())))
             .collect()
     };
 
     for (unit_id, float_pos) in to_spawn {
-        let entity = commands.spawn((
-            LogicEntityRef(unit_id),
-            PresentationPosition(float_pos),
-            InterpolationData {
-                previous_logical_pos: float_pos,
-                current_logical_pos: float_pos,
-                is_new: true,
-            },
-        )).id();
+        let entity = commands
+            .spawn((
+                LogicEntityRef(unit_id),
+                PresentationPosition(float_pos),
+                InterpolationData {
+                    previous_logical_pos: float_pos,
+                    current_logical_pos: float_pos,
+                    is_new: true,
+                },
+            ))
+            .id();
         mapper.register(unit_id, entity);
     }
 }

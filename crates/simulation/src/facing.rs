@@ -1,11 +1,13 @@
 //! Facing direction system — deterministic angle calculations.
 
+use crate::combat::config::CombatGlobalConfig;
+use crate::soldier::{
+    LogicalPosition, Movement, SoldierMarker, SoldierTypeComponent, UnitIdComponent,
+};
+use crate::types::{FacingDirection, Fixed, FixedVec2, SoldierType, UnitId, FIXED_ONE};
 use bevy_ecs::entity::Entity;
 use bevy_ecs::world::World;
 use std::collections::HashMap;
-use crate::types::{FacingDirection, Fixed, FixedVec2, FIXED_ONE, SoldierType, UnitId};
-use crate::soldier::{LogicalPosition, Movement, SoldierMarker, SoldierTypeComponent, UnitIdComponent};
-use crate::combat::config::CombatGlobalConfig;
 
 /// Atan approximation constant: 0.28 * 256 ≈ 72
 const ATAN_K: Fixed = Fixed(72);
@@ -142,7 +144,9 @@ pub fn cos_approx(angle_deg: Fixed) -> Fixed {
     let x_sq = x_int * x_int;
     let num = 32400 - 4 * x_sq;
     let den = 32400 + 4 * x_sq;
-    if den == 0 { return Fixed::ONE; }
+    if den == 0 {
+        return Fixed::ONE;
+    }
     let result = Fixed(num * FIXED_ONE / den);
     // Apply sign for (90, 180]
     if a_rad.0 > Fixed::from_int(90).0 {
@@ -169,7 +173,10 @@ pub fn facing_atk_speed_factor(facing: Fixed, target_angle: Fixed) -> Fixed {
 /// - Cavalry: command target, then attack target, then waypoint
 /// - Non-cavalry: attack target, then waypoint
 pub fn facing_turn_system(world: &mut World) {
-    let ticks_per_rotation = world.resource::<CombatGlobalConfig>().facing.turn_rate_ticks_per_full_rotation;
+    let ticks_per_rotation = world
+        .resource::<CombatGlobalConfig>()
+        .facing
+        .turn_rate_ticks_per_full_rotation;
     if ticks_per_rotation == 0 {
         return; // degenerate config — no turning
     }
@@ -185,10 +192,19 @@ pub fn facing_turn_system(world: &mut World) {
     // Collect facing updates: (entity, new_angle)
     let mut updates: Vec<(Entity, Fixed)> = Vec::new();
     {
-        let mut q = world.query::<(Entity, &LogicalPosition, &Movement, &SoldierMarker, Option<&SoldierTypeComponent>, Option<&crate::soldier::ShieldComponent>)>();
+        let mut q = world.query::<(
+            Entity,
+            &LogicalPosition,
+            &Movement,
+            &SoldierMarker,
+            Option<&SoldierTypeComponent>,
+            Option<&crate::soldier::ShieldComponent>,
+        )>();
         for (e, pos, mov, _, stype, shield) in q.iter(world) {
             // Skip Blocking units — facing is locked during manual block
-            if shield.is_some_and(|s| s.state == crate::types::ShieldState::Blocking) && !mov.force_move {
+            if shield.is_some_and(|s| s.state == crate::types::ShieldState::Blocking)
+                && !mov.force_move
+            {
                 continue;
             }
             // Determine target position based on unit type
@@ -204,7 +220,9 @@ pub fn facing_turn_system(world: &mut World) {
             }
             .or(mov.waypoint);
 
-            let Some(target_pos) = target_pos else { continue };
+            let Some(target_pos) = target_pos else {
+                continue;
+            };
 
             // Skip if already at target (no meaningful angle)
             let delta = target_pos - pos.0;
@@ -280,7 +298,11 @@ mod tests {
         let angle = compute_angle_between(from, to);
         // Should be close to 90° (tolerance for approximation)
         let diff = (angle.0 - Fixed::from_int(90).0).abs();
-        assert!(diff <= 3 * 256 / 10, "expected ~90°, got {}", angle.to_float());
+        assert!(
+            diff <= 3 * 256 / 10,
+            "expected ~90°, got {}",
+            angle.to_float()
+        );
     }
 
     #[test]
@@ -298,7 +320,11 @@ mod tests {
     #[test]
     fn test_turn_toward_wrap() {
         // From 355° toward 5° with max_turn=10 → should reach 5°
-        let result = turn_toward(Fixed::from_int(355), Fixed::from_int(5), Fixed::from_int(10));
+        let result = turn_toward(
+            Fixed::from_int(355),
+            Fixed::from_int(5),
+            Fixed::from_int(10),
+        );
         assert_eq!(result, Fixed::from_int(5));
     }
 
@@ -306,7 +332,11 @@ mod tests {
     fn test_cos_approx_0() {
         let val = cos_approx(Fixed::from_int(0));
         // cos(0°) = 1.0
-        assert!((val.0 - FIXED_ONE).abs() < 10, "cos(0) ≈ 1.0, got {}", val.to_float());
+        assert!(
+            (val.0 - FIXED_ONE).abs() < 10,
+            "cos(0) ≈ 1.0, got {}",
+            val.to_float()
+        );
     }
 
     #[test]
@@ -320,27 +350,43 @@ mod tests {
     fn test_cos_approx_180() {
         let val = cos_approx(Fixed::from_int(180));
         // cos(180°) ≈ -1.0
-        assert!((val.0 + FIXED_ONE).abs() < 50, "cos(180) ≈ -1.0, got {}", val.to_float());
+        assert!(
+            (val.0 + FIXED_ONE).abs() < 50,
+            "cos(180) ≈ -1.0, got {}",
+            val.to_float()
+        );
     }
 
     #[test]
     fn test_facing_atk_speed_factor_front() {
         let factor = facing_atk_speed_factor(Fixed::from_int(0), Fixed::from_int(0));
         // factor ≈ 1.3 for frontal
-        assert!(factor.to_float() > 1.2, "frontal factor > 1.2, got {}", factor.to_float());
+        assert!(
+            factor.to_float() > 1.2,
+            "frontal factor > 1.2, got {}",
+            factor.to_float()
+        );
     }
 
     #[test]
     fn test_facing_atk_speed_factor_side() {
         let factor = facing_atk_speed_factor(Fixed::from_int(0), Fixed::from_int(90));
         // factor ≈ 1.0 for side
-        assert!((factor.to_float() - 1.0).abs() < 0.1, "side factor ≈ 1.0, got {}", factor.to_float());
+        assert!(
+            (factor.to_float() - 1.0).abs() < 0.1,
+            "side factor ≈ 1.0, got {}",
+            factor.to_float()
+        );
     }
 
     #[test]
     fn test_facing_atk_speed_factor_rear() {
         let factor = facing_atk_speed_factor(Fixed::from_int(0), Fixed::from_int(180));
         // factor ≈ 0.7 for rear
-        assert!(factor.to_float() < 0.8, "rear factor < 0.8, got {}", factor.to_float());
+        assert!(
+            factor.to_float() < 0.8,
+            "rear factor < 0.8, got {}",
+            factor.to_float()
+        );
     }
 }

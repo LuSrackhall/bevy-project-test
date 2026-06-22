@@ -1,12 +1,12 @@
 pub mod config;
 
-use bevy_ecs::world::World;
-use bevy_ecs::prelude::Resource;
-use crate::types::*;
-use crate::events::*;
-use crate::soldier::*;
-use crate::map::config::MapGenConfig;
 use crate::city::config::CityGlobalConfig;
+use crate::events::*;
+use crate::map::config::MapGenConfig;
+use crate::soldier::*;
+use crate::types::*;
+use bevy_ecs::prelude::Resource;
+use bevy_ecs::world::World;
 
 /// Boundary wall limits — units can't pass.
 #[derive(Clone, Copy, Debug, Resource)]
@@ -20,10 +20,10 @@ pub struct WallBounds {
 /// Map size preset.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum MapSize {
-    Small,   // 2000x2000
-    Medium,  // 3500x3500
-    Large,   // 5000x5000
-    Huge,    // 8000x8000
+    Small,  // 2000x2000
+    Medium, // 3500x3500
+    Large,  // 5000x5000
+    Huge,   // 8000x8000
 }
 
 impl MapSize {
@@ -41,7 +41,9 @@ impl MapSize {
 
 fn rng_range(rng: &mut DeterministicRng, min: u32, max: u32) -> u32 {
     let range = max.wrapping_sub(min).wrapping_add(1);
-    if range == 0 { return min; }
+    if range == 0 {
+        return min;
+    }
     (rng.next_u64() as u32) % range + min
 }
 
@@ -80,9 +82,21 @@ pub fn generate_map(world: &mut World, map_size: MapSize) {
         loop {
             let (x, y, max_lvl) = {
                 let mut rng = world.resource_mut::<DeterministicRng>();
-                let rx = rng_range(&mut rng, map_config.margin, map_config.width - map_config.margin) as i32;
-                let ry = rng_range(&mut rng, map_config.margin, map_config.height - map_config.margin) as i32;
-                let rl = rng_range(&mut rng, map_config.city_level_range[0], map_config.city_level_range[1]);
+                let rx = rng_range(
+                    &mut rng,
+                    map_config.margin,
+                    map_config.width - map_config.margin,
+                ) as i32;
+                let ry = rng_range(
+                    &mut rng,
+                    map_config.margin,
+                    map_config.height - map_config.margin,
+                ) as i32;
+                let rl = rng_range(
+                    &mut rng,
+                    map_config.city_level_range[0],
+                    map_config.city_level_range[1],
+                );
                 (rx, ry, rl)
             };
             let pos = FixedVec2::new(Fixed::from_int(x), Fixed::from_int(y));
@@ -96,7 +110,8 @@ pub fn generate_map(world: &mut World, map_size: MapSize) {
                 let max_level = (max_lvl as i32 + {
                     let mut rng = world.resource_mut::<DeterministicRng>();
                     rng_range(&mut rng, 0, 3) as i32 - 1
-                }).clamp(1, 10) as u32;
+                })
+                .clamp(1, 10) as u32;
                 positions.push((pos, max_level));
                 break;
             }
@@ -137,7 +152,9 @@ pub fn generate_map(world: &mut World, map_size: MapSize) {
             rng_range(&mut rng, level * 2, level * 5)
         };
         let max_population = level * city_config.base_population_per_level + pop_extra;
-        let visual_radius = (city_config.visual_radius_base + level as f32 * city_config.visual_radius_per_level) as u32;
+        let visual_radius = (city_config.visual_radius_base
+            + level as f32 * city_config.visual_radius_per_level)
+            as u32;
 
         let unit_id = {
             let mut id_gen = world.resource_mut::<IdGenerator>();

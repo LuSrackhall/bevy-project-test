@@ -1,7 +1,7 @@
 //! Spatial hash grid for O(1) neighbor queries.
 
-use std::collections::HashMap;
 use crate::types::*;
+use std::collections::HashMap;
 
 /// A spatial hash grid storing (position, collision_radius) pairs.
 pub struct SpatialHash {
@@ -11,7 +11,10 @@ pub struct SpatialHash {
 
 impl SpatialHash {
     pub fn new(cell_size: Fixed) -> Self {
-        SpatialHash { cell_size: cell_size.0, cells: HashMap::new() }
+        SpatialHash {
+            cell_size: cell_size.0,
+            cells: HashMap::new(),
+        }
     }
 
     /// Insert a position with its collision radius.

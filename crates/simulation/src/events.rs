@@ -1,7 +1,7 @@
 //! Simulation events — emitted by systems, consumed by bevy_adapter and other systems.
 
-use bevy_ecs::prelude::Resource;
 use crate::types::{Faction, FixedVec2, SoldierType, UnitId};
+use bevy_ecs::prelude::Resource;
 
 /// A new unit was spawned in the simulation.
 #[derive(Clone, Debug)]
@@ -61,5 +61,7 @@ pub struct SimulationEvents {
 }
 
 impl SimulationEvents {
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
 }

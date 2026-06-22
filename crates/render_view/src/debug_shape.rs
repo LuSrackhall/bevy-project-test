@@ -1,8 +1,8 @@
 use bevy::prelude::*;
 use bevy_adapter::tick::SimulationWorld;
-use simulation::soldier::*;
-use simulation::soldier::config::SoldierConfig;
 use simulation::combat::Arrow;
+use simulation::soldier::config::SoldierConfig;
+use simulation::soldier::*;
 
 /// Render all simulation entities as colored circles using Gizmos.
 pub fn draw_debug_shapes_system(
@@ -21,7 +21,12 @@ pub fn draw_debug_shapes_system(
 
     // Draw cities
     {
-        let mut query = world.query::<(&LogicalPosition, &CityRadius, &FactionComponent, &CityComponent)>();
+        let mut query = world.query::<(
+            &LogicalPosition,
+            &CityRadius,
+            &FactionComponent,
+            &CityComponent,
+        )>();
         for (pos, radius, faction, _city) in query.iter(world) {
             let color = match faction.0 {
                 simulation::types::Faction::Player => Color::srgb(0.2, 0.6, 1.0),
@@ -29,18 +34,20 @@ pub fn draw_debug_shapes_system(
                 simulation::types::Faction::Neutral => Color::srgb(0.6, 0.6, 0.6),
             };
             let r = radius.0 as f32;
-            gizmos.circle_2d(
-                Vec2::new(pos.0.x.to_float(), pos.0.y.to_float()),
-                r,
-                color,
-            );
+            gizmos.circle_2d(Vec2::new(pos.0.x.to_float(), pos.0.y.to_float()), r, color);
         }
     }
 
     // Draw soldiers — circle radius from collision_radius config
     {
         let soldier_config = world.resource::<SoldierConfig>().clone();
-        let mut query = world.query::<(Entity, &LogicalPosition, &FactionComponent, &SoldierTypeComponent, Option<&simulation::types::FacingDirection>)>();
+        let mut query = world.query::<(
+            Entity,
+            &LogicalPosition,
+            &FactionComponent,
+            &SoldierTypeComponent,
+            Option<&simulation::types::FacingDirection>,
+        )>();
         for (entity, pos, faction, stype, facing) in query.iter(world) {
             let color = match faction.0 {
                 simulation::types::Faction::Player => Color::srgb(0.3, 0.5, 0.9),
@@ -112,7 +119,8 @@ pub fn draw_debug_shapes_system(
 
             // Direction line (shorter in decay)
             let dir_len = if arrow.decay_remaining > 0 { 4.0 } else { 10.0 };
-            let dir = Vec2::new(arrow.direction.x.to_float(), arrow.direction.y.to_float()).normalize_or_zero();
+            let dir = Vec2::new(arrow.direction.x.to_float(), arrow.direction.y.to_float())
+                .normalize_or_zero();
             gizmos.line_2d(p, p + dir * dir_len, color);
         }
     }

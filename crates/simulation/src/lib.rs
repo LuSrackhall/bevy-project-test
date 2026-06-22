@@ -1,21 +1,20 @@
-pub mod types;
-pub mod command;
-pub mod events;
-pub mod soldier;
+pub mod ai;
 pub mod city;
 pub mod combat;
-pub mod map;
-pub mod ai;
+pub mod command;
+pub mod events;
 pub mod facing;
+pub mod map;
+pub mod soldier;
+pub mod types;
 
-pub use bevy_ecs::world::World;
-pub use crate::events::SimulationEvents;
-use crate::types::*;
-use crate::command::*;
-use crate::soldier::config::SoldierConfig;
 use crate::city::config::CityGlobalConfig;
 use crate::combat::config::CombatGlobalConfig;
-
+use crate::command::*;
+pub use crate::events::SimulationEvents;
+use crate::soldier::config::SoldierConfig;
+use crate::types::*;
+pub use bevy_ecs::world::World;
 
 /// Initialize a new simulation world with all configs and resources.
 pub fn init_simulation_world(seed: u64) -> World {
@@ -35,7 +34,6 @@ pub fn init_simulation_world(seed: u64) -> World {
     let combat_config = CombatGlobalConfig::from_ron(include_str!("../../../content/combat.ron"))
         .expect("Failed to parse combat.ron");
     world.insert_resource(combat_config);
-
 
     // Core resources
     world.insert_resource(DeterministicRng::new(seed));

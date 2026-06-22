@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use bevy_adapter::binding::{PresentationPosition, InterpolationData};
+use bevy_adapter::binding::{InterpolationData, PresentationPosition};
 
 /// Global interpolation factor [0, 1) — how far we are from the last tick toward the next.
 #[derive(Resource, Default)]
@@ -23,7 +23,9 @@ pub fn interpolate_positions_system(
         if interp.is_new {
             pres_pos.0 = interp.current_logical_pos;
         } else {
-            pres_pos.0 = interp.previous_logical_pos.lerp(interp.current_logical_pos, t);
+            pres_pos.0 = interp
+                .previous_logical_pos
+                .lerp(interp.current_logical_pos, t);
         }
     }
 }

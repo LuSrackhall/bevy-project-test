@@ -1,15 +1,15 @@
 pub mod config;
 
-use bevy_ecs::world::World;
-use bevy_ecs::entity::Entity;
-use bevy_ecs::component::Component;
-use std::collections::HashMap;
-use crate::types::*;
-use crate::events::*;
-use crate::soldier::*;
-use crate::soldier::config::SoldierConfig;
-use crate::facing;
 use crate::combat::config::CombatGlobalConfig;
+use crate::events::*;
+use crate::facing;
+use crate::soldier::config::SoldierConfig;
+use crate::soldier::*;
+use crate::types::*;
+use bevy_ecs::component::Component;
+use bevy_ecs::entity::Entity;
+use bevy_ecs::world::World;
+use std::collections::HashMap;
 
 // ══════════ Arrow Types ══════════
 
@@ -18,15 +18,15 @@ use crate::combat::config::CombatGlobalConfig;
 /// Decay phase (decay_remaining > 0): visual only, no damage.
 #[derive(Component, Clone, Debug)]
 pub struct Arrow {
-    pub direction: FixedVec2,     // unit vector × speed (movement per tick)
+    pub direction: FixedVec2, // unit vector × speed (movement per tick)
     pub damage: u32,
     pub from_faction: Faction,
     pub shooter: Option<UnitId>,
-    pub flight_remaining: u32,    // ticks remaining in flight (damage phase)
-    pub decay_remaining: u32,     // 0=flight, >0=decay (visual only)
-    pub pierce_chance: f32,       // pre-computed at launch
+    pub flight_remaining: u32, // ticks remaining in flight (damage phase)
+    pub decay_remaining: u32,  // 0=flight, >0=decay (visual only)
+    pub pierce_chance: f32,    // pre-computed at launch
     pub stuck_to: Option<UnitId>, // follow target during decay
-    pub hit_units: Vec<UnitId>,   // already-hit units (prevent double-hit)
+    pub hit_units: Vec<UnitId>, // already-hit units (prevent double-hit)
     pub start_pos: FixedVec2,
 }
 
@@ -41,21 +41,34 @@ const ARROW_HIT_RADIUS: i64 = 22 * FIXED_ONE; // 22 units ≥ arrow_speed(20)
 const FIXED_ONE: i64 = 256;
 
 fn integer_sqrt(n: i64) -> i64 {
-    if n <= 0 { return 0; }
+    if n <= 0 {
+        return 0;
+    }
     let mut x = n;
     let mut y = (x + 1) / 2;
-    while y < x { x = y; y = (x + n / x) / 2; }
+    while y < x {
+        x = y;
+        y = (x + n / x) / 2;
+    }
     x
 }
 
 /// Drop a shield on the ground if the dying entity has one.
 /// Must be called BEFORE despawning the entity.
 pub(crate) fn drop_shield_on_death(world: &mut World, dying_entity: Entity, current_tick: u32) {
-    let has_shield = world.get::<ShieldItem>(dying_entity).map(|s| s.hp > 0).unwrap_or(false);
-    if !has_shield { return; }
+    let has_shield = world
+        .get::<ShieldItem>(dying_entity)
+        .map(|s| s.hp > 0)
+        .unwrap_or(false);
+    if !has_shield {
+        return;
+    }
 
     let shield = world.get::<ShieldItem>(dying_entity).cloned().unwrap();
-    let pos = world.get::<LogicalPosition>(dying_entity).map(|p| p.0).unwrap_or(FixedVec2::ZERO);
+    let pos = world
+        .get::<LogicalPosition>(dying_entity)
+        .map(|p| p.0)
+        .unwrap_or(FixedVec2::ZERO);
     let faction = world.get::<FactionComponent>(dying_entity).map(|f| f.0);
 
     world.spawn(DroppedShield {
@@ -73,33 +86,76 @@ pub fn combat_engagement_system(world: &mut World) {
 
     // Collect all entity positions & factions
     let all_units: HashMap<UnitId, (FixedVec2, Faction)> = {
-        let mut q = world.query::<(Entity, &UnitIdComponent, &LogicalPosition, &FactionComponent)>();
-        q.iter(world).map(|(_, id, pos, fac)| (id.0, (pos.0, fac.0))).collect()
+        let mut q = world.query::<(
+            Entity,
+            &UnitIdComponent,
+            &LogicalPosition,
+            &FactionComponent,
+        )>();
+        q.iter(world)
+            .map(|(_, id, pos, fac)| (id.0, (pos.0, fac.0)))
+            .collect()
     };
 
     // Collect soldiers to process
-    struct EngData { entity: Entity, pos: FixedVec2, faction: Faction, stype: SoldierType, state: SoldierState, force_move: bool, cmd_target: Option<UnitId>, target: Option<UnitId>, speed: u32, seek_active: bool, seek_range: u32 }
+    struct EngData {
+        entity: Entity,
+        pos: FixedVec2,
+        faction: Faction,
+        stype: SoldierType,
+        state: SoldierState,
+        force_move: bool,
+        cmd_target: Option<UnitId>,
+        target: Option<UnitId>,
+        speed: u32,
+        seek_active: bool,
+        seek_range: u32,
+    }
     let soldiers: Vec<EngData> = {
-        let mut q = world.query::<(Entity, &UnitIdComponent, &LogicalPosition, &FactionComponent, &SoldierTypeComponent, &SoldierStateComponent, &Movement, Option<&SeekStance>)>();
+        let mut q = world.query::<(
+            Entity,
+            &UnitIdComponent,
+            &LogicalPosition,
+            &FactionComponent,
+            &SoldierTypeComponent,
+            &SoldierStateComponent,
+            &Movement,
+            Option<&SeekStance>,
+        )>();
         q.iter(world)
             .map(|(e, _id, pos, fac, st, sst, mov, seek)| EngData {
-                entity: e, pos: pos.0, faction: fac.0, stype: st.0,
-                state: sst.0, force_move: mov.force_move,
-                cmd_target: mov.command_target, target: mov.target, speed: mov.speed,
+                entity: e,
+                pos: pos.0,
+                faction: fac.0,
+                stype: st.0,
+                state: sst.0,
+                force_move: mov.force_move,
+                cmd_target: mov.command_target,
+                target: mov.target,
+                speed: mov.speed,
                 seek_active: seek.is_some_and(|s| s.active),
                 seek_range: seek.map_or(0, |s| s.seek_range),
-            }).collect()
+            })
+            .collect()
     };
 
     for sd in soldiers {
-        if sd.force_move { continue; }
+        if sd.force_move {
+            continue;
+        }
 
         // Only auto-seek if SeekStance is active and seek_range > 0
         if !sd.seek_active || sd.seek_range == 0 {
             // No active seek stance: transition from Fighting back to Moving if not commanded
             if sd.state == SoldierState::Fighting && sd.cmd_target.is_none() {
                 let mut em = world.entity_mut(sd.entity);
-                em.insert(Movement { speed: sd.speed, target: sd.cmd_target, command_target: None, waypoint: None, force_move: false });
+                em.insert(Movement {
+                    speed: sd.speed,
+                    target: sd.cmd_target,
+                    command_target: None,
+                    waypoint: None,
+                    force_move: false,
+                });
                 em.insert(SoldierStateComponent(SoldierState::Moving));
             }
             continue;
@@ -111,7 +167,9 @@ pub fn combat_engagement_system(world: &mut World) {
         // Find nearest enemy
         let mut best: Option<(UnitId, i64)> = None;
         for (eid, (epos, efac)) in &all_units {
-            if *efac == sd.faction { continue; }
+            if *efac == sd.faction {
+                continue;
+            }
             let ds = (sd.pos - *epos).length_squared();
             if ds <= aggro_sq && best.as_ref().is_none_or(|(_, d)| ds.0 < *d) {
                 best = Some((*eid, ds.0));
@@ -122,13 +180,29 @@ pub fn combat_engagement_system(world: &mut World) {
         if let Some((enemy_id, _)) = best {
             let is_cav = sd.stype == SoldierType::Cavalry;
             if !is_cav {
-                let ct = if sd.cmd_target.is_none() { sd.target } else { sd.cmd_target };
-                em.insert(Movement { speed: sd.speed, target: Some(enemy_id), command_target: ct, waypoint: None, force_move: false });
+                let ct = if sd.cmd_target.is_none() {
+                    sd.target
+                } else {
+                    sd.cmd_target
+                };
+                em.insert(Movement {
+                    speed: sd.speed,
+                    target: Some(enemy_id),
+                    command_target: ct,
+                    waypoint: None,
+                    force_move: false,
+                });
             }
             em.insert(SoldierStateComponent(SoldierState::Fighting));
         } else if sd.state == SoldierState::Fighting {
             let ct = sd.cmd_target;
-            em.insert(Movement { speed: sd.speed, target: ct, command_target: sd.cmd_target, waypoint: None, force_move: false });
+            em.insert(Movement {
+                speed: sd.speed,
+                target: ct,
+                command_target: sd.cmd_target,
+                waypoint: None,
+                force_move: false,
+            });
             em.insert(SoldierStateComponent(SoldierState::Moving));
         }
     }
@@ -139,21 +213,32 @@ pub fn combat_engagement_system(world: &mut World) {
 /// Attempt shield block (manual frontal + passive chance).
 /// Returns remaining damage after shield absorption.
 /// Call AFTER cavalry dodge, BEFORE applying damage to Health.
-fn try_passive_block(world: &mut World, target_entity: Entity, mut damage: u32, attacker_pos: Option<FixedVec2>) -> u32 {
-    if damage == 0 { return 0; }
+fn try_passive_block(
+    world: &mut World,
+    target_entity: Entity,
+    mut damage: u32,
+    attacker_pos: Option<FixedVec2>,
+) -> u32 {
+    if damage == 0 {
+        return 0;
+    }
 
     let combat_config = world.resource::<CombatGlobalConfig>().clone();
 
     // ── Manual block check (infantry in Blocking state) ──
-    let is_blocking = world.get::<ShieldComponent>(target_entity)
+    let is_blocking = world
+        .get::<ShieldComponent>(target_entity)
         .is_some_and(|sc| sc.state == ShieldState::Blocking);
 
     if is_blocking {
-        if let (Some(facing_comp), Some(atk_pos)) = (world.get::<FacingDirection>(target_entity), attacker_pos) {
+        if let (Some(facing_comp), Some(atk_pos)) =
+            (world.get::<FacingDirection>(target_entity), attacker_pos)
+        {
             if let Some(target_pos) = world.get::<LogicalPosition>(target_entity).map(|p| p.0) {
                 let attack_angle = facing::compute_angle_between(target_pos, atk_pos);
                 let deviation = facing::angle_distance(facing_comp.angle, attack_angle);
-                let frontal_half = Fixed::from_int(combat_config.shield.frontal_angle_deg as i32 / 2);
+                let frontal_half =
+                    Fixed::from_int(combat_config.shield.frontal_angle_deg as i32 / 2);
 
                 if deviation <= frontal_half {
                     // Frontal hit — 100% absorbed by shield
@@ -172,13 +257,15 @@ fn try_passive_block(world: &mut World, target_entity: Entity, mut damage: u32, 
                     return damage;
                 }
                 // Non-frontal during Blocking: damage goes directly to HP, skip passive block
-                    return damage;
+                return damage;
             }
         }
     }
 
     // ── Passive block check (40% chance, any direction) ──
-    if world.get::<ShieldComponent>(target_entity).is_none() { return damage; }
+    if world.get::<ShieldComponent>(target_entity).is_none() {
+        return damage;
+    }
 
     let passive_block_chance = combat_config.shield.passive_block_chance;
     let block_roll = world.resource_mut::<DeterministicRng>().gen_probability();
@@ -223,24 +310,65 @@ pub fn melee_attack_system(world: &mut World, current_tick: u32) {
     };
 
     // Ready attackers — scan for nearest enemy in range (no dependency on Movement.target)
-    struct AtkData { entity: Entity, uid: UnitId, pos: FixedVec2, faction: Faction, dmg: u32, range: u32, stype: SoldierType, level: u32, interval: u32, has_fearless: bool, force_move: bool, facing: Fixed }
+    struct AtkData {
+        entity: Entity,
+        uid: UnitId,
+        pos: FixedVec2,
+        faction: Faction,
+        dmg: u32,
+        range: u32,
+        stype: SoldierType,
+        level: u32,
+        interval: u32,
+        has_fearless: bool,
+        force_move: bool,
+        facing: Fixed,
+    }
     let attackers: Vec<AtkData> = {
-        let mut q = world.query::<(Entity, &UnitIdComponent, &LogicalPosition, &FactionComponent, &Attack, &SoldierTypeComponent, &Level, &Movement, Option<&FearlessBuff>, Option<&FacingDirection>)>();
+        let mut q = world.query::<(
+            Entity,
+            &UnitIdComponent,
+            &LogicalPosition,
+            &FactionComponent,
+            &Attack,
+            &SoldierTypeComponent,
+            &Level,
+            &Movement,
+            Option<&FearlessBuff>,
+            Option<&FacingDirection>,
+        )>();
         q.iter(world)
-            .filter(|(_, _, _, _, atk, st, _, _, _, _)| atk.cooldown_remaining == 0 && st.0 != SoldierType::Archer)
+            .filter(|(_, _, _, _, atk, st, _, _, _, _)| {
+                atk.cooldown_remaining == 0 && st.0 != SoldierType::Archer
+            })
             .map(|(e, id, pos, fac, atk, st, lvl, mov, fb, facing)| AtkData {
-                entity: e, uid: id.0, pos: pos.0, faction: fac.0,
-                dmg: atk.damage, range: atk.range, stype: st.0,
-                level: lvl.level, interval: atk.interval_ticks,
-                has_fearless: fb.is_some(), force_move: mov.force_move,
+                entity: e,
+                uid: id.0,
+                pos: pos.0,
+                faction: fac.0,
+                dmg: atk.damage,
+                range: atk.range,
+                stype: st.0,
+                level: lvl.level,
+                interval: atk.interval_ticks,
+                has_fearless: fb.is_some(),
+                force_move: mov.force_move,
                 facing: facing.map(|f| f.angle).unwrap_or(Fixed::ZERO),
-            }).collect()
+            })
+            .collect()
     };
 
     // Collect enemy soldier positions for target scanning
     let enemy_positions: HashMap<UnitId, (FixedVec2, Faction)> = {
-        let mut q = world.query::<(&UnitIdComponent, &LogicalPosition, &FactionComponent, &SoldierMarker)>();
-        q.iter(world).map(|(id, pos, fac, _)| (id.0, (pos.0, fac.0))).collect()
+        let mut q = world.query::<(
+            &UnitIdComponent,
+            &LogicalPosition,
+            &FactionComponent,
+            &SoldierMarker,
+        )>();
+        q.iter(world)
+            .map(|(id, pos, fac, _)| (id.0, (pos.0, fac.0)))
+            .collect()
     };
 
     let mut pending_deaths: Vec<(Entity, Option<UnitId>, Option<UnitId>)> = Vec::new(); // (target, killer, city_origin)
@@ -252,11 +380,14 @@ pub fn melee_attack_system(world: &mut World, current_tick: u32) {
 
     for ad in attackers {
         // ForceMove suppression: non-cavalry units skip attack during force_move
-        if ad.force_move && ad.stype != SoldierType::Cavalry { continue; }
+        if ad.force_move && ad.stype != SoldierType::Cavalry {
+            continue;
+        }
 
         // Scan for nearest enemy in attack range
         // Blocking units only attack enemies in frontal 120° arc
-        let is_blocking = world.get::<ShieldComponent>(ad.entity)
+        let is_blocking = world
+            .get::<ShieldComponent>(ad.entity)
             .is_some_and(|sc| sc.state == ShieldState::Blocking);
         let frontal_half = if is_blocking {
             let cfg = world.resource::<CombatGlobalConfig>();
@@ -269,25 +400,35 @@ pub fn melee_attack_system(world: &mut World, current_tick: u32) {
         let range_sq = range_f * range_f;
         let mut best_target: Option<(UnitId, FixedVec2, i64)> = None;
         for (&eid, &(epos, efaction)) in &enemy_positions {
-            if efaction == ad.faction { continue; }
+            if efaction == ad.faction {
+                continue;
+            }
             let dist_sq = (ad.pos - epos).length_squared();
             if dist_sq <= range_sq {
                 // Blocking: check frontal angle
                 if is_blocking {
                     let attack_angle = facing::compute_angle_between(ad.pos, epos);
                     let deviation = facing::angle_distance(ad.facing, attack_angle);
-                    if deviation > frontal_half { continue; }
+                    if deviation > frontal_half {
+                        continue;
+                    }
                 }
-                if best_target.as_ref().is_none_or(|(_, _, bd)| dist_sq.0 < *bd) {
+                if best_target
+                    .as_ref()
+                    .is_none_or(|(_, _, bd)| dist_sq.0 < *bd)
+                {
                     best_target = Some((eid, epos, dist_sq.0));
                 }
             }
         }
-        let Some((tid, tpos, _)) = best_target else { continue };
+        let Some((tid, tpos, _)) = best_target else {
+            continue;
+        };
 
         // Non-cavalry: start windup instead of attacking immediately
         if ad.stype != SoldierType::Cavalry || !windup_config.cavalry_no_windup {
-            let already_winding = world.entity(ad.entity)
+            let already_winding = world
+                .entity(ad.entity)
                 .get::<AttackWindup>()
                 .is_some_and(|w| w.remaining_ticks > 0);
             if !already_winding {
@@ -300,29 +441,40 @@ pub fn melee_attack_system(world: &mut World, current_tick: u32) {
         }
 
         // Cavalry with cavalry_no_windup: attack immediately
-        let Some(te) = find_entity_by_unit_id(world, tid) else { continue };
+        let Some(te) = find_entity_by_unit_id(world, tid) else {
+            continue;
+        };
 
         let (thp, tmax, tst, _tfac, city_origin) = {
             let em = world.entity(te);
             let hp = em.get::<Health>();
-            (hp.map(|h| h.current), hp.map(|h| h.max),
-             em.get::<SoldierTypeComponent>().map(|s| s.0),
-             em.get::<FactionComponent>().map(|f| f.0),
-             em.get::<CityOrigin>().map(|c| c.0))
+            (
+                hp.map(|h| h.current),
+                hp.map(|h| h.max),
+                em.get::<SoldierTypeComponent>().map(|s| s.0),
+                em.get::<FactionComponent>().map(|f| f.0),
+                em.get::<CityOrigin>().map(|c| c.0),
+            )
         };
         let Some(hp_cur) = thp else { continue };
         let Some(hp_max) = tmax else { continue };
 
         let mut damage = ad.dmg + ad.level * combat_config.level_up.attack_gain;
-        if ad.has_fearless { damage += combat_config.fearless.attack_bonus; }
+        if ad.has_fearless {
+            damage += combat_config.fearless.attack_bonus;
+        }
 
         // Cavalry dodge
         if tst == Some(SoldierType::Cavalry) && hp_max > 0 {
             let hp_r = hp_cur as f32 / hp_max as f32;
-            let dc = (combat_config.cavalry.dodge_max_chance - (1.0 - hp_r) * combat_config.cavalry.dodge_decay_rate).max(0.0);
+            let dc = (combat_config.cavalry.dodge_max_chance
+                - (1.0 - hp_r) * combat_config.cavalry.dodge_decay_rate)
+                .max(0.0);
             if world.resource_mut::<DeterministicRng>().gen_probability() < dc {
                 damage = 0;
-                world.entity_mut(te).insert(FearlessBuff { remaining_ticks: combat_config.fearless.duration_ticks });
+                world.entity_mut(te).insert(FearlessBuff {
+                    remaining_ticks: combat_config.fearless.duration_ticks,
+                });
             }
         }
 
@@ -335,7 +487,9 @@ pub fn melee_attack_system(world: &mut World, current_tick: u32) {
                 if let Some(mut hp) = em.get_mut::<Health>() {
                     hp.current = hp.current.saturating_sub(damage);
                     hp.current == 0
-                } else { false }
+                } else {
+                    false
+                }
             };
 
             if died {
@@ -348,7 +502,10 @@ pub fn melee_attack_system(world: &mut World, current_tick: u32) {
         }
 
         // Reset attacker cooldown (penalized if blocking, affected by facing)
-        let base_cooldown = if world.get::<ShieldComponent>(ad.entity).is_some_and(|sc| sc.state == ShieldState::Blocking) {
+        let base_cooldown = if world
+            .get::<ShieldComponent>(ad.entity)
+            .is_some_and(|sc| sc.state == ShieldState::Blocking)
+        {
             combat_config.shield.attack_speed_penalty
         } else {
             ad.interval
@@ -366,13 +523,25 @@ pub fn melee_attack_system(world: &mut World, current_tick: u32) {
             let effective = (base_cooldown as i64 * 256) / factor_i64;
             effective.max(1) as u32
         };
-        world.entity_mut(ad.entity).insert(Attack { damage: ad.dmg, range: ad.range, interval_ticks: ad.interval, cooldown_remaining: cooldown });
+        world.entity_mut(ad.entity).insert(Attack {
+            damage: ad.dmg,
+            range: ad.range,
+            interval_ticks: ad.interval,
+            cooldown_remaining: cooldown,
+        });
     }
 
     // Apply lifesteal & XP
     for (e, dmg, lvl, hf) in ls_kills.iter().chain(ls_hits.iter()) {
-        let ls = if *lvl >= combat_config.level_up.lifesteal_unlock_level { combat_config.level_up.lifesteal_rate } else { 0.0 }
-            + if *hf { combat_config.fearless.lifesteal_bonus } else { 0.0 };
+        let ls = if *lvl >= combat_config.level_up.lifesteal_unlock_level {
+            combat_config.level_up.lifesteal_rate
+        } else {
+            0.0
+        } + if *hf {
+            combat_config.fearless.lifesteal_bonus
+        } else {
+            0.0
+        };
         if ls > 0.0 {
             if let Some(mut hp) = world.entity_mut(*e).get_mut::<Health>() {
                 hp.current = (hp.current + (*dmg as f32 * ls) as u32).min(hp.max);
@@ -380,13 +549,17 @@ pub fn melee_attack_system(world: &mut World, current_tick: u32) {
         }
     }
     for (e, xp) in xp_grants {
-        if let Some(mut lvl) = world.entity_mut(e).get_mut::<Level>() { lvl.exp += xp; }
+        if let Some(mut lvl) = world.entity_mut(e).get_mut::<Level>() {
+            lvl.exp += xp;
+        }
     }
 
     // Process deaths (dedup by entity — same target may be killed by multiple attackers)
     let mut seen = std::collections::HashSet::new();
     for (te, kid, origin) in pending_deaths {
-        if seen.contains(&te) { continue; }
+        if seen.contains(&te) {
+            continue;
+        }
         seen.insert(te);
         let uid = find_unit_id(world, te).unwrap_or(UnitId(0));
         drop_shield_on_death(world, te, current_tick);
@@ -400,7 +573,10 @@ pub fn melee_attack_system(world: &mut World, current_tick: u32) {
             }
         }
         let mut events = world.resource_mut::<SimulationEvents>();
-        events.destroyed.push(UnitDestroyed { unit_id: uid, killer_id: kid });
+        events.destroyed.push(UnitDestroyed {
+            unit_id: uid,
+            killer_id: kid,
+        });
     }
 }
 
@@ -430,7 +606,10 @@ pub fn attack_windup_system(world: &mut World, current_tick: u32) {
     }
     // Apply windup cancellations
     for entity in cancel_windups {
-        world.entity_mut(entity).insert(AttackWindup { remaining_ticks: 0, target: None });
+        world.entity_mut(entity).insert(AttackWindup {
+            remaining_ticks: 0,
+            target: None,
+        });
     }
 
     // Decrement windups and collect completed ones
@@ -442,9 +621,15 @@ pub fn attack_windup_system(world: &mut World, current_tick: u32) {
                 ready.push((entity, target_id));
             }
             // Clear windup state
-            world.entity_mut(entity).insert(AttackWindup { remaining_ticks: 0, target: None });
+            world.entity_mut(entity).insert(AttackWindup {
+                remaining_ticks: 0,
+                target: None,
+            });
         } else {
-            world.entity_mut(entity).insert(AttackWindup { remaining_ticks: new_remaining, target });
+            world.entity_mut(entity).insert(AttackWindup {
+                remaining_ticks: new_remaining,
+                target,
+            });
         }
     }
 
@@ -470,40 +655,57 @@ pub fn attack_windup_system(world: &mut World, current_tick: u32) {
             let lvl = em.get::<Level>().map(|l| l.level);
             let fb = em.get::<FearlessBuff>().is_some();
             match (uid, pos, atk, lvl) {
-                (Some(u), Some(p), Some(a), Some(l)) => (u, p, a.damage, a.range, l, a.interval_ticks, fb),
+                (Some(u), Some(p), Some(a), Some(l)) => {
+                    (u, p, a.damage, a.range, l, a.interval_ticks, fb)
+                }
                 _ => continue,
             }
         };
 
         // Verify target is still in range
-        let Some(&tpos) = positions.get(&target_id) else { continue };
+        let Some(&tpos) = positions.get(&target_id) else {
+            continue;
+        };
         let range_f = Fixed::from_int(ad_range as i32);
-        if (ad_pos - tpos).length_squared() > range_f * range_f { continue; }
+        if (ad_pos - tpos).length_squared() > range_f * range_f {
+            continue;
+        }
 
-        let Some(te) = find_entity_by_unit_id(world, target_id) else { continue };
+        let Some(te) = find_entity_by_unit_id(world, target_id) else {
+            continue;
+        };
 
         let (thp, tmax, tst, _tfac, city_origin) = {
             let em = world.entity(te);
             let hp = em.get::<Health>();
-            (hp.map(|h| h.current), hp.map(|h| h.max),
-             em.get::<SoldierTypeComponent>().map(|s| s.0),
-             em.get::<FactionComponent>().map(|f| f.0),
-             em.get::<CityOrigin>().map(|c| c.0))
+            (
+                hp.map(|h| h.current),
+                hp.map(|h| h.max),
+                em.get::<SoldierTypeComponent>().map(|s| s.0),
+                em.get::<FactionComponent>().map(|f| f.0),
+                em.get::<CityOrigin>().map(|c| c.0),
+            )
         };
         let Some(hp_cur) = thp else { continue };
         let Some(hp_max) = tmax else { continue };
 
         // Compute damage (same formula as melee_attack_system)
         let mut damage = ad_dmg + ad_level * combat_config.level_up.attack_gain;
-        if ad_has_fearless { damage += combat_config.fearless.attack_bonus; }
+        if ad_has_fearless {
+            damage += combat_config.fearless.attack_bonus;
+        }
 
         // Cavalry dodge
         if tst == Some(SoldierType::Cavalry) && hp_max > 0 {
             let hp_r = hp_cur as f32 / hp_max as f32;
-            let dc = (combat_config.cavalry.dodge_max_chance - (1.0 - hp_r) * combat_config.cavalry.dodge_decay_rate).max(0.0);
+            let dc = (combat_config.cavalry.dodge_max_chance
+                - (1.0 - hp_r) * combat_config.cavalry.dodge_decay_rate)
+                .max(0.0);
             if world.resource_mut::<DeterministicRng>().gen_probability() < dc {
                 damage = 0;
-                world.entity_mut(te).insert(FearlessBuff { remaining_ticks: combat_config.fearless.duration_ticks });
+                world.entity_mut(te).insert(FearlessBuff {
+                    remaining_ticks: combat_config.fearless.duration_ticks,
+                });
             }
         }
 
@@ -516,7 +718,9 @@ pub fn attack_windup_system(world: &mut World, current_tick: u32) {
                 if let Some(mut hp) = em.get_mut::<Health>() {
                     hp.current = hp.current.saturating_sub(damage);
                     hp.current == 0
-                } else { false }
+                } else {
+                    false
+                }
             };
 
             if died {
@@ -529,14 +733,20 @@ pub fn attack_windup_system(world: &mut World, current_tick: u32) {
         }
 
         // Reset attacker cooldown (penalized if blocking, affected by facing)
-        let base_cooldown = if world.get::<ShieldComponent>(attacker_entity).is_some_and(|sc| sc.state == ShieldState::Blocking) {
+        let base_cooldown = if world
+            .get::<ShieldComponent>(attacker_entity)
+            .is_some_and(|sc| sc.state == ShieldState::Blocking)
+        {
             combat_config.shield.attack_speed_penalty
         } else {
             ad_interval
         };
         // Apply facing attack speed factor
         let cooldown = {
-            let attacker_facing = world.get::<FacingDirection>(attacker_entity).map(|f| f.angle).unwrap_or(Fixed::ZERO);
+            let attacker_facing = world
+                .get::<FacingDirection>(attacker_entity)
+                .map(|f| f.angle)
+                .unwrap_or(Fixed::ZERO);
             let target_pos = positions.get(&target_id).copied().unwrap_or(ad_pos);
             let target_angle = facing::compute_angle_between(ad_pos, target_pos);
             let factor = facing::facing_atk_speed_factor(attacker_facing, target_angle);
@@ -544,13 +754,25 @@ pub fn attack_windup_system(world: &mut World, current_tick: u32) {
             let effective = (base_cooldown as i64 * 256) / factor_i64;
             effective.max(1) as u32
         };
-        world.entity_mut(attacker_entity).insert(Attack { damage: ad_dmg, range: ad_range, interval_ticks: ad_interval, cooldown_remaining: cooldown });
+        world.entity_mut(attacker_entity).insert(Attack {
+            damage: ad_dmg,
+            range: ad_range,
+            interval_ticks: ad_interval,
+            cooldown_remaining: cooldown,
+        });
     }
 
     // Apply lifesteal & XP
     for (e, dmg, lvl, hf) in ls_kills.iter().chain(ls_hits.iter()) {
-        let ls = if *lvl >= combat_config.level_up.lifesteal_unlock_level { combat_config.level_up.lifesteal_rate } else { 0.0 }
-            + if *hf { combat_config.fearless.lifesteal_bonus } else { 0.0 };
+        let ls = if *lvl >= combat_config.level_up.lifesteal_unlock_level {
+            combat_config.level_up.lifesteal_rate
+        } else {
+            0.0
+        } + if *hf {
+            combat_config.fearless.lifesteal_bonus
+        } else {
+            0.0
+        };
         if ls > 0.0 {
             if let Some(mut hp) = world.entity_mut(*e).get_mut::<Health>() {
                 hp.current = (hp.current + (*dmg as f32 * ls) as u32).min(hp.max);
@@ -558,13 +780,17 @@ pub fn attack_windup_system(world: &mut World, current_tick: u32) {
         }
     }
     for (e, xp) in xp_grants {
-        if let Some(mut lvl) = world.entity_mut(e).get_mut::<Level>() { lvl.exp += xp; }
+        if let Some(mut lvl) = world.entity_mut(e).get_mut::<Level>() {
+            lvl.exp += xp;
+        }
     }
 
     // Process deaths
     let mut seen = std::collections::HashSet::new();
     for (te, kid, origin) in pending_deaths {
-        if seen.contains(&te) { continue; }
+        if seen.contains(&te) {
+            continue;
+        }
         seen.insert(te);
         let uid = find_unit_id(world, te).unwrap_or(UnitId(0));
         drop_shield_on_death(world, te, current_tick);
@@ -577,12 +803,14 @@ pub fn attack_windup_system(world: &mut World, current_tick: u32) {
             }
         }
         let mut events = world.resource_mut::<SimulationEvents>();
-        events.destroyed.push(UnitDestroyed { unit_id: uid, killer_id: kid });
+        events.destroyed.push(UnitDestroyed {
+            unit_id: uid,
+            killer_id: kid,
+        });
     }
 }
 
 // ══════════ attack_windup (end) ══════════
-
 
 // ══════════ archer_attack (direction-based) ══════════
 
@@ -594,33 +822,80 @@ pub fn archer_attack_system(world: &mut World) {
     {
         let mut q = world.query::<(Entity, &mut Attack, &SoldierTypeComponent)>();
         for (_, mut atk, st) in q.iter_mut(world) {
-            if st.0 == SoldierType::Archer { atk.cooldown_remaining = atk.cooldown_remaining.saturating_sub(1); }
+            if st.0 == SoldierType::Archer {
+                atk.cooldown_remaining = atk.cooldown_remaining.saturating_sub(1);
+            }
         }
     }
 
     // Collect enemy soldier positions (filter by SoldierMarker + faction)
     let all_units: Vec<(UnitId, FixedVec2, Faction)> = {
-        let mut q = world.query::<(Entity, &UnitIdComponent, &LogicalPosition, &FactionComponent, &SoldierMarker)>();
-        q.iter(world).map(|(_, id, pos, fac, _)| (id.0, pos.0, fac.0)).collect()
+        let mut q = world.query::<(
+            Entity,
+            &UnitIdComponent,
+            &LogicalPosition,
+            &FactionComponent,
+            &SoldierMarker,
+        )>();
+        q.iter(world)
+            .map(|(_, id, pos, fac, _)| (id.0, pos.0, fac.0))
+            .collect()
     };
 
     // Collect enemy city positions (filter by CityMarker + faction)
     let all_cities: Vec<(UnitId, FixedVec2, Faction)> = {
-        let mut q = world.query::<(Entity, &UnitIdComponent, &LogicalPosition, &FactionComponent, &CityMarker)>();
-        q.iter(world).map(|(_, id, pos, fac, _)| (id.0, pos.0, fac.0)).collect()
+        let mut q = world.query::<(
+            Entity,
+            &UnitIdComponent,
+            &LogicalPosition,
+            &FactionComponent,
+            &CityMarker,
+        )>();
+        q.iter(world)
+            .map(|(_, id, pos, fac, _)| (id.0, pos.0, fac.0))
+            .collect()
     };
 
     // Collect archers ready to fire
-    struct ArcData { entity: Entity, pos: FixedVec2, faction: Faction, dmg: u32, range: u32, interval: u32, level: u32, cfg: crate::soldier::config::SoldierUnitConfig }
+    struct ArcData {
+        entity: Entity,
+        pos: FixedVec2,
+        faction: Faction,
+        dmg: u32,
+        range: u32,
+        interval: u32,
+        level: u32,
+        cfg: crate::soldier::config::SoldierUnitConfig,
+    }
     let archers: Vec<ArcData> = {
-        let mut q = world.query::<(Entity, &UnitIdComponent, &LogicalPosition, &FactionComponent, &Attack, &Level, &SoldierTypeComponent)>();
+        let mut q = world.query::<(
+            Entity,
+            &UnitIdComponent,
+            &LogicalPosition,
+            &FactionComponent,
+            &Attack,
+            &Level,
+            &SoldierTypeComponent,
+        )>();
         q.iter(world)
-            .filter(|(_, _, _, _, atk, _, st)| atk.cooldown_remaining == 0 && st.0 == SoldierType::Archer)
+            .filter(|(_, _, _, _, atk, _, st)| {
+                atk.cooldown_remaining == 0 && st.0 == SoldierType::Archer
+            })
             .map(|(e, _id, pos, fac, atk, lvl, _st)| {
                 let cfg = soldier_config.get(SoldierType::Archer).clone();
                 let range = cfg.compute_attack_range(lvl.level);
-                ArcData { entity: e, pos: pos.0, faction: fac.0, dmg: atk.damage, range, interval: cfg.attack_interval_ticks, level: lvl.level, cfg }
-            }).collect()
+                ArcData {
+                    entity: e,
+                    pos: pos.0,
+                    faction: fac.0,
+                    dmg: atk.damage,
+                    range,
+                    interval: cfg.attack_interval_ticks,
+                    level: lvl.level,
+                    cfg,
+                }
+            })
+            .collect()
     };
 
     for ad in archers {
@@ -631,7 +906,9 @@ pub fn archer_attack_system(world: &mut World) {
         let mut nearest: Option<(UnitId, FixedVec2)> = None;
         let mut nearest_d = i64::MAX;
         for (eid, epos, efac) in &all_units {
-            if *efac == ad.faction { continue; } // only target enemies
+            if *efac == ad.faction {
+                continue;
+            } // only target enemies
             let ds = (ad.pos - *epos).length_squared();
             if ds <= range_sq {
                 enemy_soldiers_in_range.push((*eid, *epos));
@@ -647,7 +924,9 @@ pub fn archer_attack_system(world: &mut World) {
             let mut best: Option<(UnitId, FixedVec2)> = None;
             let mut best_d = i64::MAX;
             for (cid, cpos, cfac) in &all_cities {
-                if *cfac == ad.faction { continue; }
+                if *cfac == ad.faction {
+                    continue;
+                }
                 let ds = (ad.pos - *cpos).length_squared();
                 if ds <= range_sq && ds.0 < best_d {
                     best = Some((*cid, *cpos));
@@ -657,7 +936,9 @@ pub fn archer_attack_system(world: &mut World) {
             best
         }) else {
             // No enemy soldier or city in range — restore Moving state
-            world.entity_mut(ad.entity).insert(SoldierStateComponent(SoldierState::Moving));
+            world
+                .entity_mut(ad.entity)
+                .insert(SoldierStateComponent(SoldierState::Moving));
             continue;
         };
 
@@ -711,7 +992,9 @@ pub fn archer_attack_system(world: &mut World) {
             // Compute flight direction with spread (65% dead-on, 35% ±0.1°–10°)
             let delta = *t_pos - ad.pos;
             let dist_internal = integer_sqrt(delta.length_squared().0 * FIXED_ONE);
-            if dist_internal <= 0 { continue; }
+            if dist_internal <= 0 {
+                continue;
+            }
             let dist = Fixed(dist_internal);
             let dir_unit = FixedVec2::new(delta.x / dist, delta.y / dist);
 
@@ -722,7 +1005,11 @@ pub fn archer_attack_system(world: &mut World) {
                     Fixed::ZERO // 65% perfect aim
                 } else {
                     let angle = Fixed(1 + (rng.next_u64() % 44) as i64); // 0.1°–10°
-                    if rng.gen_probability() < 0.5 { Fixed(-angle.0) } else { angle }
+                    if rng.gen_probability() < 0.5 {
+                        Fixed(-angle.0)
+                    } else {
+                        angle
+                    }
                 }
             };
 
@@ -737,23 +1024,42 @@ pub fn archer_attack_system(world: &mut World) {
             // Spawn arrow
             let aid = { world.resource_mut::<IdGenerator>().next_id() };
             world.spawn((
-                UnitIdComponent(aid), ArrowMarker, LogicalPosition(ad.pos),
+                UnitIdComponent(aid),
+                ArrowMarker,
+                LogicalPosition(ad.pos),
                 Arrow {
-                    direction, damage, from_faction: ad.faction,
+                    direction,
+                    damage,
+                    from_faction: ad.faction,
                     shooter: shooter_id,
-                    flight_remaining: flight_ticks, decay_remaining: 0,
-                    pierce_chance, stuck_to: None, hit_units: Vec::new(),
+                    flight_remaining: flight_ticks,
+                    decay_remaining: 0,
+                    pierce_chance,
+                    stuck_to: None,
+                    hit_units: Vec::new(),
                     start_pos: ad.pos,
                 },
             ));
 
             let mut events = world.resource_mut::<SimulationEvents>();
-            events.spawned.push(UnitSpawned { unit_id: aid, pos: ad.pos, faction: ad.faction, unit_kind: UnitKind::Arrow });
+            events.spawned.push(UnitSpawned {
+                unit_id: aid,
+                pos: ad.pos,
+                faction: ad.faction,
+                unit_kind: UnitKind::Arrow,
+            });
         }
 
         // Reset cooldown and set Fighting state (prevents movement while shooting)
-        world.entity_mut(ad.entity).insert(Attack { damage: ad.dmg, range: ad.range, interval_ticks: ad.interval, cooldown_remaining: ad.interval });
-        world.entity_mut(ad.entity).insert(SoldierStateComponent(SoldierState::Fighting));
+        world.entity_mut(ad.entity).insert(Attack {
+            damage: ad.dmg,
+            range: ad.range,
+            interval_ticks: ad.interval,
+            cooldown_remaining: ad.interval,
+        });
+        world
+            .entity_mut(ad.entity)
+            .insert(SoldierStateComponent(SoldierState::Fighting));
     }
 }
 
@@ -764,17 +1070,35 @@ pub fn arrow_movement_system(world: &mut World, current_tick: u32) {
 
     // Collect soldier positions for collision (filter by SoldierMarker)
     let all_soldiers: Vec<(UnitId, FixedVec2, Entity, Faction)> = {
-        let mut q = world.query::<(Entity, &UnitIdComponent, &LogicalPosition, &FactionComponent, &SoldierMarker)>();
-        q.iter(world).map(|(e, id, pos, fac, _)| (id.0, pos.0, e, fac.0)).collect()
+        let mut q = world.query::<(
+            Entity,
+            &UnitIdComponent,
+            &LogicalPosition,
+            &FactionComponent,
+            &SoldierMarker,
+        )>();
+        q.iter(world)
+            .map(|(e, id, pos, fac, _)| (id.0, pos.0, e, fac.0))
+            .collect()
     };
 
     // Collect city positions for collision (filter by CityMarker)
     let all_cities: Vec<(UnitId, FixedVec2, Entity, Faction, u32)> = {
-        let mut q = world.query::<(Entity, &UnitIdComponent, &LogicalPosition, &FactionComponent, &CityMarker, &CityRadius)>();
-        q.iter(world).map(|(e, id, pos, fac, _, r)| (id.0, pos.0, e, fac.0, r.0)).collect()
+        let mut q = world.query::<(
+            Entity,
+            &UnitIdComponent,
+            &LogicalPosition,
+            &FactionComponent,
+            &CityMarker,
+            &CityRadius,
+        )>();
+        q.iter(world)
+            .map(|(e, id, pos, fac, _, r)| (id.0, pos.0, e, fac.0, r.0))
+            .collect()
     };
 
-    let arrow_building_damage_denom = (1.0_f32 / combat_config.arrow_building_damage_ratio).round() as u32;
+    let arrow_building_damage_denom =
+        (1.0_f32 / combat_config.arrow_building_damage_ratio).round() as u32;
 
     let mut to_despawn: Vec<Entity> = Vec::new();
     // Collect pierce decisions before query to avoid borrow conflict
@@ -799,10 +1123,15 @@ pub fn arrow_movement_system(world: &mut World, current_tick: u32) {
                 arrow.decay_remaining -= 1;
                 if let Some(sid) = arrow.stuck_to {
                     for (eid, epos, _, _) in &all_soldiers {
-                        if *eid == sid { arrow_pos.0 = *epos; break; }
+                        if *eid == sid {
+                            arrow_pos.0 = *epos;
+                            break;
+                        }
                     }
                 }
-                if arrow.decay_remaining == 0 { to_despawn.push(ae); }
+                if arrow.decay_remaining == 0 {
+                    to_despawn.push(ae);
+                }
                 continue;
             }
 
@@ -815,18 +1144,29 @@ pub fn arrow_movement_system(world: &mut World, current_tick: u32) {
 
                 let mut stopped_by_soldier = false;
                 for (eid, epos, _ee, efac) in &all_soldiers {
-                    if *efac == arrow.from_faction { continue; } // don't hit friendlies
-                    if arrow.hit_units.contains(eid) { continue; }
+                    if *efac == arrow.from_faction {
+                        continue;
+                    } // don't hit friendlies
+                    if arrow.hit_units.contains(eid) {
+                        continue;
+                    }
                     if (arrow_pos.0 - *epos).length_squared() <= threshold_sq {
                         arrow.hit_units.push(*eid);
-                        let rolled = pierce_rolls[pierce_idx.min(pierce_rolls.len()-1)];
+                        let rolled = pierce_rolls[pierce_idx.min(pierce_rolls.len() - 1)];
                         pierce_idx += 1;
                         if rolled < arrow.pierce_chance {
                             hits.push((ae, arrow.damage, None, true, arrow.shooter, arrow_pos.0));
                         } else {
                             arrow.stuck_to = Some(*eid);
                             arrow.decay_remaining = ARROW_DECAY_TICKS;
-                            hits.push((ae, arrow.damage, Some(*eid), false, arrow.shooter, arrow_pos.0));
+                            hits.push((
+                                ae,
+                                arrow.damage,
+                                Some(*eid),
+                                false,
+                                arrow.shooter,
+                                arrow_pos.0,
+                            ));
                             stopped_by_soldier = true;
                             break;
                         }
@@ -836,7 +1176,9 @@ pub fn arrow_movement_system(world: &mut World, current_tick: u32) {
                 // City collision — only if not stopped by soldier hit
                 if !stopped_by_soldier {
                     for (_cid, cpos, ce, cfac, cradius) in &all_cities {
-                        if *cfac == arrow.from_faction { continue; } // friendly city: pass through
+                        if *cfac == arrow.from_faction {
+                            continue;
+                        } // friendly city: pass through
                         let radius = Fixed::from_int(*cradius as i32);
                         let radius_sq = radius * radius;
                         if (arrow_pos.0 - *cpos).length_squared() <= radius_sq {
@@ -866,7 +1208,9 @@ pub fn arrow_movement_system(world: &mut World, current_tick: u32) {
                     if let Some(mut hp) = em.get_mut::<Health>() {
                         hp.current = hp.current.saturating_sub(remaining_dmg);
                         hp.current == 0
-                    } else { false }
+                    } else {
+                        false
+                    }
                 };
                 if died {
                     let uid = find_unit_id(world, te).unwrap_or(UnitId(0));
@@ -880,7 +1224,10 @@ pub fn arrow_movement_system(world: &mut World, current_tick: u32) {
                     drop_shield_on_death(world, te, current_tick);
                     world.despawn(te);
                     let mut events = world.resource_mut::<SimulationEvents>();
-                    events.destroyed.push(UnitDestroyed { unit_id: uid, killer_id: *shooter });
+                    events.destroyed.push(UnitDestroyed {
+                        unit_id: uid,
+                        killer_id: *shooter,
+                    });
                     // XP to shooter
                     if let Some(sid) = shooter {
                         if let Some(se) = find_entity_by_unit_id(world, *sid) {
@@ -899,7 +1246,9 @@ pub fn arrow_movement_system(world: &mut World, current_tick: u32) {
         for (ce, dmg) in &city_hits {
             if let Some(mut city) = world.entity_mut(*ce).get_mut::<CityComponent>() {
                 city.arrow_damage_acc += dmg;
-                let integer_damage = city.arrow_damage_acc.saturating_div(arrow_building_damage_denom);
+                let integer_damage = city
+                    .arrow_damage_acc
+                    .saturating_div(arrow_building_damage_denom);
                 if integer_damage > 0 {
                     city.health_current = city.health_current.saturating_sub(integer_damage);
                     city.arrow_damage_acc %= arrow_building_damage_denom;
@@ -909,7 +1258,9 @@ pub fn arrow_movement_system(world: &mut World, current_tick: u32) {
     }
 
     // Despawn arrows
-    for ae in to_despawn { world.despawn(ae); }
+    for ae in to_despawn {
+        world.despawn(ae);
+    }
 }
 
 // ══════════ Tests: arrow-city collision ══════════
@@ -918,35 +1269,73 @@ pub fn arrow_movement_system(world: &mut World, current_tick: u32) {
 mod arrow_city_tests {
     use super::*;
     use crate::init_simulation_world;
-    use crate::soldier::{CityMarker, CityComponent, CityRadius, UnitIdComponent, LogicalPosition, FactionComponent, SoldierMarker, Health, SoldierTypeComponent, SoldierStateComponent, Attack, Movement, Level, CityOrigin};
+    use crate::soldier::{
+        Attack, CityComponent, CityMarker, CityOrigin, CityRadius, FactionComponent, Health, Level,
+        LogicalPosition, Movement, SoldierMarker, SoldierStateComponent, SoldierTypeComponent,
+        UnitIdComponent,
+    };
 
     /// Helper: create a minimal arrow flying toward a position
-    fn spawn_test_arrow(world: &mut World, pos: FixedVec2, dir: FixedVec2, dmg: u32, faction: Faction) -> Entity {
+    fn spawn_test_arrow(
+        world: &mut World,
+        pos: FixedVec2,
+        dir: FixedVec2,
+        dmg: u32,
+        faction: Faction,
+    ) -> Entity {
         let aid = world.resource_mut::<IdGenerator>().next_id();
-        world.spawn((
-            UnitIdComponent(aid), ArrowMarker, LogicalPosition(pos),
-            Arrow {
-                direction: dir, damage: dmg, from_faction: faction,
-                shooter: None, flight_remaining: 50, decay_remaining: 0,
-                pierce_chance: 0.0, stuck_to: None, hit_units: Vec::new(),
-                start_pos: pos,
-            },
-        )).id()
+        world
+            .spawn((
+                UnitIdComponent(aid),
+                ArrowMarker,
+                LogicalPosition(pos),
+                Arrow {
+                    direction: dir,
+                    damage: dmg,
+                    from_faction: faction,
+                    shooter: None,
+                    flight_remaining: 50,
+                    decay_remaining: 0,
+                    pierce_chance: 0.0,
+                    stuck_to: None,
+                    hit_units: Vec::new(),
+                    start_pos: pos,
+                },
+            ))
+            .id()
     }
 
     /// Helper: create a city entity at a position
-    fn spawn_test_city(world: &mut World, pos: FixedVec2, faction: Faction, radius: u32, hp: u32) -> Entity {
+    fn spawn_test_city(
+        world: &mut World,
+        pos: FixedVec2,
+        faction: Faction,
+        radius: u32,
+        hp: u32,
+    ) -> Entity {
         let cid = world.resource_mut::<IdGenerator>().next_id();
-        world.spawn((
-            UnitIdComponent(cid), CityMarker, LogicalPosition(pos),
-            CityComponent {
-                level: 1, max_level: 5, health_current: hp, health_max: hp,
-                population: 0, max_population: 10, spawn_type: SoldierType::Militia,
-                spawn_cooldown: 0, level_exp: 0, last_attacker_faction: None,
-                arrow_damage_acc: 0,
-            },
-            CityRadius(radius), FactionComponent(faction),
-        )).id()
+        world
+            .spawn((
+                UnitIdComponent(cid),
+                CityMarker,
+                LogicalPosition(pos),
+                CityComponent {
+                    level: 1,
+                    max_level: 5,
+                    health_current: hp,
+                    health_max: hp,
+                    population: 0,
+                    max_population: 10,
+                    spawn_type: SoldierType::Militia,
+                    spawn_cooldown: 0,
+                    level_exp: 0,
+                    last_attacker_faction: None,
+                    arrow_damage_acc: 0,
+                },
+                CityRadius(radius),
+                FactionComponent(faction),
+            ))
+            .id()
     }
 
     // ── 4.3: Arrow hits city, accumulator increments but no health damage (value insufficient) ──
@@ -968,7 +1357,10 @@ mod arrow_city_tests {
         // Find city, check accumulator
         let mut q = world.query::<(Entity, &CityComponent)>();
         let (_, city) = q.iter(&world).next().unwrap();
-        assert_eq!(city.arrow_damage_acc, 16, "Accumulator should store 16 damage");
+        assert_eq!(
+            city.arrow_damage_acc, 16,
+            "Accumulator should store 16 damage"
+        );
         assert_eq!(city.health_current, 500, "Health unchanged (16 < 200)");
     }
 
@@ -998,7 +1390,10 @@ mod arrow_city_tests {
         let mut q = world.query::<(Entity, &CityComponent)>();
         let (_, city) = q.iter(&world).next().unwrap();
         assert_eq!(city.health_current, 499, "Should lose 1 HP (206/200 = 1)");
-        assert_eq!(city.arrow_damage_acc, 6, "Remainder should be 6 (206 % 200)");
+        assert_eq!(
+            city.arrow_damage_acc, 6,
+            "Remainder should be 6 (206 % 200)"
+        );
     }
 
     // ── 4.5: Arrow enters decay after hitting city ──
@@ -1017,7 +1412,10 @@ mod arrow_city_tests {
 
         let mut q = world.query::<(Entity, &Arrow)>();
         let (_, arrow) = q.iter(&world).next().unwrap();
-        assert!(arrow.decay_remaining > 0, "Arrow should enter decay after city hit");
+        assert!(
+            arrow.decay_remaining > 0,
+            "Arrow should enter decay after city hit"
+        );
     }
 
     // ── 4.6: Friendly arrow passes through friendly city ──
@@ -1036,12 +1434,18 @@ mod arrow_city_tests {
 
         let mut q = world.query::<(Entity, &CityComponent)>();
         let (_, city) = q.iter(&world).next().unwrap();
-        assert_eq!(city.arrow_damage_acc, 0, "Friendly arrow should not accumulate damage");
+        assert_eq!(
+            city.arrow_damage_acc, 0,
+            "Friendly arrow should not accumulate damage"
+        );
         assert_eq!(city.health_current, 500, "Friendly city health unchanged");
 
         let mut q = world.query::<(Entity, &Arrow)>();
         let (_, arrow) = q.iter(&world).next().unwrap();
-        assert_eq!(arrow.decay_remaining, 0, "Arrow should still be in flight (not decay)");
+        assert_eq!(
+            arrow.decay_remaining, 0,
+            "Arrow should still be in flight (not decay)"
+        );
     }
 
     // ── 4.7: Pierced soldier → same tick hits city behind ──
@@ -1058,13 +1462,31 @@ mod arrow_city_tests {
         let soldier_pos = FixedVec2::new(Fixed::from_int(100), Fixed::from_int(80));
         let sid = world.resource_mut::<IdGenerator>().next_id();
         world.spawn((
-            UnitIdComponent(sid), SoldierMarker, LogicalPosition(soldier_pos),
-            FactionComponent(Faction::Enemy), Health { current: 100, max: 100 },
+            UnitIdComponent(sid),
+            SoldierMarker,
+            LogicalPosition(soldier_pos),
+            FactionComponent(Faction::Enemy),
+            Health {
+                current: 100,
+                max: 100,
+            },
             SoldierTypeComponent(SoldierType::Infantry),
             SoldierStateComponent(SoldierState::Moving),
-            Attack { damage: 10, range: 30, interval_ticks: 10, cooldown_remaining: 0 },
-            Movement { speed: 50, target: None, command_target: None, waypoint: None, force_move: false },
-            Level { level: 1, exp: 0 }, CityOrigin(UnitId(0)),
+            Attack {
+                damage: 10,
+                range: 30,
+                interval_ticks: 10,
+                cooldown_remaining: 0,
+            },
+            Movement {
+                speed: 50,
+                target: None,
+                command_target: None,
+                waypoint: None,
+                force_move: false,
+            },
+            Level { level: 1, exp: 0 },
+            CityOrigin(UnitId(0)),
         ));
 
         // Arrow with 100% pierce chance (will pierce soldier and continue to city)
@@ -1072,11 +1494,19 @@ mod arrow_city_tests {
         let dir = FixedVec2::new(Fixed::ZERO, Fixed::from_int(20));
         let aid = world.resource_mut::<IdGenerator>().next_id();
         world.spawn((
-            UnitIdComponent(aid), ArrowMarker, LogicalPosition(arrow_start),
+            UnitIdComponent(aid),
+            ArrowMarker,
+            LogicalPosition(arrow_start),
             Arrow {
-                direction: dir, damage: 200, from_faction: Faction::Player,
-                shooter: None, flight_remaining: 50, decay_remaining: 0,
-                pierce_chance: 1.0, stuck_to: None, hit_units: Vec::new(),
+                direction: dir,
+                damage: 200,
+                from_faction: Faction::Player,
+                shooter: None,
+                flight_remaining: 50,
+                decay_remaining: 0,
+                pierce_chance: 1.0,
+                stuck_to: None,
+                hit_units: Vec::new(),
                 start_pos: arrow_start,
             },
         ));
@@ -1086,12 +1516,18 @@ mod arrow_city_tests {
         // Check city took damage (200 damage → 200/200 = 1 HP)
         let mut q = world.query::<(Entity, &CityComponent)>();
         let (_, city) = q.iter(&world).next().unwrap();
-        assert_eq!(city.health_current, 499, "City should lose 1 HP (200/200) on same tick after pierce");
+        assert_eq!(
+            city.health_current, 499,
+            "City should lose 1 HP (200/200) on same tick after pierce"
+        );
 
         // Arrow should be in decay (stopped by city)
         let mut q = world.query::<(Entity, &Arrow)>();
         let (_, arrow) = q.iter(&world).next().unwrap();
-        assert!(arrow.decay_remaining > 0, "Arrow should enter decay after hitting city");
+        assert!(
+            arrow.decay_remaining > 0,
+            "Arrow should enter decay after hitting city"
+        );
     }
 }
 
@@ -1100,13 +1536,13 @@ mod arrow_city_tests {
 #[cfg(test)]
 mod integration_tests {
     use super::*;
-    use crate::init_simulation_world;
     use crate::facing;
+    use crate::init_simulation_world;
     use crate::soldier;
     use crate::soldier::{
-        UnitIdComponent, SoldierMarker, LogicalPosition, Movement, SeekStance,
-        Health, Attack, FactionComponent, SoldierTypeComponent, Level,
-        ShieldComponent, CityOrigin, SoldierStateComponent,
+        Attack, CityOrigin, FactionComponent, Health, Level, LogicalPosition, Movement, SeekStance,
+        ShieldComponent, SoldierMarker, SoldierStateComponent, SoldierTypeComponent,
+        UnitIdComponent,
     };
 
     /// Spawn a full soldier entity with all components needed for combat/facing systems.
@@ -1122,20 +1558,53 @@ mod integration_tests {
         let uid = world.resource_mut::<IdGenerator>().next_id();
         let cfg = world.resource::<SoldierConfig>().get(stype).clone();
         let shield_hp = world.resource::<CombatGlobalConfig>().shield.initial_hp;
-        let e = world.spawn((
-            UnitIdComponent(uid), SoldierMarker, LogicalPosition(pos),
-            Movement { speed: cfg.speed, target: None, command_target: None, waypoint: None, force_move: false },
-            SeekStance { active: false, seek_range: 0 },
-            Health { current: cfg.health, max: cfg.health },
-            Attack { damage: cfg.attack, range: cfg.attack_range, interval_ticks: cfg.attack_interval_ticks, cooldown_remaining: 0 },
-            FactionComponent(faction), SoldierTypeComponent(stype),
-            Level { level: 1, exp: 0 },
-            ShieldComponent { state: ShieldState::Normal },
-            ShieldItem { hp: shield_hp, max_hp: shield_hp },
-            CityOrigin(UnitId(0)), SoldierStateComponent(SoldierState::Moving),
-        )).id();
-        world.entity_mut(e).insert(crate::types::FacingDirection { angle: facing_angle });
-        world.entity_mut(e).insert(crate::types::AttackWindup { remaining_ticks: 0, target: None });
+        let e = world
+            .spawn((
+                UnitIdComponent(uid),
+                SoldierMarker,
+                LogicalPosition(pos),
+                Movement {
+                    speed: cfg.speed,
+                    target: None,
+                    command_target: None,
+                    waypoint: None,
+                    force_move: false,
+                },
+                SeekStance {
+                    active: false,
+                    seek_range: 0,
+                },
+                Health {
+                    current: cfg.health,
+                    max: cfg.health,
+                },
+                Attack {
+                    damage: cfg.attack,
+                    range: cfg.attack_range,
+                    interval_ticks: cfg.attack_interval_ticks,
+                    cooldown_remaining: 0,
+                },
+                FactionComponent(faction),
+                SoldierTypeComponent(stype),
+                Level { level: 1, exp: 0 },
+                ShieldComponent {
+                    state: ShieldState::Normal,
+                },
+                ShieldItem {
+                    hp: shield_hp,
+                    max_hp: shield_hp,
+                },
+                CityOrigin(UnitId(0)),
+                SoldierStateComponent(SoldierState::Moving),
+            ))
+            .id();
+        world.entity_mut(e).insert(crate::types::FacingDirection {
+            angle: facing_angle,
+        });
+        world.entity_mut(e).insert(crate::types::AttackWindup {
+            remaining_ticks: 0,
+            target: None,
+        });
         (uid, e)
     }
 
@@ -1147,19 +1616,50 @@ mod integration_tests {
         facing_angle: Fixed,
     ) -> (UnitId, Entity) {
         let uid = world.resource_mut::<IdGenerator>().next_id();
-        let cfg = world.resource::<SoldierConfig>().get(SoldierType::Archer).clone();
-        let e = world.spawn((
-            UnitIdComponent(uid), SoldierMarker, LogicalPosition(pos),
-            Movement { speed: cfg.speed, target: None, command_target: None, waypoint: None, force_move: false },
-            SeekStance { active: false, seek_range: 0 },
-            Health { current: cfg.health, max: cfg.health },
-            Attack { damage: cfg.attack, range: cfg.attack_range, interval_ticks: cfg.attack_interval_ticks, cooldown_remaining: 0 },
-            FactionComponent(faction), SoldierTypeComponent(SoldierType::Archer),
-            Level { level: 1, exp: 0 },
-            CityOrigin(UnitId(0)), SoldierStateComponent(SoldierState::Moving),
-        )).id();
-        world.entity_mut(e).insert(crate::types::FacingDirection { angle: facing_angle });
-        world.entity_mut(e).insert(crate::types::AttackWindup { remaining_ticks: 0, target: None });
+        let cfg = world
+            .resource::<SoldierConfig>()
+            .get(SoldierType::Archer)
+            .clone();
+        let e = world
+            .spawn((
+                UnitIdComponent(uid),
+                SoldierMarker,
+                LogicalPosition(pos),
+                Movement {
+                    speed: cfg.speed,
+                    target: None,
+                    command_target: None,
+                    waypoint: None,
+                    force_move: false,
+                },
+                SeekStance {
+                    active: false,
+                    seek_range: 0,
+                },
+                Health {
+                    current: cfg.health,
+                    max: cfg.health,
+                },
+                Attack {
+                    damage: cfg.attack,
+                    range: cfg.attack_range,
+                    interval_ticks: cfg.attack_interval_ticks,
+                    cooldown_remaining: 0,
+                },
+                FactionComponent(faction),
+                SoldierTypeComponent(SoldierType::Archer),
+                Level { level: 1, exp: 0 },
+                CityOrigin(UnitId(0)),
+                SoldierStateComponent(SoldierState::Moving),
+            ))
+            .id();
+        world.entity_mut(e).insert(crate::types::FacingDirection {
+            angle: facing_angle,
+        });
+        world.entity_mut(e).insert(crate::types::AttackWindup {
+            remaining_ticks: 0,
+            target: None,
+        });
         (uid, e)
     }
 
@@ -1232,9 +1732,16 @@ mod integration_tests {
         // All damage should be absorbed by shield
         assert_eq!(remaining, 0, "All damage should be absorbed by shield");
         let shield = world.get::<ShieldItem>(entity).unwrap();
-        assert_eq!(shield.hp, initial_shield_hp - damage, "Shield HP should decrease by damage amount");
+        assert_eq!(
+            shield.hp,
+            initial_shield_hp - damage,
+            "Shield HP should decrease by damage amount"
+        );
         let hp = world.get::<Health>(entity).unwrap();
-        assert_eq!(hp.current, initial_soldier_hp, "Soldier HP should be unchanged");
+        assert_eq!(
+            hp.current, initial_soldier_hp,
+            "Soldier HP should be unchanged"
+        );
     }
 
     // ── Test 3: Manual block — frontal absorbs, behind does not ──
@@ -1269,21 +1776,35 @@ mod integration_tests {
         // Case A: Frontal attack (attacker to the right, facing = 0°, attack angle = 0°)
         let frontal_attacker = FixedVec2::new(Fixed::from_int(100), Fixed::ZERO);
         let remaining = try_passive_block(&mut world, entity, damage, Some(frontal_attacker));
-        assert_eq!(remaining, 0, "Frontal attack should be fully absorbed by shield");
+        assert_eq!(
+            remaining, 0,
+            "Frontal attack should be fully absorbed by shield"
+        );
         let shield = world.get::<ShieldItem>(entity).unwrap();
-        assert_eq!(shield.hp, initial_shield_hp - damage, "Shield should absorb frontal damage");
+        assert_eq!(
+            shield.hp,
+            initial_shield_hp - damage,
+            "Shield should absorb frontal damage"
+        );
 
         // Case B: Rear attack (attacker behind — facing = 0°, attack angle = 180°)
         let rear_attacker = FixedVec2::new(Fixed::from_int(-100), Fixed::ZERO);
         let remaining = try_passive_block(&mut world, entity, damage, Some(rear_attacker));
-        assert_eq!(remaining, damage, "Rear attack should NOT be absorbed (pass through to HP)");
+        assert_eq!(
+            remaining, damage,
+            "Rear attack should NOT be absorbed (pass through to HP)"
+        );
         // Apply remaining damage to Health (same as melee_attack_system does)
         {
             let mut hp = world.get_mut::<Health>(entity).unwrap();
             hp.current = hp.current.saturating_sub(remaining);
         }
         let hp = world.get::<Health>(entity).unwrap();
-        assert_eq!(hp.current, initial_soldier_hp - damage, "Soldier should take full damage from behind");
+        assert_eq!(
+            hp.current,
+            initial_soldier_hp - damage,
+            "Soldier should take full damage from behind"
+        );
     }
 
     /// 测试：手动格挡时非正面伤害跳过被动格挡
@@ -1323,7 +1844,10 @@ mod integration_tests {
         let remaining = try_passive_block(&mut world, entity, damage, Some(rear_attacker));
 
         // Damage should pass through to soldier HP (not absorbed by shield)
-        assert_eq!(remaining, damage, "Non-frontal damage should pass through to HP");
+        assert_eq!(
+            remaining, damage,
+            "Non-frontal damage should pass through to HP"
+        );
 
         // Apply damage to soldier
         {
@@ -1341,7 +1865,8 @@ mod integration_tests {
         // Soldier HP should decrease
         let hp = world.get::<Health>(entity).unwrap();
         assert_eq!(
-            hp.current, initial_soldier_hp - damage,
+            hp.current,
+            initial_soldier_hp - damage,
             "Soldier should take full damage from behind"
         );
     }
@@ -1366,7 +1891,9 @@ mod integration_tests {
 
         // Set waypoint and Blocking state
         world.entity_mut(entity).insert(Movement {
-            speed: 80, target: None, command_target: None,
+            speed: 80,
+            target: None,
+            command_target: None,
             waypoint: Some(FixedVec2::new(Fixed::from_int(200), Fixed::ZERO)),
             force_move: false,
         });
@@ -1388,7 +1915,8 @@ mod integration_tests {
         assert!(
             diff.0 < Fixed::from_float(0.1).0,
             "Blocking speed should be 15, not 65. Position after 1 tick: {}, expected ~{}",
-            pos.x.to_float(), move_per_tick.to_float()
+            pos.x.to_float(),
+            move_per_tick.to_float()
         );
     }
 
@@ -1419,12 +1947,29 @@ mod integration_tests {
             let enemy_pos = FixedVec2::new(Fixed::from_int(50 + i * 30), Fixed::from_int(50));
             let eid = world.resource_mut::<IdGenerator>().next_id();
             world.spawn((
-                UnitIdComponent(eid), SoldierMarker, LogicalPosition(enemy_pos),
-                FactionComponent(Faction::Enemy), SoldierTypeComponent(SoldierType::Militia),
-                Health { current: 100, max: 100 },
-                Movement { speed: 80, target: None, command_target: None, waypoint: None, force_move: false },
+                UnitIdComponent(eid),
+                SoldierMarker,
+                LogicalPosition(enemy_pos),
+                FactionComponent(Faction::Enemy),
+                SoldierTypeComponent(SoldierType::Militia),
+                Health {
+                    current: 100,
+                    max: 100,
+                },
+                Movement {
+                    speed: 80,
+                    target: None,
+                    command_target: None,
+                    waypoint: None,
+                    force_move: false,
+                },
                 Level { level: 1, exp: 0 },
-                Attack { damage: 10, range: 30, interval_ticks: 10, cooldown_remaining: 0 },
+                Attack {
+                    damage: 10,
+                    range: 30,
+                    interval_ticks: 10,
+                    cooldown_remaining: 0,
+                },
                 SoldierStateComponent(SoldierState::Moving),
             ));
         }
@@ -1468,9 +2013,15 @@ mod integration_tests {
             Fixed::from_int(0), // facing 0° (toward enemy)
         );
         world.entity_mut(frontal).insert(Movement {
-            speed: 80, target: Some(_enemy_uid), command_target: None, waypoint: None, force_move: false,
+            speed: 80,
+            target: Some(_enemy_uid),
+            command_target: None,
+            waypoint: None,
+            force_move: false,
         });
-        world.entity_mut(frontal).insert(SoldierStateComponent(SoldierState::Fighting));
+        world
+            .entity_mut(frontal)
+            .insert(SoldierStateComponent(SoldierState::Fighting));
 
         // Spawn rear attacker at (75, 0) — facing left (180°) away from enemy
         let (_rear_uid, rear) = spawn_test_soldier(
@@ -1481,9 +2032,15 @@ mod integration_tests {
             Fixed::from_int(180), // facing 180° (away from enemy)
         );
         world.entity_mut(rear).insert(Movement {
-            speed: 80, target: Some(_enemy_uid), command_target: None, waypoint: None, force_move: false,
+            speed: 80,
+            target: Some(_enemy_uid),
+            command_target: None,
+            waypoint: None,
+            force_move: false,
         });
-        world.entity_mut(rear).insert(SoldierStateComponent(SoldierState::Fighting));
+        world
+            .entity_mut(rear)
+            .insert(SoldierStateComponent(SoldierState::Fighting));
 
         // Run enough ticks for windup to complete (3 ticks) + attack
         for tick in 1..=5 {
@@ -1561,7 +2118,11 @@ mod integration_tests {
         );
         // 无目标，无移动命令，SeekStance 未激活
         world.entity_mut(player).insert(Movement {
-            speed: 80, target: None, command_target: None, waypoint: None, force_move: false,
+            speed: 80,
+            target: None,
+            command_target: None,
+            waypoint: None,
+            force_move: false,
         });
 
         // 敌人步兵在 (60, 0)，距离 10，在攻击范围 30 内
@@ -1584,7 +2145,8 @@ mod integration_tests {
         assert!(
             enemy_hp_after < enemy_hp_before,
             "Standing soldier should damage enemy. HP before: {}, after: {}",
-            enemy_hp_before, enemy_hp_after
+            enemy_hp_before,
+            enemy_hp_after
         );
     }
 
@@ -1607,7 +2169,9 @@ mod integration_tests {
             Fixed::from_int(0),
         );
         world.entity_mut(player).insert(Movement {
-            speed: 80, target: None, command_target: None,
+            speed: 80,
+            target: None,
+            command_target: None,
             waypoint: Some(FixedVec2::new(Fixed::from_int(200), Fixed::ZERO)),
             force_move: false,
         });
@@ -1635,7 +2199,8 @@ mod integration_tests {
         assert!(
             enemy_hp_after < enemy_hp_before,
             "Moving soldier should damage enemy. HP before: {}, after: {}",
-            enemy_hp_before, enemy_hp_after
+            enemy_hp_before,
+            enemy_hp_after
         );
 
         // 玩家应该已经移动了一段距离（移动未被中断）
@@ -1664,7 +2229,9 @@ mod integration_tests {
             Fixed::from_int(0),
         );
         world.entity_mut(player).insert(Movement {
-            speed: 80, target: None, command_target: None,
+            speed: 80,
+            target: None,
+            command_target: None,
             waypoint: Some(FixedVec2::new(Fixed::from_int(200), Fixed::ZERO)),
             force_move: true, // 强制移动
         });
@@ -1711,7 +2278,9 @@ mod integration_tests {
             Fixed::from_int(0),
         );
         world.entity_mut(cavalry).insert(Movement {
-            speed: 200, target: None, command_target: None,
+            speed: 200,
+            target: None,
+            command_target: None,
             waypoint: Some(FixedVec2::new(Fixed::from_int(200), Fixed::ZERO)),
             force_move: true,
         });
@@ -1736,7 +2305,8 @@ mod integration_tests {
         assert!(
             enemy_hp_after < enemy_hp_before,
             "Cavalry ForceMove should still damage enemy. HP before: {}, after: {}",
-            enemy_hp_before, enemy_hp_after
+            enemy_hp_before,
+            enemy_hp_after
         );
     }
 
@@ -1759,7 +2329,9 @@ mod integration_tests {
             Fixed::from_int(0),
         );
         world.entity_mut(player).insert(Movement {
-            speed: 80, target: None, command_target: None,
+            speed: 80,
+            target: None,
+            command_target: None,
             waypoint: Some(FixedVec2::new(Fixed::from_int(200), Fixed::ZERO)),
             force_move: false,
         });
@@ -1791,7 +2363,8 @@ mod integration_tests {
         // 步兵应该还在移动状态（因为 waypoint 还没到）
         // 如果攻击中断了移动命令，状态会卡在 Fighting
         assert_eq!(
-            player_state, SoldierState::Moving,
+            player_state,
+            SoldierState::Moving,
             "Soldier should be in Moving state after passing enemy"
         );
     }
@@ -1814,7 +2387,9 @@ mod integration_tests {
             Fixed::from_int(0),
         );
         world.entity_mut(cav).insert(Movement {
-            speed: 200, target: None, command_target: None,
+            speed: 200,
+            target: None,
+            command_target: None,
             waypoint: Some(FixedVec2::new(Fixed::from_int(500), Fixed::ZERO)),
             force_move: false,
         });
@@ -1841,7 +2416,8 @@ mod integration_tests {
         assert!(
             enemy_hp_after < enemy_hp_before,
             "Cavalry should damage enemy while moving. HP before: {}, after: {}",
-            enemy_hp_before, enemy_hp_after
+            enemy_hp_before,
+            enemy_hp_after
         );
 
         // 骑兵应该已经越过敌人（位置 > 50）
@@ -1873,12 +2449,29 @@ mod integration_tests {
         let enemy_uid = {
             let eid = world.resource_mut::<IdGenerator>().next_id();
             world.spawn((
-                UnitIdComponent(eid), SoldierMarker, LogicalPosition(enemy_pos),
-                FactionComponent(Faction::Enemy), SoldierTypeComponent(SoldierType::Militia),
-                Health { current: 100, max: 100 },
-                Movement { speed: 80, target: None, command_target: None, waypoint: None, force_move: false },
+                UnitIdComponent(eid),
+                SoldierMarker,
+                LogicalPosition(enemy_pos),
+                FactionComponent(Faction::Enemy),
+                SoldierTypeComponent(SoldierType::Militia),
+                Health {
+                    current: 100,
+                    max: 100,
+                },
+                Movement {
+                    speed: 80,
+                    target: None,
+                    command_target: None,
+                    waypoint: None,
+                    force_move: false,
+                },
                 Level { level: 1, exp: 0 },
-                Attack { damage: 10, range: 30, interval_ticks: 10, cooldown_remaining: 0 },
+                Attack {
+                    damage: 10,
+                    range: 30,
+                    interval_ticks: 10,
+                    cooldown_remaining: 0,
+                },
                 SoldierStateComponent(SoldierState::Moving),
             ));
             eid

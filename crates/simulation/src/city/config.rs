@@ -29,7 +29,6 @@ pub struct CityGlobalConfig {
 impl CityGlobalConfig {
     /// Load from a RON string.
     pub fn from_ron(ron_str: &str) -> Result<Self, String> {
-        ron::from_str(ron_str)
-            .map_err(|e| format!("Failed to parse cities.ron: {}", e))
+        ron::from_str(ron_str).map_err(|e| format!("Failed to parse cities.ron: {}", e))
     }
 }
