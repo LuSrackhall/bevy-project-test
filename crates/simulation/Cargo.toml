@@ -8,5 +8,6 @@ bevy_ecs = { version = "0.19", default-features = false }
 serde = { version = "1", features = ["derive"] }
 ron = "0.8"
 rand = { version = "0.8", features = ["small_rng"] }
+getrandom = { version = "0.2", features = ["js"] }
 
 [dev-dependencies]
