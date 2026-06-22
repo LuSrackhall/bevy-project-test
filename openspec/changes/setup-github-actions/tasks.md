@@ -28,9 +28,9 @@
 
 ## 5. GitHub Pages Workflow
 
-- [ ] 5.1 创建 `.github/workflows/pages.yml`，配置 workflow_run 触发（监听 Release workflow 完成）
-- [ ] 5.2 实现下载 WASM artifact 并通过 actions/deploy-pages 部署的逻辑
-- [ ] 5.3 配置所需的 permissions（pages: write、id-token: write）
+- [x] 5.1 创建 `.github/workflows/pages.yml`，配置 workflow_run 触发（监听 Release workflow 完成）
+- [x] 5.2 实现下载 WASM artifact 并通过 actions/deploy-pages 部署的逻辑
+- [x] 5.3 配置所需的 permissions（pages: write、id-token: write）
 
 ## 6. 仓库隐藏
 
