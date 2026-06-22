@@ -12,11 +12,11 @@
 
 ## 3. CI Workflow
 
-- [ ] 3.1 创建 `.github/workflows/ci.yml`，配置 push/PR 到 main 的触发条件
-- [ ] 3.2 配置三平台矩阵（ubuntu-latest、macos-latest、windows-latest）并行执行
-- [ ] 3.3 添加 Linux 系统依赖安装步骤（libasound2-dev、libudev-dev、libwayland-dev、libxkbcommon-dev、libvulkan-dev、pkg-config）
-- [ ] 3.4 添加 Rust 缓存（Swatinem/rust-cache@v2）和 CARGO_INCREMENTAL=0
-- [ ] 3.5 添加 fmt 检查（仅 Linux）、clippy、test（simulation 单独 + workspace 带 WGPU_BACKEND=noop）、build 步骤
+- [x] 3.1 创建 `.github/workflows/ci.yml`，配置 push/PR 到 main 的触发条件
+- [x] 3.2 配置三平台矩阵（ubuntu-latest、macos-latest、windows-latest）并行执行
+- [x] 3.3 添加 Linux 系统依赖安装步骤（libasound2-dev、libudev-dev、libwayland-dev、libxkbcommon-dev、libvulkan-dev、pkg-config）
+- [x] 3.4 添加 Rust 缓存（Swatinem/rust-cache@v2）和 CARGO_INCREMENTAL=0
+- [x] 3.5 添加 fmt 检查（仅 Linux）、clippy、test（simulation 单独 + workspace 带 WGPU_BACKEND=noop）、build 步骤
 
 ## 4. Release Workflow
 
