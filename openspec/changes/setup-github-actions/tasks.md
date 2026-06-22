@@ -7,8 +7,8 @@
 
 ## 2. Linux ARM 交叉编译基础设施
 
-- [ ] 2.1 创建 `Cross.toml`，为 aarch64-unknown-linux-gnu 指定自定义 Dockerfile 路径
-- [ ] 2.2 创建 `docker/Dockerfile.cross-aarch64`，基于 cross 默认镜像安装 arm64 系统依赖
+- [x] 2.1 创建 `Cross.toml`，为 aarch64-unknown-linux-gnu 指定自定义 Dockerfile 路径
+- [x] 2.2 创建 `docker/Dockerfile.cross-aarch64`，基于 cross 默认镜像安装 arm64 系统依赖
 
 ## 3. CI Workflow
 
