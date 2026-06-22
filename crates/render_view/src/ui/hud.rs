@@ -145,14 +145,14 @@ impl ButtonTheme {
 
 // Seek panel components
 #[derive(Component)] pub(crate) struct SeekPanelRoot;
-#[derive(Component)] pub(crate) struct SeekScopeDropdown; // the trigger button showing current scope
+#[derive(Component)] #[expect(dead_code)] pub(crate) struct SeekScopeDropdown; // the trigger button showing current scope
 #[derive(Component, Clone)] pub(crate) struct SeekScopeOption(pub SeekScope); // dropdown option
 #[derive(Component)] pub(crate) struct SeekRangeInput; // the range input box
 #[derive(Component)] pub(crate) struct SeekIssueBtn; // the issue button
 
 // ══════════ Setup ══════════
 
-pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server: Res<AssetServer>) {
+pub(crate) fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server: Res<AssetServer>) {
     let font = asset_server.load("fonts/Arial Unicode.ttf");
     commands.spawn((Node { width: Val::Percent(100.0), height: Val::Percent(100.0),
         flex_direction: FlexDirection::Column, justify_content: JustifyContent::SpaceBetween, ..default() }, HudRoot, Pickable::IGNORE))
@@ -180,7 +180,7 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
         root.spawn((Node { width: Val::Percent(100.0), height: Val::Px(180.0),
             flex_direction: FlexDirection::Row, ..default() }, BottomZone))
         .with_children(|bz| {
-            bz.spawn((Node { width: Val::Percent(30.0), height: Val::Percent(100.0), ..default() }))
+            bz.spawn(Node { width: Val::Percent(30.0), height: Val::Percent(100.0), ..default() })
               .with_children(|p| {
                 // Soldier panel
                 ht.s_root = Some(p.spawn((Node { width: Val::Percent(100.0), flex_direction: FlexDirection::Column,
@@ -361,7 +361,10 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
                         let btn = ev.entity;
                         let Ok(children) = q_children.get(btn) else { return };
                         let existing = children.iter().find_map(|c| q_popup.get(c).ok());
-                        if existing.is_none() {
+                        if let Some(existing_entity) = existing {
+                            commands.entity(existing_entity).despawn();
+                            state.open_scope_popup = None;
+                        } else {
                             let options = [
                                 ("全体", SeekScope::All),
                                 ("民兵", SeekScope::ByType(SoldierType::Militia)),
@@ -411,9 +414,6 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
                             }).id();
                             state.open_scope_popup = Some(popup_entity);
                             commands.entity(btn).add_child(popup_entity);
-                        } else {
-                            commands.entity(existing.unwrap()).despawn();
-                            state.open_scope_popup = None;
                         }
                     })
                     .with_children(|p| {
@@ -481,7 +481,8 @@ pub fn setup_hud(mut commands: Commands, mut ht: ResMut<HudTexts>, asset_server:
 /// Update button background and border colors based on hover/press state.
 /// Uses Hovered (immutable, command-inserted) + Pressed (managed by Button widget).
 /// Also handles Pressed component removal via RemovedComponents.
-pub fn button_style_system(
+#[allow(clippy::type_complexity)]
+pub(crate) fn button_style_system(
     mut q: Query<(&mut BackgroundColor, &mut BorderColor, &Hovered, Has<Pressed>, &ButtonTheme)>,
     changed: Query<Entity, Or<(Changed<Hovered>, Changed<Pressed>)>>,
     mut removed_pressed: RemovedComponents<Pressed>,
@@ -518,7 +519,7 @@ pub fn button_style_system(
 
 // ══════════ Update Systems ══════════
 
-pub fn update_top_bar(mut tq: Query<&mut Text>, ht: Res<HudTexts>,
+pub(crate) fn update_top_bar(mut tq: Query<&mut Text>, ht: Res<HudTexts>,
     mut sim: bevy::ecs::system::NonSendMut<SimulationWorld>, tick_clock: Res<bevy_adapter::tick::TickClock>) {
     let w = &mut sim.0;
     let (mut pc, mut pp, mut pm, mut es) = (0usize,0u32,0u32,0u32);
@@ -531,7 +532,8 @@ pub fn update_top_bar(mut tq: Query<&mut Text>, ht: Res<HudTexts>,
     if let Some(id) = ht.time { if let Ok(mut t)=tq.get_mut(id) { t.0=format!("T {}:{:02}",e/60,e%60); } }
 }
 
-pub fn update_bottom_panel(
+#[allow(clippy::type_complexity)]
+pub(crate) fn update_bottom_panel(
     mut tq: Query<&mut Text>,
     mut node_params: ParamSet<(
         Query<(&mut Node, &mut BackgroundColor), With<HpFillS>>,
@@ -612,7 +614,7 @@ pub fn update_bottom_panel(
             set_text(&mut tq, ht.s_hp_text, &format!("HP {}/{}", thp, tmax));
             set_text(&mut tq, ht.s_atk, &format!("均ATK {}", tatk/soldiers.len().max(1) as u32));
             set_text(&mut tq, ht.s_spd, &parts.join("  "));
-            for e in [ht.s_exp_text,ht.s_effect,ht.s_origin] { if let Some(id)=e { if let Ok(mut t)=tq.get_mut(id) { t.0.clear(); } } }
+            for id in [ht.s_exp_text,ht.s_effect,ht.s_origin].into_iter().flatten() { if let Ok(mut t)=tq.get_mut(id) { t.0.clear(); } }
             if let Some(f)=ht.s_exp_fill { if let Ok((mut n,_))=node_params.p1().get_mut(f) { n.width=Val::Percent(0.0); } }
             let r = thp as f32/tmax.max(1) as f32;
             if let Some(f)=ht.s_hp_fill { if let Ok((mut n,mut bg))=node_params.p0().get_mut(f) { n.width=Val::Percent(r*100.0); bg.0=if r>0.5{Color::srgba(0.2,0.8,0.2,1.0)}else{Color::srgba(0.9,0.2,0.2,1.0)}; } }
@@ -620,7 +622,7 @@ pub fn update_bottom_panel(
     } else {
         // No selection: show placeholder in soldier panel
         set_text(&mut tq, ht.s_header, "点击单位以查看详情");
-        for e in [ht.s_hp_text,ht.s_atk,ht.s_spd,ht.s_exp_text,ht.s_effect,ht.s_origin] { if let Some(id)=e { if let Ok(mut t)=tq.get_mut(id) { t.0.clear(); } } }
+        for id in [ht.s_hp_text,ht.s_atk,ht.s_spd,ht.s_exp_text,ht.s_effect,ht.s_origin].into_iter().flatten() { if let Ok(mut t)=tq.get_mut(id) { t.0.clear(); } }
         if let Some(f)=ht.s_hp_fill { if let Ok((mut n,_))=node_params.p0().get_mut(f) { n.width=Val::Percent(0.0); } }
         if let Some(f)=ht.s_exp_fill { if let Ok((mut n,_))=node_params.p1().get_mut(f) { n.width=Val::Percent(0.0); } }
     }
@@ -672,8 +674,8 @@ fn show_compendium(tq: &mut Query<&mut Text>, ht: &HudTexts, st: SoldierType) {
 }
 
 fn clear_compendium(tq: &mut Query<&mut Text>, ht: &HudTexts) {
-    for e in [ht.comp_hp,ht.comp_atk,ht.comp_spd,ht.comp_rng,ht.comp_rad,ht.comp_effect,ht.comp_desc] {
-        if let Some(id) = e { if let Ok(mut t) = tq.get_mut(id) { t.0.clear(); } }
+    for id in [ht.comp_hp,ht.comp_atk,ht.comp_spd,ht.comp_rng,ht.comp_rad,ht.comp_effect,ht.comp_desc].into_iter().flatten() {
+        if let Ok(mut t) = tq.get_mut(id) { t.0.clear(); }
     }
     set_text(tq, ht.comp_header, "悬停兵种按钮查看详情");
 }
@@ -687,7 +689,7 @@ fn find_entity_by_unit_id(world: &mut bevy::prelude::World, uid: simulation::typ
 
 // ══════════ Scope Popup Close on Outside Click ══════════
 
-pub fn scope_popup_close_system(
+pub(crate) fn scope_popup_close_system(
     mouse: Res<ButtonInput<MouseButton>>,
     mut state: ResMut<SeekPanelState>,
     q_popup: Query<Entity, With<MenuPopup>>,
@@ -710,7 +712,7 @@ pub fn scope_popup_close_system(
 
 /// Switch between global/selection mode based on unit selection.
 /// Reset range default only on mode transition.
-pub fn seek_panel_mode_system(
+pub(crate) fn seek_panel_mode_system(
     selection: Res<SelectionState>,
     mut state: ResMut<SeekPanelState>,
     ht: Res<HudTexts>,
@@ -748,8 +750,8 @@ fn scope_label(scope: &SeekScope) -> &'static str {
 
 /// Update dropdown option counts when the dropdown is open.
 /// Queries the simulation world for soldier counts by type.
-pub fn seek_panel_count_system(
-    state: Res<SeekPanelState>,
+pub(crate) fn seek_panel_count_system(
+    _state: Res<SeekPanelState>,
     ht: Res<HudTexts>,
     selection: Res<SelectionState>,
     mut tq: Query<&mut Text>,
@@ -812,7 +814,7 @@ pub fn seek_panel_count_system(
 
 /// Handle range input: type digits in real-time, blinking cursor, Esc to deactivate.
 /// Input activation is handled by Observer on the input button.
-pub fn seek_panel_input_system(
+pub(crate) fn seek_panel_input_system(
     mouse: Res<ButtonInput<MouseButton>>,
     keyboard: Res<ButtonInput<KeyCode>>,
     time: Res<Time>,
@@ -821,18 +823,16 @@ pub fn seek_panel_input_system(
     ht: Res<HudTexts>,
 ) {
     // Click elsewhere → deactivate (Escape handled by handle_pause_input)
-    if state.input_active {
-        if mouse.just_pressed(MouseButton::Left) {
-            state.input_active = false;
-            state.input_cursor_visible = false;
-            // Show final value without cursor
-            if let Some(id) = ht.seek_range_text {
-                if let Ok(mut t) = tq.get_mut(id) {
-                    t.0 = state.range_value.to_string();
-                }
+    if state.input_active && mouse.just_pressed(MouseButton::Left) {
+        state.input_active = false;
+        state.input_cursor_visible = false;
+        // Show final value without cursor
+        if let Some(id) = ht.seek_range_text {
+            if let Ok(mut t) = tq.get_mut(id) {
+                t.0 = state.range_value.to_string();
             }
-            return;
         }
+        return;
     }
 
     // Blink cursor when active
@@ -921,7 +921,7 @@ fn count_matching(unit_ids: &[UnitId], scope: &SeekScope, sim: &mut SimulationWo
 // ══════════ Toast Systems ══════════
 
 /// Tick down toast timer.
-pub fn toast_tick_system(mut toast: ResMut<ToastMessage>) {
+pub(crate) fn toast_tick_system(mut toast: ResMut<ToastMessage>) {
     if toast.remaining_ticks > 0 {
         toast.remaining_ticks -= 1;
         if toast.remaining_ticks == 0 {
@@ -931,7 +931,7 @@ pub fn toast_tick_system(mut toast: ResMut<ToastMessage>) {
 }
 
 /// Display toast message in the top bar.
-pub fn toast_display_system(
+pub(crate) fn toast_display_system(
     toast: Res<ToastMessage>,
     ht: Res<HudTexts>,
     mut tq: Query<&mut Text>,
@@ -944,7 +944,7 @@ pub fn toast_display_system(
 // ══════════ Selection Summary Toast ══════════
 
 /// Show toast when unit selection changes.
-pub fn selection_summary_toast_system(
+pub(crate) fn selection_summary_toast_system(
     selection: Res<SelectionState>,
     mut prev_count: Local<usize>,
     mut toast: ResMut<ToastMessage>,
@@ -998,7 +998,7 @@ pub fn selection_summary_toast_system(
 }
 
 /// Update shield button visibility and text based on selection.
-pub fn shield_button_visibility_system(
+pub(crate) fn shield_button_visibility_system(
     sel: Res<SelectionState>,
     mut sim: bevy::ecs::system::NonSendMut<SimulationWorld>,
     mut shield_btns: Query<(&mut Visibility, &Children), With<ShieldButton>>,

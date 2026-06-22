@@ -17,18 +17,15 @@ pub enum GameState {
 }
 
 /// Controls what happens when entering Playing state.
-#[derive(Resource)]
+#[derive(Resource, Default)]
 pub enum NeedsGameReset {
     /// Pause recovery — no reset
+    #[default]
     None,
     /// Restart/replay with current map size
     SameSize,
     /// New game with specified map size
     NewGame(simulation::map::MapSize),
-}
-
-impl Default for NeedsGameReset {
-    fn default() -> Self { Self::None }
 }
 
 pub struct RenderViewPlugin;
@@ -62,7 +59,7 @@ impl Plugin for RenderViewPlugin {
                 crate::selection::seek_stance_shortcut_system,
                 crate::selection::waypoint_cleanup_system,
                 check_victory_system,
-            ).run_if(in_state(GameState::Playing).and(not(resource_exists_and_equals(bevy_adapter::Paused(true))))))
+            ).run_if(in_state(GameState::Playing).and_then(not(resource_exists_and_equals(bevy_adapter::Paused(true))))))
             // Camera: always active
             .add_systems(Update, (
                 crate::camera::camera_drag_system,
@@ -97,6 +94,7 @@ fn check_victory_system(
 /// Reset game state when entering Playing.
 /// If NeedsGameReset is true, fully resets the simulation world.
 /// Always clears the paused flag.
+#[allow(clippy::too_many_arguments)]
 fn reset_game_system(
     mut commands: Commands,
     mut sim_world: bevy::ecs::system::NonSendMut<bevy_adapter::tick::SimulationWorld>,

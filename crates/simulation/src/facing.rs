@@ -188,13 +188,13 @@ pub fn facing_turn_system(world: &mut World) {
         let mut q = world.query::<(Entity, &LogicalPosition, &Movement, &SoldierMarker, Option<&SoldierTypeComponent>, Option<&crate::soldier::ShieldComponent>)>();
         for (e, pos, mov, _, stype, shield) in q.iter(world) {
             // Skip Blocking units — facing is locked during manual block
-            if shield.map_or(false, |s| s.state == crate::types::ShieldState::Blocking) && !mov.force_move {
+            if shield.is_some_and(|s| s.state == crate::types::ShieldState::Blocking) && !mov.force_move {
                 continue;
             }
             // Determine target position based on unit type
             // Cavalry: command_target first, then target, then waypoint
             // Non-cavalry: target first, then waypoint (no command_target)
-            let is_cav = stype.map_or(false, |s| s.0 == SoldierType::Cavalry);
+            let is_cav = stype.is_some_and(|s| s.0 == SoldierType::Cavalry);
             let target_pos = if is_cav {
                 mov.command_target
                     .and_then(|tid| positions.get(&tid).copied())

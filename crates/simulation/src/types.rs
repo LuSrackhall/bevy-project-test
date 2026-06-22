@@ -216,7 +216,7 @@ pub struct IdGenerator(u64);
 impl IdGenerator {
     pub fn new() -> Self { IdGenerator(0) }
 
-    pub fn next(&mut self) -> UnitId {
+    pub fn next_id(&mut self) -> UnitId {
         let id = UnitId(self.0);
         self.0 += 1;
         id
@@ -405,9 +405,9 @@ mod tests {
     #[test]
     fn test_unit_id_unique() {
         let mut gen = IdGenerator::new();
-        let a = gen.next();
-        let b = gen.next();
-        let c = gen.next();
+        let a = gen.next_id();
+        let b = gen.next_id();
+        let c = gen.next_id();
         assert_ne!(a, b);
         assert_ne!(b, c);
         assert_ne!(a, c);
@@ -416,8 +416,8 @@ mod tests {
     #[test]
     fn test_unit_id_ordering() {
         let mut gen = IdGenerator::new();
-        let a = gen.next();
-        let b = gen.next();
+        let a = gen.next_id();
+        let b = gen.next_id();
         assert!(a < b);
     }
 

@@ -114,8 +114,16 @@ pub(crate) struct BarParts {
     exp_num: Entity,
 }
 
+// ══════════ Query type aliases ══════════
+
+type HpFillQuery<'w, 's> = Query<'w, 's, (&'static mut Sprite, &'static mut Transform), (With<HpFill>, Without<ExpFill>, Without<ShieldFill>)>;
+type ExpFillQuery<'w, 's> = Query<'w, 's, (&'static mut Sprite, &'static mut Transform), (With<ExpFill>, Without<HpFill>, Without<ShieldFill>)>;
+type ShieldFillQuery<'w, 's> = Query<'w, 's, (&'static mut Sprite, &'static mut Transform), (With<ShieldFill>, Without<HpFill>, Without<ExpFill>)>;
+type BarVisQuery<'w, 's> = Query<'w, 's, (&'static mut Transform, &'static mut Visibility), (With<BarRoot>, Without<HpFill>, Without<ExpFill>, Without<ShieldFill>)>;
+
 // ══════════ Main System ══════════
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn unit_info_bar_system(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
@@ -124,11 +132,11 @@ pub(crate) fn unit_info_bar_system(
     selection: Res<SelectionState>,
     mut sim_world: bevy::ecs::system::NonSendMut<SimulationWorld>,
     mut bar_parts: Local<HashMap<simulation::types::UnitId, BarParts>>,
-    mut root_xform_vis: Query<(&mut Transform, &mut Visibility), (With<BarRoot>, Without<HpFill>, Without<ExpFill>, Without<ShieldFill>)>,
+    mut root_xform_vis: BarVisQuery,
     mut text_q: Query<&mut Text2d>,
-    mut shield_fill_q: Query<(&mut Sprite, &mut Transform), (With<ShieldFill>, Without<HpFill>, Without<ExpFill>)>,
-    mut hp_fill_q: Query<(&mut Sprite, &mut Transform), (With<HpFill>, Without<ExpFill>, Without<ShieldFill>)>,
-    mut exp_fill_q: Query<(&mut Sprite, &mut Transform), (With<ExpFill>, Without<HpFill>, Without<ShieldFill>)>,
+    mut shield_fill_q: ShieldFillQuery,
+    mut hp_fill_q: HpFillQuery,
+    mut exp_fill_q: ExpFillQuery,
     q_windows: Query<&Window>,
     q_camera: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
 ) {
@@ -190,7 +198,7 @@ pub(crate) fn unit_info_bar_system(
     if settings.mode == InfoBarMode::Classic || settings.mode == InfoBarMode::Selected {
         if let (Ok(window), Ok((camera, cam_t))) = (q_windows.single(), q_camera.single()) {
             if let Some(cursor) = window.cursor_position() {
-                if let Some(world_pos) = camera.viewport_to_world_2d(cam_t, cursor).ok() {
+                if let Ok(world_pos) = camera.viewport_to_world_2d(cam_t, cursor) {
                     // Collect city radii for hover threshold
                     let city_radii: std::collections::HashMap<simulation::types::UnitId, f32> = {
                         let mut q = world.query::<(&UnitIdComponent, &CityRadius)>();
@@ -427,11 +435,11 @@ fn update_bar(
     parts: &mut BarParts,
     info: &UnitBarInfo,
     should_show: bool,
-    root_xform_vis: &mut Query<(&mut Transform, &mut Visibility), (With<BarRoot>, Without<HpFill>, Without<ExpFill>, Without<ShieldFill>)>,
+    root_xform_vis: &mut BarVisQuery,
     text_q: &mut Query<&mut Text2d>,
-    shield_fill_q: &mut Query<(&mut Sprite, &mut Transform), (With<ShieldFill>, Without<HpFill>, Without<ExpFill>)>,
-    hp_fill_q: &mut Query<(&mut Sprite, &mut Transform), (With<HpFill>, Without<ExpFill>, Without<ShieldFill>)>,
-    exp_fill_q: &mut Query<(&mut Sprite, &mut Transform), (With<ExpFill>, Without<HpFill>, Without<ShieldFill>)>,
+    shield_fill_q: &mut ShieldFillQuery,
+    hp_fill_q: &mut HpFillQuery,
+    exp_fill_q: &mut ExpFillQuery,
 ) {
     let bar_pos = info.world_pos + Vec2::new(0.0, BAR_OFFSET_Y);
 

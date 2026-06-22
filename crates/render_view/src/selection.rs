@@ -2,7 +2,6 @@ use bevy::prelude::*;
 use bevy::picking::hover::HoverMap;
 use bevy::picking::pointer::PointerId;
 use bevy_adapter::tick::SimulationWorld;
-use bevy_adapter::mapper::UnitIdMapper;
 use bevy_adapter::input::ForceMoveNext;
 use simulation::types::*;
 use simulation::soldier::*;
@@ -15,7 +14,7 @@ use crate::camera::MainCamera;
 fn is_cursor_over_ui(hover_map: &HoverMap, nodes: &Query<&Node>) -> bool {
     hover_map
         .get(&PointerId::Mouse)
-        .map_or(false, |h| h.keys().any(|e| nodes.get(*e).is_ok()))
+        .is_some_and(|h| h.keys().any(|e| nodes.get(*e).is_ok()))
 }
 
 // ══════════ Resources ══════════
@@ -71,6 +70,7 @@ fn screen_to_world(
 
 // ══════════ Click selection ══════════
 
+#[allow(clippy::too_many_arguments)]
 pub fn selection_click_system(
     mouse: Res<ButtonInput<MouseButton>>,
     keyboard: Res<ButtonInput<KeyCode>>,
@@ -267,7 +267,7 @@ pub fn selection_visual_system(
 pub fn drag_visual_system(
     mut gizmos: Gizmos,
     selection: Res<SelectionState>,
-    cam_query: Query<&Projection, With<crate::camera::MainCamera>>,
+    _cam_query: Query<&Projection, With<crate::camera::MainCamera>>,
 ) {
     if !selection.is_dragging { return; }
     let Some(start) = selection.drag_start else { return };
@@ -290,6 +290,7 @@ pub fn drag_visual_system(
 
 // ══════════ Command issue (right-click) ══════════
 
+#[allow(clippy::too_many_arguments)]
 pub fn command_issue_system(
     mouse: Res<ButtonInput<MouseButton>>,
     keyboard: Res<ButtonInput<KeyCode>>,
@@ -314,7 +315,7 @@ pub fn command_issue_system(
     let Some(world_pos) = screen_to_world(cursor, window, camera, cam_t) else { return };
 
     let shift = keyboard.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
-    let force = shift || force_next.as_ref().map_or(false, |f| f.active);
+    let force = shift || force_next.as_ref().is_some_and(|f| f.active);
     if let Some(mut f) = force_next { f.active = false; }
 
     let world = &mut sim_world.0;
@@ -417,7 +418,7 @@ pub fn waypoint_cleanup_system(
 ) {
     let world = &mut sim_world.0;
     for (wp_entity, wp_transform) in waypoint_query.iter() {
-        let wp_pos = wp_transform.translation.xy();
+        let _wp_pos = wp_transform.translation.xy();
         let mut query = world.query::<(&Movement,)>();
         let has_targeter = query.iter(world).any(|(mov,)| {
             mov.target.is_some()
@@ -446,7 +447,7 @@ pub fn seek_stance_shortcut_system(
     if keyboard.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight])
         || keyboard.any_pressed([KeyCode::SuperLeft, KeyCode::SuperRight]) { return; }
 
-    let world = &sim_world.0;
+    let _world = &sim_world.0;
     let next_tick = tick_clock.current_tick + 1;
     let seek_range: u32 = 30; // default selection seek range per design D4
 

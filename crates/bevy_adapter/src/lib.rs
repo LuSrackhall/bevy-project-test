@@ -7,7 +7,7 @@ pub mod binding;
 use bevy::prelude::*;
 use simulation::command::CommandBuffer;
 use crate::mapper::UnitIdMapper;
-use crate::tick::{TickClock, SimulationWorld, PendingEvents};
+use crate::tick::{TickClock, PendingEvents};
 use crate::input::ForceMoveNext;
 
 /// Owned by bevy_adapter; set by render_view to gate tick/sync systems.
@@ -55,6 +55,6 @@ impl Plugin for BevyAdapterPlugin {
             .add_systems(Update, (
                 crate::tick::tick_driver_system,
                 crate::lifecycle::sync_entities_system,
-            ).run_if(resource_exists_and_equals(GameActive(true)).and(not(resource_exists_and_equals(Paused(true))))));
+            ).run_if(resource_exists_and_equals(GameActive(true)).and_then(not(resource_exists_and_equals(Paused(true))))));
     }
 }

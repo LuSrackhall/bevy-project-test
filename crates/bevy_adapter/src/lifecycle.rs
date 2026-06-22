@@ -1,5 +1,4 @@
 use bevy::prelude::*;
-use simulation::events::*;
 use simulation::soldier::*;
 use crate::mapper::UnitIdMapper;
 use crate::tick::PendingEvents;

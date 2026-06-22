@@ -12,7 +12,7 @@ pub fn draw_debug_shapes_system(
     let world = &mut sim_world.0;
 
     // Build UnitId → position map for arrow target lookup
-    let positions: std::collections::HashMap<simulation::types::UnitId, Vec2> = {
+    let _positions: std::collections::HashMap<simulation::types::UnitId, Vec2> = {
         let mut q = world.query::<(&UnitIdComponent, &LogicalPosition)>();
         q.iter(world)
             .map(|(id, pos)| (id.0, Vec2::new(pos.0.x.to_float(), pos.0.y.to_float())))
@@ -22,7 +22,7 @@ pub fn draw_debug_shapes_system(
     // Draw cities
     {
         let mut query = world.query::<(&LogicalPosition, &CityRadius, &FactionComponent, &CityComponent)>();
-        for (pos, radius, faction, city) in query.iter(world) {
+        for (pos, radius, faction, _city) in query.iter(world) {
             let color = match faction.0 {
                 simulation::types::Faction::Player => Color::srgb(0.2, 0.6, 1.0),
                 simulation::types::Faction::Enemy => Color::srgb(1.0, 0.2, 0.2),
