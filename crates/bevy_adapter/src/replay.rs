@@ -74,8 +74,11 @@ pub fn replay_tick_driver_system(
     mut tick_clock: ResMut<TickClock>,
     mut commands: ResMut<CommandBuffer>,
 ) {
-    let Some(ref mut ctrl) = controller else { return };
+    let Some(ref mut ctrl) = controller else {
+        return;
+    };
     if ctrl.is_paused { return; }
+
 
     let total = ctrl.replay.total_ticks;
     let speed = ctrl.speed_multiplier.max(1);
@@ -98,12 +101,12 @@ pub fn replay_tick_driver_system(
     }
 
     // Normal replay: accumulate real time and advance ticks
-    let mut acc = time.delta_secs();
+    tick_clock.accumulator += time.delta_secs();
     let tick_dur = tick_clock.tick_duration;
     let mut ticks_this_frame = 0u32;
 
-    while acc >= tick_dur && ctrl.current_tick < total && ticks_this_frame < speed {
-        acc -= tick_dur;
+    while tick_clock.accumulator >= tick_dur && ctrl.current_tick < total && ticks_this_frame < speed {
+        tick_clock.accumulator -= tick_dur;
         ticks_this_frame += 1;
         ctrl.current_tick += 1;
         tick_clock.current_tick = ctrl.current_tick;

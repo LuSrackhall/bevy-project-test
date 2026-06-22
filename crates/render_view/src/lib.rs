@@ -163,6 +163,8 @@ fn reset_game_system(
     game_active.0 = true;
     *game_mode = bevy_adapter::replay::GameMode::Live;
 
+    let is_replay = matches!(&*needs_reset, NeedsGameReset::Replay(_));
+
     let (map_size, replay_file) = match std::mem::replace(&mut *needs_reset, NeedsGameReset::None) {
         NeedsGameReset::None => (None, None),
         NeedsGameReset::SameSize => (Some(current_map_size.0), None),
