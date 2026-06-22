@@ -30,6 +30,8 @@ jobs:
           name: city-conquest-wasm32-unknown-unknown
           path: dist
           run-id: ${{ github.event.workflow_run.id }}
+          repository: ${{ github.repository }}
+          github-token: ${{ github.token }}
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
