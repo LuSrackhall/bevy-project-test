@@ -72,6 +72,11 @@ mod tests {
     use super::*;
     use crate::types::*;
     use crate::command::*;
+    use crate::soldier::*;
+    use crate::init_simulation_world;
+    use crate::run_tick;
+    use crate::map;
+    use crate::golden_test::hash_world_state;
 
     #[test]
     fn test_replay_file_roundtrip_ron() {
@@ -109,5 +114,92 @@ mod tests {
     fn test_replay_file_empty_commands() {
         let replay = ReplayFile::new(42, MapSize::Medium, 0);
         assert_eq!(replay.commands_for_tick(0).len(), 0);
+    }
+
+    /// End-to-end replay test: record → serialize → deserialize → replay → verify determinism.
+    #[test]
+    fn test_e2e_replay_determinism() {
+        let seed = 12345u64;
+        let map_size = MapSize::Small;
+        let total_ticks = 500u32;
+
+        // --- Phase 1: Record ---
+        let mut world1 = init_simulation_world(seed);
+        map::generate_map(&mut world1, map_size);
+        let mut replay = ReplayFile::new(seed, map_size, total_ticks);
+
+        for tick in 1..=total_ticks {
+            // Simulate a player command at tick 50: move a player soldier
+            if tick == 50 {
+                let mut q = world1.query::<(&UnitIdComponent, &FactionComponent, &SoldierMarker)>();
+                if let Some((id, fac, _)) = q.iter(&world1).find(|(_, f, _)| f.0 == Faction::Player) {
+                    let uid = id.0;
+                    let target = FixedVec2::new(Fixed::from_int(300), Fixed::from_int(300));
+                    let cmd = GameCommand { tick: 51, player_id: 0, action: Action::MoveTo { unit: uid, target } };
+                    world1.resource_mut::<CommandBuffer>().push(cmd.clone());
+                    replay.record_tick(51, vec![cmd]);
+                }
+            }
+            run_tick(&mut world1, tick);
+        }
+        let hash1 = hash_world_state(&mut world1);
+
+        // --- Phase 2: Serialize → Deserialize ---
+        let ron_str = replay.to_ron();
+        let loaded_replay = ReplayFile::from_ron(&ron_str).unwrap();
+        assert_eq!(loaded_replay.seed, seed);
+        assert_eq!(loaded_replay.total_ticks, total_ticks);
+        assert_eq!(loaded_replay.commands_for_tick(51).len(), 1);
+
+        // --- Phase 3: Replay from deserialized file ---
+        let mut world2 = init_simulation_world(loaded_replay.seed);
+        map::generate_map(&mut world2, loaded_replay.map_size);
+
+        for tick in 1..=total_ticks {
+            // Inject recorded commands
+            let cmds = loaded_replay.commands_for_tick(tick);
+            for cmd in cmds {
+                world2.resource_mut::<CommandBuffer>().push(cmd.clone());
+            }
+            run_tick(&mut world2, tick);
+        }
+        let hash2 = hash_world_state(&mut world2);
+
+        // --- Phase 4: Verify ---
+        assert_eq!(hash1, hash2,
+            "Replay (record → serialize → deserialize → replay) must produce identical world state. \
+             hash1={}, hash2={}", hash1, hash2);
+    }
+
+    /// End-to-end test with no external commands (AI-only determinism).
+    #[test]
+    fn test_e2e_replay_ai_only() {
+        let seed = 99999u64;
+        let map_size = MapSize::Medium;
+        let total_ticks = 1000u32;
+
+        // Record (no external commands)
+        let mut world1 = init_simulation_world(seed);
+        map::generate_map(&mut world1, map_size);
+        let replay = ReplayFile::new(seed, map_size, total_ticks);
+
+        for tick in 1..=total_ticks {
+            run_tick(&mut world1, tick);
+        }
+        let hash1 = hash_world_state(&mut world1);
+
+        // Replay (no commands to inject)
+        let ron_str = replay.to_ron();
+        let loaded = ReplayFile::from_ron(&ron_str).unwrap();
+        let mut world2 = init_simulation_world(loaded.seed);
+        map::generate_map(&mut world2, loaded.map_size);
+
+        for tick in 1..=total_ticks {
+            run_tick(&mut world2, tick);
+        }
+        let hash2 = hash_world_state(&mut world2);
+
+        assert_eq!(hash1, hash2,
+            "AI-only replay must produce identical world state");
     }
 }
