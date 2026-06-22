@@ -37,7 +37,7 @@ pub fn setup_replay_player(mut commands: Commands, asset_server: Res<AssetServer
         column_gap: Val::Px(10.0),
         padding: UiRect::horizontal(Val::Px(16.0)),
         ..default()
-    }, BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.75)), ReplayPlayerUI, Pickable::IGNORE))
+    }, BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.75)), ReplayPlayerUI))
     .with_children(|bar| {
         // Pause/Play button — text is on the same entity as the button
         bar.spawn((WidgetButton, Node { padding: UiRect::horizontal(Val::Px(8.0)), border: UiRect::all(Val::Px(1.0)), ..default() },
