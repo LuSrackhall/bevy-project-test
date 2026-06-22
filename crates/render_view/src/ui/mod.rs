@@ -2,6 +2,7 @@ pub mod gameover;
 pub mod hud;
 pub mod menu;
 pub mod pause;
+pub mod replay_player;
 
 use bevy::prelude::*;
 
@@ -57,6 +58,19 @@ impl Plugin for UiPlugin {
                     in_state(crate::GameState::Playing)
                         .and_then(not(resource_exists_and_equals(bevy_adapter::Paused(true)))),
                 ),
+            )
+            // Replay player UI
+            .add_systems(
+                OnEnter(crate::GameState::Playing),
+                replay_player::setup_replay_player.run_if(replay_player::in_replay_mode),
+            )
+            .add_systems(
+                OnExit(crate::GameState::Playing),
+                replay_player::cleanup_replay_player,
+            )
+            .add_systems(
+                Update,
+                replay_player::update_replay_player.run_if(in_state(crate::GameState::Playing)),
             );
     }
 }

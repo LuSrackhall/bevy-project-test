@@ -30,12 +30,30 @@ pub enum NeedsGameReset {
     NewGame(simulation::map::MapSize),
 }
 
+impl Default for NeedsGameReset {
+    fn default() -> Self {
+        Self::None
+    }
+}
+
+/// Whether to auto-record replays. Defaults to true.
+#[derive(Resource)]
+pub struct AutoRecordReplay(pub bool);
+
+impl Default for AutoRecordReplay {
+    fn default() -> Self {
+        Self(true)
+    }
+}
+
+
 pub struct RenderViewPlugin;
 
 impl Plugin for RenderViewPlugin {
     fn build(&self, app: &mut App) {
         app.init_state::<GameState>()
             .init_resource::<NeedsGameReset>()
+            .init_resource::<AutoRecordReplay>()
             .init_resource::<crate::selection::SelectionState>()
             .add_plugins(crate::ui::UiPlugin)
             .add_systems(Startup, crate::camera::setup_camera)
@@ -133,6 +151,8 @@ fn reset_game_system(
     mut paused: ResMut<bevy_adapter::Paused>,
     mut game_active: ResMut<bevy_adapter::GameActive>,
     mut current_map_size: ResMut<bevy_adapter::CurrentMapSize>,
+    mut recorder: ResMut<bevy_adapter::replay::ReplayRecorder>,
+    auto_record: Res<AutoRecordReplay>,
     map_bounds: Option<ResMut<bevy_adapter::MapBounds>>,
     game_entities: Query<Entity, With<bevy_adapter::binding::LogicEntityRef>>,
 ) {
@@ -172,6 +192,13 @@ fn reset_game_system(
 
         // Update current map size and MapBounds
         current_map_size.0 = map_size;
+
+        // Initialize replay recorder
+        recorder.seed = seed;
+        recorder.map_size = map_size;
+        recorder.command_log.clear();
+        recorder.is_recording = auto_record.0;
+
         let config = map_size.load_config();
         let w = config.width as f32;
         let h = config.height as f32;
@@ -230,14 +257,41 @@ fn reset_game_system(
 fn cleanup_playing_system(
     mut commands: Commands,
     mut game_active: ResMut<bevy_adapter::GameActive>,
+    mut recorder: ResMut<bevy_adapter::replay::ReplayRecorder>,
+    tick_clock: Res<bevy_adapter::tick::TickClock>,
     hud_query: Query<Entity, With<crate::ui::hud::HudRoot>>,
     pause_query: Query<Entity, With<crate::ui::pause::PauseUI>>,
 ) {
     game_active.0 = false;
+
+    // Save replay file if recording was active
+    if recorder.is_recording && !recorder.command_log.is_empty() {
+        let replay = recorder.finish(tick_clock.current_tick);
+        let ron = replay.to_ron();
+        let dir = std::path::PathBuf::from("replays");
+        let _ = std::fs::create_dir_all(&dir);
+        let filename = format!("replay_{}.ron", chrono_timestamp());
+        let path = dir.join(&filename);
+        if let Err(e) = std::fs::write(&path, &ron) {
+            bevy::log::warn!("Failed to save replay: {}", e);
+        } else {
+            bevy::log::info!("Replay saved: {}", path.display());
+        }
+    }
+    recorder.is_recording = false;
+
     for e in hud_query.iter() {
         commands.entity(e).despawn();
     }
     for e in pause_query.iter() {
         commands.entity(e).despawn();
     }
+}
+
+/// Simple timestamp for filenames (no external crate needed).
+fn chrono_timestamp() -> String {
+    let d = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    format!("{}", d.as_secs())
 }

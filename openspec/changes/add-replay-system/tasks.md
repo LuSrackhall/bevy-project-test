@@ -53,8 +53,8 @@
 - [x] 7.1 在 `bevy_adapter` 中定义 `GameMode` 枚举（Live/Replay）和 `ReplayRecorder` 资源
 - [x] 7.2 在 `tick_driver_system` 中添加录制拦截点：提取命令后、注入 simulation 前，复制到 ReplayRecorder
 - [x] 7.3 确保仅录制外部玩家命令，不录制 AI 命令
-- [ ] 7.4 实现 GameOver 时 ReplayRecorder.finish() 生成 ReplayFile 并写入磁盘
-- [ ] 7.5 在 render_view 设置界面添加 "自动录制 Replay" 开关（默认开启）
+- [x] 7.4 实现 GameOver 时 ReplayRecorder.finish() 生成 ReplayFile 并写入磁盘
+- [x] 7.5 在 render_view 设置界面添加 "自动录制 Replay" 开关（默认开启）
 
 ## 8. Replay 回放
 
@@ -68,10 +68,10 @@
 
 ## 9. Replay UI
 
-- [ ] 9.1 在主菜单添加 "Load Replay" 按钮和文件选择逻辑
-- [ ] 9.2 实现 Replay 播放器控制栏 UI（播放/暂停、1x/2x/4x、进度条、tick 计数器）
-- [ ] 9.3 实现进度条拖拽 seek 交互
-- [ ] 9.4 处理无效/不兼容 Replay 文件的错误提示
+- [x] 9.1 在主菜单添加 "Load Replay" 按钮和文件选择逻辑
+- [x] 9.2 实现 Replay 播放器控制栏 UI（播放/暂停、1x/2x/4x、进度条、tick 计数器）
+- [x] 9.3 实现进度条拖拽 seek 交互
+- [x] 9.4 处理无效/不兼容 Replay 文件的错误提示
 
 ---
 
