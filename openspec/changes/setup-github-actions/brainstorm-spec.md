@@ -8,7 +8,7 @@
 
 **Goals:**
 - CI 检查：push/PR 时在三平台（Linux/macOS/Windows）执行 clippy、test、build
-- Release 发布：tag `v*` 触发，构建 6 个 target 的二进制产物，上传到 GitHub Release
+- Release 发布：tag `v*` 触发，构建 7 个 target 的二进制产物，上传到 GitHub Release
 - GitHub Pages：Release 完成后自动部署 WASM 版本到 Pages，可在浏览器中试玩
 - 仓库隐藏：添加 robots.txt 阻止搜索引擎索引
 - 新增必要的构建配置文件（Trunk.toml, .cargo/config.toml, Cross.toml 等）
