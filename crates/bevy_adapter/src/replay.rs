@@ -100,14 +100,12 @@ pub fn replay_tick_driver_system(
         return;
     }
 
-    // Normal replay: accumulate real time and advance ticks
-    tick_clock.accumulator += time.delta_secs();
+    // Normal replay: accumulate real time (scaled by speed) and advance ticks
+    tick_clock.accumulator += time.delta_secs() * speed as f32;
     let tick_dur = tick_clock.tick_duration;
-    let mut ticks_this_frame = 0u32;
 
-    while tick_clock.accumulator >= tick_dur && ctrl.current_tick < total && ticks_this_frame < speed {
+    while tick_clock.accumulator >= tick_dur && ctrl.current_tick < total {
         tick_clock.accumulator -= tick_dur;
-        ticks_this_frame += 1;
         ctrl.current_tick += 1;
         tick_clock.current_tick = ctrl.current_tick;
 
