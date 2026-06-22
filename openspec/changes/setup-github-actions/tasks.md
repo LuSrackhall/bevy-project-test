@@ -1,9 +1,9 @@
 ## 1. WASM 构建基础设施
 
-- [ ] 1.1 创建 `.cargo/config.toml`，配置 wasm32-unknown-unknown target 的 RUSTFLAGS（getrandom_backend=wasm_js + atomics）
-- [ ] 1.2 创建 `Trunk.toml`，配置构建目标为 index.html，dist 输出目录，wasm_opt 工具版本
-- [ ] 1.3 创建 `index.html` 作为 WASM 构建入口，包含 Trunk 所需的 `data-trunk rel="rust"` 指令
-- [ ] 1.4 更新 `.gitignore` 添加 `dist/` 排除
+- [x] 1.1 创建 `.cargo/config.toml`，配置 wasm32-unknown-unknown target 的 RUSTFLAGS（getrandom_backend=wasm_js + atomics）
+- [x] 1.2 创建 `Trunk.toml`，配置构建目标为 index.html，dist 输出目录，wasm_opt 工具版本
+- [x] 1.3 创建 `index.html` 作为 WASM 构建入口，包含 Trunk 所需的 `data-trunk rel="rust"` 指令
+- [x] 1.4 更新 `.gitignore` 添加 `dist/` 排除
 
 ## 2. Linux ARM 交叉编译基础设施
 
