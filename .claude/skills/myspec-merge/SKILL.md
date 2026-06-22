@@ -27,8 +27,8 @@ Sync the worktree with the latest main branch, let the user choose a merge metho
    myspec-catchup handles:
    - Checking local main vs origin/main
    - Pulling/pushing with user confirmation
-   - Merging main into the worktree (resolving conflicts)
-   - Re-running myspec-verify to confirm the implementation still works
+   - Syncing main into the worktree (rebase or merge, user chooses)
+   - Running post-sync validation (build + tests)
 
    If myspec-catchup reports any issues, do NOT proceed to merge. Fix issues first.
 
@@ -121,7 +121,7 @@ Sync the worktree with the latest main branch, let the user choose a merge metho
 
 - All main branch operations (pull, push, merge, rebase) MUST be confirmed by the user
 - Worktree branch commits are handled automatically by the agent (conventional commit, user language/English)
-- Resolve merge conflicts in the worktree when possible (during Phase 1 sync)
+- Conflicts during sync are handled by myspec-catchup (Phase 1)
 - Do NOT skip the merge method selection. The user MUST choose.
 - Do NOT skip the archive step. It syncs delta specs to main specs.
 - Do NOT skip the cleanup step. The worktree must be removed after merge.
