@@ -105,31 +105,13 @@ pub fn setup_main_menu(mut commands: Commands, asset_server: Res<AssetServer>, a
                         ReplayFileEntry(path.clone()), ButtonTheme::dark(), Hovered::default(),
                         BorderColor::all(Color::srgba(0.3, 0.3, 0.35, 1.0))))
                         .with_child((Text::new(label), TextFont { font: font.clone().into(), font_size: FontSize::Px(14.0), ..default() }))
-                        .observe(|_ev: On<Activate>, q: Query<&ReplayFileEntry>, mut commands: Commands,
-                            mut sim_world: NonSendMut<bevy_adapter::tick::SimulationWorld>,
-                            mut game_mode: ResMut<bevy_adapter::replay::GameMode>,
+                        .observe(|_ev: On<Activate>, q: Query<&ReplayFileEntry>,
                             mut next: ResMut<NextState<crate::GameState>>,
                             mut needs_reset: ResMut<crate::NeedsGameReset>| {
                             if let Ok(entry) = q.get(_ev.entity) {
                                 match load_replay_file(&entry.0) {
                                     Ok(replay) => {
-                                        let seed = replay.seed;
-                                        let map_size = replay.map_size;
-                                        let total = replay.total_ticks;
-                                        // Initialize simulation world from replay
-                                        let mut world = simulation::init_simulation_world(seed);
-                                        simulation::map::generate_map(&mut world, map_size);
-                                        sim_world.0 = world;
-                                        // Insert replay controller
-                                        commands.insert_resource(bevy_adapter::replay::ReplayController {
-                                            replay, current_tick: 0, is_paused: false,
-                                            speed_multiplier: 1, seek_target: None,
-                                        });
-                                        commands.insert_resource(bevy_adapter::replay::ReplayStatus {
-                                            is_replay: true, total_ticks: total,
-                                        });
-                                        *game_mode = bevy_adapter::replay::GameMode::Replay;
-                                        *needs_reset = crate::NeedsGameReset::None;
+                                        *needs_reset = crate::NeedsGameReset::Replay(replay);
                                         next.set(crate::GameState::Playing);
                                     }
                                     Err(e) => {

@@ -28,6 +28,8 @@ pub enum NeedsGameReset {
     SameSize,
     /// New game with specified map size
     NewGame(simulation::map::MapSize),
+    /// Load a replay file
+    Replay(simulation::replay::ReplayFile),
 }
 
 impl Default for NeedsGameReset {
@@ -150,6 +152,7 @@ fn reset_game_system(
     mut needs_reset: ResMut<NeedsGameReset>,
     mut paused: ResMut<bevy_adapter::Paused>,
     mut game_active: ResMut<bevy_adapter::GameActive>,
+    mut game_mode: ResMut<bevy_adapter::replay::GameMode>,
     mut current_map_size: ResMut<bevy_adapter::CurrentMapSize>,
     mut recorder: ResMut<bevy_adapter::replay::ReplayRecorder>,
     auto_record: Res<AutoRecordReplay>,
@@ -158,11 +161,13 @@ fn reset_game_system(
 ) {
     paused.0 = false;
     game_active.0 = true;
+    *game_mode = bevy_adapter::replay::GameMode::Live;
 
-    let map_size = match &*needs_reset {
-        NeedsGameReset::None => None,
-        NeedsGameReset::SameSize => Some(current_map_size.0),
-        NeedsGameReset::NewGame(size) => Some(*size),
+    let (map_size, replay_file) = match std::mem::replace(&mut *needs_reset, NeedsGameReset::None) {
+        NeedsGameReset::None => (None, None),
+        NeedsGameReset::SameSize => (Some(current_map_size.0), None),
+        NeedsGameReset::NewGame(size) => (Some(size), None),
+        NeedsGameReset::Replay(replay) => (Some(replay.map_size), Some(replay)),
     };
 
     if let Some(map_size) = map_size {
@@ -178,14 +183,13 @@ fn reset_game_system(
         pending.events.clear();
         selection.clear();
 
-        // Rebuild simulation world with random seed
-        #[cfg(target_arch = "wasm32")]
-        let seed = js_sys::Date::now() as u64;
-        #[cfg(not(target_arch = "wasm32"))]
-        let seed = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+        // Rebuild simulation world
+        let seed = replay_file.as_ref().map(|r| r.seed).unwrap_or_else(|| {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs()
+        });
         let mut world = simulation::init_simulation_world(seed);
         simulation::map::generate_map(&mut world, map_size);
         sim_world.0 = world;
@@ -193,11 +197,11 @@ fn reset_game_system(
         // Update current map size and MapBounds
         current_map_size.0 = map_size;
 
-        // Initialize replay recorder
+        // Initialize replay recorder (disabled when loading a replay)
         recorder.seed = seed;
         recorder.map_size = map_size;
         recorder.command_log.clear();
-        recorder.is_recording = auto_record.0;
+        recorder.is_recording = replay_file.is_none() && auto_record.0;
 
         let config = map_size.load_config();
         let w = config.width as f32;
@@ -215,8 +219,6 @@ fn reset_game_system(
         } else {
             commands.insert_resource(new_bounds);
         }
-
-        *needs_reset = NeedsGameReset::None;
 
         // Backfill: create Bevy entities for all simulation entities
         {
@@ -249,6 +251,19 @@ fn reset_game_system(
                     .id();
                 mapper.register(unit_id, entity);
             }
+        }
+
+        // If loading a replay, set up replay mode after entity backfill
+        if let Some(replay) = replay_file {
+            let total = replay.total_ticks;
+            commands.insert_resource(bevy_adapter::replay::ReplayController {
+                replay, current_tick: 0, is_paused: false,
+                speed_multiplier: 1, seek_target: None,
+            });
+            commands.insert_resource(bevy_adapter::replay::ReplayStatus {
+                is_replay: true, total_ticks: total,
+            });
+            *game_mode = bevy_adapter::replay::GameMode::Replay;
         }
     }
 }
