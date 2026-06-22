@@ -20,11 +20,11 @@
 
 ## 4. Release Workflow
 
-- [ ] 4.1 创建 `.github/workflows/release.yml`，配置 tag v* push 和 workflow_dispatch 触发条件
-- [ ] 4.2 配置 7 target 构建矩阵（macOS ARM/Intel、Windows x64/ARM、Linux x64/ARM、WASM）
-- [ ] 4.3 实现各 target 的构建步骤（Linux ARM 使用 cross，WASM 使用 trunk build）
-- [ ] 4.4 配置 upload-artifact 上传各平台产物
-- [ ] 4.5 创建汇总 job，下载所有 artifact 并通过 softprops/action-gh-release@v2 创建 Release
+- [x] 4.1 创建 `.github/workflows/release.yml`，配置 tag v* push 和 workflow_dispatch 触发条件
+- [x] 4.2 配置 7 target 构建矩阵（macOS ARM/Intel、Windows x64/ARM、Linux x64/ARM、WASM）
+- [x] 4.3 实现各 target 的构建步骤（Linux ARM 使用 cross，WASM 使用 trunk build）
+- [x] 4.4 配置 upload-artifact 上传各平台产物
+- [x] 4.5 创建汇总 job，下载所有 artifact 并通过 softprops/action-gh-release@v2 创建 Release
 
 ## 5. GitHub Pages Workflow
 

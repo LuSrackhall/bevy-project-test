@@ -1,0 +1,163 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+env:
+  CARGO_INCREMENTAL: 0
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS ARM
+            os: macos-latest
+            target: aarch64-apple-darwin
+            artifact_ext: tar.gz
+          - name: macOS Intel
+            os: macos-13
+            target: x86_64-apple-darwin
+            artifact_ext: tar.gz
+          - name: Windows x64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact_ext: zip
+          - name: Windows ARM
+            os: windows-11-arm
+            target: aarch64-pc-windows-msvc
+            artifact_ext: zip
+          - name: Linux x64
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact_ext: tar.gz
+          - name: Linux ARM
+            os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            artifact_ext: tar.gz
+          - name: WASM
+            os: ubuntu-latest
+            target: wasm32-unknown-unknown
+            artifact_ext: tar.gz
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.target }}
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux' && matrix.target != 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libasound2-dev \
+            libudev-dev \
+            libwayland-dev \
+            libxkbcommon-dev \
+            libvulkan-dev \
+            pkg-config
+
+      - name: Install cross
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        uses: taiki-e/install-action@cross
+
+      - name: Install Trunk
+        if: matrix.target == 'wasm32-unknown-unknown'
+        uses: jetli/trunk-action@v0.5.0
+
+      - name: Build (cross - Linux ARM)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: cross build --release --target ${{ matrix.target }}
+
+      - name: Build (Trunk - WASM)
+        if: matrix.target == 'wasm32-unknown-unknown'
+        run: trunk build --release
+
+      - name: Build (native)
+        if: matrix.target != 'aarch64-unknown-linux-gnu' && matrix.target != 'wasm32-unknown-unknown'
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Package (Unix native)
+        if: matrix.target != 'aarch64-unknown-linux-gnu' && matrix.target != 'wasm32-unknown-unknown' && runner.os != 'Windows'
+        run: |
+          cd target/${{ matrix.target }}/release
+          tar czf ../../../city-conquest-${{ matrix.target }}.tar.gz city-conquest
+          cd ../../..
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          cd target/${{ matrix.target }}/release
+          7z a ../../../city-conquest-${{ matrix.target }}.zip city-conquest.exe
+          cd ../../..
+        shell: bash
+
+      - name: Package (Linux ARM cross)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          cd target/${{ matrix.target }}/release
+          tar czf ../../../city-conquest-${{ matrix.target }}.tar.gz city-conquest
+          cd ../../..
+
+      - name: Package (WASM)
+        if: matrix.target == 'wasm32-unknown-unknown'
+        run: tar czf city-conquest-${{ matrix.target }}.tar.gz -C dist .
+
+      - name: Upload artifact (native)
+        if: matrix.target != 'aarch64-unknown-linux-gnu' && matrix.target != 'wasm32-unknown-unknown'
+        uses: actions/upload-artifact@v4
+        with:
+          name: city-conquest-${{ matrix.target }}
+          path: city-conquest-${{ matrix.target }}.${{ matrix.artifact_ext }}
+
+      - name: Upload artifact (Linux ARM)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        uses: actions/upload-artifact@v4
+        with:
+          name: city-conquest-${{ matrix.target }}
+          path: city-conquest-${{ matrix.target }}.${{ matrix.artifact_ext }}
+
+      - name: Upload artifact (WASM)
+        if: matrix.target == 'wasm32-unknown-unknown'
+        uses: actions/upload-artifact@v4
+        with:
+          name: city-conquest-${{ matrix.target }}
+          path: city-conquest-${{ matrix.target }}.${{ matrix.artifact_ext }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release
+          for dir in artifacts/city-conquest-*; do
+            cp "$dir"/* release/ 2>/dev/null || true
+          done
+          ls -la release/
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          generate_release_notes: true
