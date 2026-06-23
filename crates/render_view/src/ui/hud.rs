@@ -12,10 +12,12 @@ use simulation::soldier::config::SoldierConfig;
 #[cfg(target_arch = "wasm32")]
 fn focus_canvas_on_wasm() {
     if let Some(window) = web_sys::window() {
-use wasm_bindgen::JsCast;
+        use wasm_bindgen::JsCast;
         if let Some(document) = window.document() {
             if let Ok(Some(canvas)) = document.query_selector("canvas") {
-                if let Ok(html) = canvas.dyn_into::<web_sys::HtmlElement>() { let _ = html.focus(); }
+                if let Ok(html) = canvas.dyn_into::<web_sys::HtmlElement>() {
+                    let _ = html.focus();
+                }
             }
         }
     }
