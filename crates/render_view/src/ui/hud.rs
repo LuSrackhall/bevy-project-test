@@ -1198,11 +1198,65 @@ pub(crate) fn seek_panel_count_system(
 
 // ══════════ Seek Panel Input System ══════════
 
+/// Helper: check if a digit key was just pressed, platform-aware.
+#[cfg(target_arch = "wasm32")]
+fn check_digit_just_pressed(
+    wasm_kb: Option<&crate::wasm_keyboard::WasmKeyboard>,
+    _native_kb: &ButtonInput<KeyCode>,
+) -> Option<u32> {
+    let Some(kb) = wasm_kb else { return None };
+    for (key, digit) in [
+        ("0", 0),
+        ("1", 1),
+        ("2", 2),
+        ("3", 3),
+        ("4", 4),
+        ("5", 5),
+        ("6", 6),
+        ("7", 7),
+        ("8", 8),
+        ("9", 9),
+    ] {
+        if kb.just_pressed(key) {
+            return Some(digit);
+        }
+    }
+    None
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn check_digit_just_pressed(_wasm_kb: Option<&()>, keyboard: &ButtonInput<KeyCode>) -> Option<u32> {
+    if keyboard.just_pressed(KeyCode::Digit0) || keyboard.just_pressed(KeyCode::Numpad0) {
+        Some(0)
+    } else if keyboard.just_pressed(KeyCode::Digit1) || keyboard.just_pressed(KeyCode::Numpad1) {
+        Some(1)
+    } else if keyboard.just_pressed(KeyCode::Digit2) || keyboard.just_pressed(KeyCode::Numpad2) {
+        Some(2)
+    } else if keyboard.just_pressed(KeyCode::Digit3) || keyboard.just_pressed(KeyCode::Numpad3) {
+        Some(3)
+    } else if keyboard.just_pressed(KeyCode::Digit4) || keyboard.just_pressed(KeyCode::Numpad4) {
+        Some(4)
+    } else if keyboard.just_pressed(KeyCode::Digit5) || keyboard.just_pressed(KeyCode::Numpad5) {
+        Some(5)
+    } else if keyboard.just_pressed(KeyCode::Digit6) || keyboard.just_pressed(KeyCode::Numpad6) {
+        Some(6)
+    } else if keyboard.just_pressed(KeyCode::Digit7) || keyboard.just_pressed(KeyCode::Numpad7) {
+        Some(7)
+    } else if keyboard.just_pressed(KeyCode::Digit8) || keyboard.just_pressed(KeyCode::Numpad8) {
+        Some(8)
+    } else if keyboard.just_pressed(KeyCode::Digit9) || keyboard.just_pressed(KeyCode::Numpad9) {
+        Some(9)
+    } else {
+        None
+    }
+}
+
 /// Handle range input: type digits in real-time, blinking cursor, Esc to deactivate.
 /// Input activation is handled by Observer on the input button.
 pub(crate) fn seek_panel_input_system(
     mouse: Res<ButtonInput<MouseButton>>,
     keyboard: Res<ButtonInput<KeyCode>>,
+    #[cfg(target_arch = "wasm32")] wasm_kb: Option<Res<crate::wasm_keyboard::WasmKeyboard>>,
     time: Res<Time>,
     mut state: ResMut<SeekPanelState>,
     mut tq: Query<&mut Text>,
@@ -1242,7 +1296,15 @@ pub(crate) fn seek_panel_input_system(
         // Capture keyboard when active
         let mut changed = false;
         let s = state.range_value.to_string();
-        if keyboard.just_pressed(KeyCode::Backspace) {
+
+        #[cfg(target_arch = "wasm32")]
+        let backspace_pressed = wasm_kb
+            .as_ref()
+            .map_or(false, |kb| kb.just_pressed("Backspace"));
+        #[cfg(not(target_arch = "wasm32"))]
+        let backspace_pressed = keyboard.just_pressed(KeyCode::Backspace);
+
+        if backspace_pressed {
             if s.len() > 1 {
                 if let Ok(v) = s[..s.len() - 1].parse::<u32>() {
                     state.range_value = v;
@@ -1252,49 +1314,10 @@ pub(crate) fn seek_panel_input_system(
             }
             changed = true;
         } else {
-            let digit = if keyboard.just_pressed(KeyCode::Digit0)
-                || keyboard.just_pressed(KeyCode::Numpad0)
-            {
-                Some(0)
-            } else if keyboard.just_pressed(KeyCode::Digit1)
-                || keyboard.just_pressed(KeyCode::Numpad1)
-            {
-                Some(1)
-            } else if keyboard.just_pressed(KeyCode::Digit2)
-                || keyboard.just_pressed(KeyCode::Numpad2)
-            {
-                Some(2)
-            } else if keyboard.just_pressed(KeyCode::Digit3)
-                || keyboard.just_pressed(KeyCode::Numpad3)
-            {
-                Some(3)
-            } else if keyboard.just_pressed(KeyCode::Digit4)
-                || keyboard.just_pressed(KeyCode::Numpad4)
-            {
-                Some(4)
-            } else if keyboard.just_pressed(KeyCode::Digit5)
-                || keyboard.just_pressed(KeyCode::Numpad5)
-            {
-                Some(5)
-            } else if keyboard.just_pressed(KeyCode::Digit6)
-                || keyboard.just_pressed(KeyCode::Numpad6)
-            {
-                Some(6)
-            } else if keyboard.just_pressed(KeyCode::Digit7)
-                || keyboard.just_pressed(KeyCode::Numpad7)
-            {
-                Some(7)
-            } else if keyboard.just_pressed(KeyCode::Digit8)
-                || keyboard.just_pressed(KeyCode::Numpad8)
-            {
-                Some(8)
-            } else if keyboard.just_pressed(KeyCode::Digit9)
-                || keyboard.just_pressed(KeyCode::Numpad9)
-            {
-                Some(9)
-            } else {
-                None
-            };
+            #[cfg(target_arch = "wasm32")]
+            let digit = check_digit_just_pressed(wasm_kb.as_deref(), &keyboard);
+            #[cfg(not(target_arch = "wasm32"))]
+            let digit = check_digit_just_pressed(None, &keyboard);
 
             if let Some(d) = digit {
                 let new_s = format!("{}{}", s, d);
