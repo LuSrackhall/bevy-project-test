@@ -165,14 +165,10 @@ pub fn replay_seek_system(
         simulation::run_tick(&mut sim_world.0, ctrl.current_tick);
     }
 
-    let ticks_done = ctrl.current_tick - (tick_clock.current_tick);
-    
     tick_clock.current_tick = ctrl.current_tick;
 
     // Check if seek is complete
     if ctrl.current_tick >= target {
-        let elapsed_ms = frame_start.elapsed().as_millis();
-        bevy::log::warn!("SEEK DONE: {} ticks in {}ms", target, elapsed_ms);
         ctrl.seek_target = None;
         ctrl.async_seek = false;
         status.is_seeking = false;
