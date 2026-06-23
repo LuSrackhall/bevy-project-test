@@ -70,11 +70,13 @@ impl Plugin for UiPlugin {
             )
             .add_systems(
                 Update,
-                (
-                    replay_player::update_replay_player,
-                    replay_player::progress_bar_seek_system,
-                )
-                    .run_if(in_state(crate::GameState::Playing)),
+                replay_player::update_replay_player.run_if(in_state(crate::GameState::Playing)),
+            )
+            .add_systems(
+                Update,
+                replay_player::progress_bar_seek_system.run_if(
+                    in_state(crate::GameState::Playing).and_then(replay_player::in_replay_mode),
+                ),
             );
     }
 }

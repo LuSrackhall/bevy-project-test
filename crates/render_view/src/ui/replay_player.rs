@@ -25,15 +25,9 @@ pub struct ReplayProgressFill;
 #[derive(Component)]
 pub struct ReplayProgressBg;
 
-#[derive(Resource, Default)]
-pub struct ProgressDragState {
-    dragging: bool,
-}
-
 /// Setup replay player UI when entering Playing state in Replay mode.
 pub fn setup_replay_player(mut commands: Commands, asset_server: Res<AssetServer>) {
     let font = asset_server.load("fonts/Arial Unicode.ttf");
-    commands.insert_resource(ProgressDragState::default());
     commands.spawn((Node {
         width: Val::Percent(100.0), height: Val::Px(44.0),
         position_type: PositionType::Absolute,
@@ -92,12 +86,12 @@ pub fn setup_replay_player(mut commands: Commands, asset_server: Res<AssetServer
 }
 
 /// Handle click and drag on the progress bar to seek.
-/// Uses ComputedNode for size and GlobalTransform for position.
+/// Uses ComputedNode for size and GlobalTransform for screen position.
 pub fn progress_bar_seek_system(
     mouse: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window, With<PrimaryWindow>>,
     progress_bar: Query<(&ComputedNode, &GlobalTransform), With<ReplayProgressBg>>,
-    mut drag_state: ResMut<ProgressDragState>,
+    mut drag_state: Local<bool>,
     mut ctrl: Option<ResMut<ReplayController>>,
 ) {
     let Some(ref mut ctrl) = ctrl else { return };
@@ -109,28 +103,30 @@ pub fn progress_bar_seek_system(
 
     let Ok((node, gt)) = progress_bar.single() else { return };
     let size = node.size();
-    // GlobalTransform.translation gives center position; compute top-left
-    let bar_left = gt.translation().x - size.x / 2.0;
-    let bar_right = gt.translation().x + size.x / 2.0;
-    let bar_top = gt.translation().y - size.y / 2.0;
-    let bar_bottom = gt.translation().y + size.y / 2.0;
+    if size.x <= 0.0 { return; }
 
-    // Start drag on press
-    if mouse.just_pressed(MouseButton::Left) {
-        if cursor.x >= bar_left && cursor.x <= bar_right
-            && cursor.y >= bar_top && cursor.y <= bar_bottom
-        {
-            drag_state.dragging = true;
-        }
+    // GlobalTransform.translation = center of node in window coords (top-left origin, Y down)
+    let half_w = size.x / 2.0;
+    let half_h = size.y / 2.0;
+    let bar_left = gt.translation().x - half_w;
+    let bar_right = gt.translation().x + half_w;
+    let bar_top = gt.translation().y - half_h;
+    let bar_bottom = gt.translation().y + half_h;
+
+    let inside = cursor.x >= bar_left && cursor.x <= bar_right
+              && cursor.y >= bar_top && cursor.y <= bar_bottom;
+
+    // Start drag on press inside bar
+    if mouse.just_pressed(MouseButton::Left) && inside {
+        *drag_state = true;
     }
-
     // End drag on release
     if mouse.just_released(MouseButton::Left) {
-        drag_state.dragging = false;
+        *drag_state = false;
     }
 
     // While dragging, update seek position
-    if drag_state.dragging && size.x > 0.0 {
+    if *drag_state {
         let pct = ((cursor.x - bar_left) / size.x).clamp(0.0, 1.0);
         let target_tick = (pct * total as f32) as u32;
         ctrl.seek_target = Some(target_tick.min(total));
@@ -171,7 +167,6 @@ pub fn cleanup_replay_player(
     mut commands: Commands,
     query: Query<Entity, With<ReplayPlayerUI>>,
 ) {
-    commands.remove_resource::<ProgressDragState>();
     for e in query.iter() { commands.entity(e).despawn(); }
 }
 
