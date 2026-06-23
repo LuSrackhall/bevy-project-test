@@ -27,7 +27,6 @@ const TICKS_PER_SEC: u32 = 20;
 /// Skip interval: 10 seconds
 const SKIP_TICKS: u32 = TICKS_PER_SEC * 10;
 /// Ticks per frame during async seek (fast but doesn't freeze UI)
-const SEEK_TICKS_PER_FRAME: u32 = 200;
 
 /// Setup replay player UI when entering Playing state in Replay mode.
 pub fn setup_replay_player(mut commands: Commands, asset_server: Res<AssetServer>) {
@@ -147,8 +146,10 @@ pub fn replay_seek_system(
         pending.events.clear();
     }
 
-    // Process up to SEEK_TICKS_PER_FRAME ticks this frame
-    let end = (ctrl.current_tick + SEEK_TICKS_PER_FRAME).min(target);
+    // Dynamic: process more ticks when seek distance is large
+    let remaining = target - ctrl.current_tick;
+    let batch = (remaining / 4).clamp(200, 5000);
+    let end = (ctrl.current_tick + batch).min(target);
     while ctrl.current_tick < end {
         ctrl.current_tick += 1;
         let cmds = ctrl.replay.commands_for_tick(ctrl.current_tick).to_vec();
