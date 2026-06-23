@@ -69,7 +69,7 @@ pub fn setup_replay_player(mut commands: Commands, asset_server: Res<AssetServer
             border: UiRect::all(Val::Px(1.0)), ..default()
         }, BackgroundColor(Color::srgba(0.15, 0.15, 0.15, 1.0)),
           BorderColor::all(Color::srgba(0.4, 0.4, 0.4, 1.0)),
-          ReplayProgressBg, Pickable::default()))
+          WidgetButton, ReplayProgressBg, Pickable::default(), Hovered::default()))
             .with_children(|bg| {
                 // Fill — width updated each frame
                 bg.spawn((Node {
