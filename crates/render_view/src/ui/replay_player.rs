@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use bevy::ui_widgets::{Activate, Button as WidgetButton};
 use bevy::picking::hover::Hovered;
 use crate::ui::hud::ButtonTheme;
-use bevy_adapter::replay::{GameMode, ReplayController};
+use bevy_adapter::replay::{GameMode, ReplayController, ReplayStatus};
 use bevy_adapter::tick::{SimulationWorld, TickClock, PendingEvents};
 
 #[derive(Component)]
@@ -123,16 +123,22 @@ pub fn setup_replay_player(mut commands: Commands, asset_server: Res<AssetServer
 /// until reaching seek_target, then resumes normal playback.
 pub fn replay_seek_system(
     mut ctrl: Option<ResMut<ReplayController>>,
+    mut status: ResMut<ReplayStatus>,
     mut sim_world: NonSendMut<SimulationWorld>,
     mut tick_clock: ResMut<TickClock>,
     mut pending: ResMut<PendingEvents>,
 ) {
     let Some(ref mut ctrl) = ctrl else { return };
-    if !ctrl.async_seek { return; }
+    if !ctrl.async_seek {
+        status.is_seeking = false;
+        return;
+    }
     let Some(target) = ctrl.seek_target else {
         ctrl.async_seek = false;
+        status.is_seeking = false;
         return;
     };
+    status.is_seeking = true;
 
     // If target is behind current position, reinitialize world
     if target < ctrl.current_tick {
@@ -148,7 +154,7 @@ pub fn replay_seek_system(
 
     // Time-budget approach: spend up to 100ms per frame on seek ticks
     let frame_start = std::time::Instant::now();
-    let budget = std::time::Duration::from_millis(500);
+    let budget = std::time::Duration::from_millis(1000); // rendering skipped during seek, can use more time
     while ctrl.current_tick < target && frame_start.elapsed() < budget {
         ctrl.current_tick += 1;
         let cmds = ctrl.replay.commands_for_tick(ctrl.current_tick).to_vec();
@@ -169,6 +175,7 @@ pub fn replay_seek_system(
         bevy::log::warn!("SEEK DONE: {} ticks in {}ms", target, elapsed_ms);
         ctrl.seek_target = None;
         ctrl.async_seek = false;
+        status.is_seeking = false;
     }
 }
 

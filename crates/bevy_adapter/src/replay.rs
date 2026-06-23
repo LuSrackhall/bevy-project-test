@@ -62,6 +62,7 @@ pub struct ReplayController {
 #[derive(Resource, Default)]
 pub struct ReplayStatus {
     pub is_replay: bool,
+    pub is_seeking: bool,
     pub total_ticks: u32,
 }
 
@@ -78,7 +79,7 @@ pub fn replay_tick_driver_system(
     let Some(ref mut ctrl) = controller else {
         return;
     };
-    if ctrl.is_paused { return; }
+    if ctrl.is_paused || ctrl.async_seek { return; }
 
 
     let total = ctrl.replay.total_ticks;

@@ -79,7 +79,7 @@ impl Plugin for RenderViewPlugin {
                 crate::ui::hud::setup_hud.after(reset_game_system),
             )
             .add_systems(OnExit(GameState::Playing), cleanup_playing_system)
-            // Gameplay systems: only when Playing AND not paused
+            // Gameplay systems: only when Playing AND not paused AND not seeking
             .add_systems(
                 Update,
                 (
@@ -100,7 +100,8 @@ impl Plugin for RenderViewPlugin {
                 )
                     .run_if(
                         in_state(GameState::Playing)
-                            .and_then(not(resource_exists_and_equals(bevy_adapter::Paused(true)))),
+                            .and_then(not(resource_exists_and_equals(bevy_adapter::Paused(true))))
+                            .and_then(not(replay_seeking)),
                     ),
             )
             // Camera: always active
@@ -114,6 +115,11 @@ impl Plugin for RenderViewPlugin {
                 ),
             );
     }
+}
+
+/// Run condition: true when replay is actively seeking (skip rendering).
+fn replay_seeking(status: Option<Res<bevy_adapter::replay::ReplayStatus>>) -> bool {
+    status.map_or(false, |s| s.is_seeking)
 }
 
 /// Check if all cities of one faction are gone.
@@ -263,7 +269,7 @@ fn reset_game_system(
                 speed_multiplier: 1, seek_target: None,
             });
             commands.insert_resource(bevy_adapter::replay::ReplayStatus {
-                is_replay: true, total_ticks: total,
+                is_replay: true, total_ticks: total, is_seeking: false,
             });
             *game_mode = bevy_adapter::replay::GameMode::Replay;
         }
