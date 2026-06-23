@@ -5,6 +5,7 @@ use bevy::ui_widgets::{Activate, Button as WidgetButton};
 use bevy::picking::hover::Hovered;
 use crate::ui::hud::ButtonTheme;
 use bevy_adapter::replay::{GameMode, ReplayController};
+use bevy_adapter::tick::{SimulationWorld, TickClock, PendingEvents};
 
 #[derive(Component)]
 pub struct ReplayPlayerUI;
@@ -41,11 +42,11 @@ pub fn setup_replay_player(mut commands: Commands, asset_server: Res<AssetServer
         ..default()
     }, BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.75)), ReplayPlayerUI))
     .with_children(|bar| {
-        // Skip backward 10s
+        // Skip backward 10s — uses restart-from-zero approach
         bar.spawn((WidgetButton, Node { padding: UiRect::horizontal(Val::Px(8.0)), border: UiRect::all(Val::Px(1.0)), ..default() },
             ButtonTheme::dark(), Hovered::default(),
             BorderColor::all(Color::srgba(0.35, 0.35, 0.40, 1.0))))
-            .with_child((Text::new("⏪10s"), TextFont { font: font.clone().into(), font_size: FontSize::Px(13.0), ..default() }))
+            .with_child((Text::new("<< 10s"), TextFont { font: font.clone().into(), font_size: FontSize::Px(13.0), ..default() }))
             .observe(|_ev: On<Activate>, mut ctrl: Option<ResMut<ReplayController>>| {
                 if let Some(ref mut c) = ctrl {
                     let target = c.current_tick.saturating_sub(SKIP_TICKS).max(1);
@@ -58,7 +59,7 @@ pub fn setup_replay_player(mut commands: Commands, asset_server: Res<AssetServer
             ButtonTheme::dark(), Hovered::default(),
             BorderColor::all(Color::srgba(0.35, 0.35, 0.40, 1.0))))
             .with_children(|btn| {
-                btn.spawn((Text::new("⏸"), TextFont { font: font.clone().into(), font_size: FontSize::Px(18.0), ..default() },
+                btn.spawn((Text::new("||"), TextFont { font: font.clone().into(), font_size: FontSize::Px(18.0), ..default() },
                     ReplayPauseBtnText));
             })
             .observe(|_ev: On<Activate>, mut ctrl: Option<ResMut<ReplayController>>| {
@@ -69,7 +70,7 @@ pub fn setup_replay_player(mut commands: Commands, asset_server: Res<AssetServer
         bar.spawn((WidgetButton, Node { padding: UiRect::horizontal(Val::Px(8.0)), border: UiRect::all(Val::Px(1.0)), ..default() },
             ButtonTheme::dark(), Hovered::default(),
             BorderColor::all(Color::srgba(0.35, 0.35, 0.40, 1.0))))
-            .with_child((Text::new("10s⏩"), TextFont { font: font.clone().into(), font_size: FontSize::Px(13.0), ..default() }))
+            .with_child((Text::new("10s >>"), TextFont { font: font.clone().into(), font_size: FontSize::Px(13.0), ..default() }))
             .observe(|_ev: On<Activate>, mut ctrl: Option<ResMut<ReplayController>>| {
                 if let Some(ref mut c) = ctrl {
                     let target = (c.current_tick + SKIP_TICKS).min(c.replay.total_ticks);
@@ -89,7 +90,7 @@ pub fn setup_replay_player(mut commands: Commands, asset_server: Res<AssetServer
                 });
         }
 
-        // Progress bar (visual only — shows current position)
+        // Progress bar (visual only)
         bar.spawn((Node {
             width: Val::Px(300.0), height: Val::Px(8.0),
             border: UiRect::all(Val::Px(1.0)), ..default()
@@ -103,10 +104,49 @@ pub fn setup_replay_player(mut commands: Commands, asset_server: Res<AssetServer
                   ReplayProgressFill));
             });
 
-        // Tick counter
-        bar.spawn((Text::new("T 0:00 / 0:00"), TextFont { font: font.clone().into(), font_size: FontSize::Px(13.0), ..default() },
+        // Time display
+        bar.spawn((Text::new("0:00 / 0:00"), TextFont { font: font.clone().into(), font_size: FontSize::Px(13.0), ..default() },
             TextColor(Color::srgb(0.8, 0.8, 0.8)), ReplayTickText));
     });
+}
+
+/// Handle backward seek: re-initialize simulation world and replay forward to target tick.
+/// This is necessary because simulation state can only go forward.
+pub fn replay_seek_system(
+    mut ctrl: Option<ResMut<ReplayController>>,
+    mut sim_world: NonSendMut<SimulationWorld>,
+    mut tick_clock: ResMut<TickClock>,
+    mut pending: ResMut<PendingEvents>,
+) {
+    let Some(ref mut ctrl) = ctrl else { return };
+    let Some(target) = ctrl.seek_target else { return };
+
+    // If target is behind current position, must restart from tick 0
+    if target < ctrl.current_tick {
+        // Re-initialize simulation world with same seed and map
+        let seed = ctrl.replay.seed;
+        let map_size = ctrl.replay.map_size;
+        let mut world = simulation::init_simulation_world(seed);
+        simulation::map::generate_map(&mut world, map_size);
+        sim_world.0 = world;
+        ctrl.current_tick = 0;
+        tick_clock.current_tick = 0;
+        pending.events.clear();
+    }
+
+    // Fast-forward from current tick to target
+    while ctrl.current_tick < target {
+        ctrl.current_tick += 1;
+        let cmds = ctrl.replay.commands_for_tick(ctrl.current_tick).to_vec();
+        {
+            let mut sim_cmds = sim_world.0.resource_mut::<simulation::command::CommandBuffer>();
+            for cmd in cmds { sim_cmds.0.push(cmd); }
+        }
+        simulation::run_tick(&mut sim_world.0, ctrl.current_tick);
+    }
+
+    tick_clock.current_tick = ctrl.current_tick;
+    ctrl.seek_target = None;
 }
 
 /// Update replay player UI each frame.
@@ -123,14 +163,13 @@ pub fn update_replay_player(
     let total = ctrl.replay.total_ticks.max(1);
     let current = ctrl.current_tick;
 
-    // Format as M:SS
     let cur_sec = current / TICKS_PER_SEC;
     let tot_sec = total / TICKS_PER_SEC;
     for mut text in tick_text.iter_mut() {
         **text = format!("{}:{:02} / {}:{:02}", cur_sec / 60, cur_sec % 60, tot_sec / 60, tot_sec % 60);
     }
 
-    let icon = if ctrl.is_paused { "▶" } else { "⏸" };
+    let icon = if ctrl.is_paused { ">" } else { "||" };
     for mut text in pause_text.iter_mut() {
         **text = icon.to_string();
     }

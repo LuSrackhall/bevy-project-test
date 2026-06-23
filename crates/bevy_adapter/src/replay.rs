@@ -83,24 +83,8 @@ pub fn replay_tick_driver_system(
     let total = ctrl.replay.total_ticks;
     let speed = ctrl.speed_multiplier.max(1);
 
-    // Seek mode: fast-forward to target tick
-    if let Some(target) = ctrl.seek_target {
-        let target = target.min(total);
-        while ctrl.current_tick < target {
-            ctrl.current_tick += 1;
-            let cmds = ctrl.replay.commands_for_tick(ctrl.current_tick).to_vec();
-            {
-                let mut sim_cmds = sim_world.0.resource_mut::<simulation::command::CommandBuffer>();
-                for cmd in cmds { sim_cmds.0.push(cmd); }
-            }
-            run_tick(&mut sim_world.0, ctrl.current_tick);
-        }
-        ctrl.seek_target = None;
-        tick_clock.current_tick = ctrl.current_tick;
-        return;
-    }
-
     // Normal replay: accumulate real time (scaled by speed) and advance ticks
+    // Seek is handled by replay_seek_system in render_view (supports backward seek)
     tick_clock.accumulator += time.delta_secs() * speed as f32;
     let tick_dur = tick_clock.tick_duration;
 
