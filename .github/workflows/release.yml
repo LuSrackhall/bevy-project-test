@@ -79,7 +79,7 @@ jobs:
 
       - name: Build (Trunk - WASM)
         if: matrix.target == 'wasm32-unknown-unknown'
-        run: trunk build --release
+        run: trunk build --release --public-url ./
 
       - name: Build (native)
         if: matrix.target != 'aarch64-unknown-linux-gnu' && matrix.target != 'wasm32-unknown-unknown'
@@ -88,24 +88,27 @@ jobs:
       - name: Package (Unix native)
         if: matrix.target != 'aarch64-unknown-linux-gnu' && matrix.target != 'wasm32-unknown-unknown' && runner.os != 'Windows'
         run: |
-          cd target/${{ matrix.target }}/release
-          tar czf ../../../city-conquest-${{ matrix.target }}.tar.gz city-conquest
-          cd ../../..
+          mkdir -p staging/city-conquest
+          cp target/${{ matrix.target }}/release/city-conquest staging/city-conquest/
+          cp -r assets staging/city-conquest/
+          cd staging && tar czf ../city-conquest-${{ matrix.target }}.tar.gz city-conquest
 
       - name: Package (Windows)
         if: runner.os == 'Windows'
         run: |
-          cd target/${{ matrix.target }}/release
-          7z a ../../../city-conquest-${{ matrix.target }}.zip city-conquest.exe
-          cd ../../..
+          mkdir -p staging/city-conquest
+          cp target/${{ matrix.target }}/release/city-conquest.exe staging/city-conquest/
+          cp -r assets staging/city-conquest/
+          cd staging && 7z a ../city-conquest-${{ matrix.target }}.zip city-conquest
         shell: bash
 
       - name: Package (Linux ARM cross)
         if: matrix.target == 'aarch64-unknown-linux-gnu'
         run: |
-          cd target/${{ matrix.target }}/release
-          tar czf ../../../city-conquest-${{ matrix.target }}.tar.gz city-conquest
-          cd ../../..
+          mkdir -p staging/city-conquest
+          cp target/${{ matrix.target }}/release/city-conquest staging/city-conquest/
+          cp -r assets staging/city-conquest/
+          cd staging && tar czf ../city-conquest-${{ matrix.target }}.tar.gz city-conquest
 
       - name: Package (WASM)
         if: matrix.target == 'wasm32-unknown-unknown'
