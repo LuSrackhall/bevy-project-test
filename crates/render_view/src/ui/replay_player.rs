@@ -148,7 +148,7 @@ pub fn replay_seek_system(
 
     // Time-budget approach: spend up to 100ms per frame on seek ticks
     let frame_start = std::time::Instant::now();
-    let budget = std::time::Duration::from_millis(100);
+    let budget = std::time::Duration::from_millis(500);
     while ctrl.current_tick < target && frame_start.elapsed() < budget {
         ctrl.current_tick += 1;
         let cmds = ctrl.replay.commands_for_tick(ctrl.current_tick).to_vec();
