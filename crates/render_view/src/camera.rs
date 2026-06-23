@@ -1,4 +1,4 @@
-use bevy::input::mouse::AccumulatedMouseScroll;
+use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
 use bevy_adapter::tick::SimulationWorld;
 use simulation::soldier::*;
@@ -152,7 +152,7 @@ pub fn camera_edge_scroll_system(
 
 /// Zoom toward cursor position. Max = 6x map size. Min = 0.15.
 pub fn camera_zoom_system(
-    mouse_wheel: Res<AccumulatedMouseScroll>,
+    mut scroll_events: MessageReader<MouseWheel>,
     mut cam_query: Query<(&mut Transform, &mut Projection), With<MainCamera>>,
     q_windows: Query<&Window>,
     map_bounds: Option<Res<bevy_adapter::MapBounds>>,
@@ -164,13 +164,25 @@ pub fn camera_zoom_system(
         return;
     };
 
+    // Accumulate scroll delta, handling Line (mouse wheel) vs Pixel (trackpad)
+    let mut delta = 0.0_f32;
+    for ev in scroll_events.read() {
+        delta += match ev.unit {
+            MouseScrollUnit::Line => ev.y * 0.1,
+            MouseScrollUnit::Pixel => ev.y * 0.003,
+        };
+    }
+    if delta.abs() < f32::EPSILON {
+        return;
+    }
+
     for (mut transform, mut proj) in cam_query.iter_mut() {
         let Projection::Orthographic(ref mut ortho) = *proj else {
             continue;
         };
 
         let old_scale = ortho.scale;
-        ortho.scale *= 1.0 - mouse_wheel.delta.y * 0.006;
+        ortho.scale *= 1.0 - delta;
 
         // Clamp scale
         if let Some(bounds) = map_bounds.as_ref() {
