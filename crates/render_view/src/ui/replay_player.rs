@@ -26,6 +26,8 @@ pub struct ReplayProgressFill;
 const TICKS_PER_SEC: u32 = 20;
 /// Skip interval: 10 seconds
 const SKIP_TICKS: u32 = TICKS_PER_SEC * 10;
+/// Ticks per frame during async seek (fast but doesn't freeze UI)
+const SEEK_TICKS_PER_FRAME: u32 = 200;
 
 /// Setup replay player UI when entering Playing state in Replay mode.
 pub fn setup_replay_player(mut commands: Commands, asset_server: Res<AssetServer>) {
@@ -37,20 +39,25 @@ pub fn setup_replay_player(mut commands: Commands, asset_server: Res<AssetServer
         flex_direction: FlexDirection::Row,
         align_items: AlignItems::Center,
         justify_content: JustifyContent::Center,
-        column_gap: Val::Px(8.0),
-        padding: UiRect::horizontal(Val::Px(16.0)),
+        column_gap: Val::Px(6.0),
+        padding: UiRect::horizontal(Val::Px(12.0)),
         ..default()
     }, BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.75)), ReplayPlayerUI))
     .with_children(|bar| {
-        // Skip backward 10s — uses restart-from-zero approach
-        bar.spawn((WidgetButton, Node { padding: UiRect::horizontal(Val::Px(8.0)), border: UiRect::all(Val::Px(1.0)), ..default() },
+        // Skip backward 10s (async multi-frame seek)
+        bar.spawn((WidgetButton, Node { padding: UiRect::horizontal(Val::Px(6.0)), border: UiRect::all(Val::Px(1.0)), ..default() },
             ButtonTheme::dark(), Hovered::default(),
             BorderColor::all(Color::srgba(0.35, 0.35, 0.40, 1.0))))
-            .with_child((Text::new("<< 10s"), TextFont { font: font.clone().into(), font_size: FontSize::Px(13.0), ..default() }))
+            .with_child((Text::new("<< 10s"), TextFont { font: font.clone().into(), font_size: FontSize::Px(12.0), ..default() }))
             .observe(|_ev: On<Activate>, mut ctrl: Option<ResMut<ReplayController>>| {
                 if let Some(ref mut c) = ctrl {
                     let target = c.current_tick.saturating_sub(SKIP_TICKS).max(1);
-                    c.seek_target = Some(target);
+                    if target < c.current_tick {
+                        // Backward seek: reinit world, enter async seek mode
+                        c.seek_target = Some(target);
+                        c.async_seek = true;
+                        c.is_paused = false;
+                    }
                 }
             });
 
@@ -67,24 +74,26 @@ pub fn setup_replay_player(mut commands: Commands, asset_server: Res<AssetServer
             });
 
         // Skip forward 10s
-        bar.spawn((WidgetButton, Node { padding: UiRect::horizontal(Val::Px(8.0)), border: UiRect::all(Val::Px(1.0)), ..default() },
+        bar.spawn((WidgetButton, Node { padding: UiRect::horizontal(Val::Px(6.0)), border: UiRect::all(Val::Px(1.0)), ..default() },
             ButtonTheme::dark(), Hovered::default(),
             BorderColor::all(Color::srgba(0.35, 0.35, 0.40, 1.0))))
-            .with_child((Text::new("10s >>"), TextFont { font: font.clone().into(), font_size: FontSize::Px(13.0), ..default() }))
+            .with_child((Text::new("10s >>"), TextFont { font: font.clone().into(), font_size: FontSize::Px(12.0), ..default() }))
             .observe(|_ev: On<Activate>, mut ctrl: Option<ResMut<ReplayController>>| {
                 if let Some(ref mut c) = ctrl {
                     let target = (c.current_tick + SKIP_TICKS).min(c.replay.total_ticks);
                     c.seek_target = Some(target);
+                    c.async_seek = true;
+                    c.is_paused = false;
                 }
             });
 
-        // Speed buttons
-        for speed in [1u32, 2, 4] {
+        // Speed buttons: 1x, 2x, 4x, 8x, 16x
+        for speed in [1u32, 2, 4, 8, 16] {
             let label = format!("{}x", speed);
-            bar.spawn((WidgetButton, Node { padding: UiRect::horizontal(Val::Px(8.0)), border: UiRect::all(Val::Px(1.0)), ..default() },
+            bar.spawn((WidgetButton, Node { padding: UiRect::horizontal(Val::Px(6.0)), border: UiRect::all(Val::Px(1.0)), ..default() },
                 ReplaySpeedBtn(speed), ButtonTheme::dark(), Hovered::default(),
                 BorderColor::all(Color::srgba(0.35, 0.35, 0.40, 1.0))))
-                .with_child((Text::new(label), TextFont { font: font.clone().into(), font_size: FontSize::Px(14.0), ..default() }))
+                .with_child((Text::new(label), TextFont { font: font.clone().into(), font_size: FontSize::Px(13.0), ..default() }))
                 .observe(move |_ev: On<Activate>, mut ctrl: Option<ResMut<ReplayController>>| {
                     if let Some(ref mut c) = ctrl { c.speed_multiplier = speed; }
                 });
@@ -92,7 +101,7 @@ pub fn setup_replay_player(mut commands: Commands, asset_server: Res<AssetServer
 
         // Progress bar (visual only)
         bar.spawn((Node {
-            width: Val::Px(300.0), height: Val::Px(8.0),
+            width: Val::Px(250.0), height: Val::Px(8.0),
             border: UiRect::all(Val::Px(1.0)), ..default()
         }, BackgroundColor(Color::srgba(0.15, 0.15, 0.15, 1.0)),
           BorderColor::all(Color::srgba(0.4, 0.4, 0.4, 1.0))))
@@ -105,13 +114,14 @@ pub fn setup_replay_player(mut commands: Commands, asset_server: Res<AssetServer
             });
 
         // Time display
-        bar.spawn((Text::new("0:00 / 0:00"), TextFont { font: font.clone().into(), font_size: FontSize::Px(13.0), ..default() },
+        bar.spawn((Text::new("0:00 / 0:00"), TextFont { font: font.clone().into(), font_size: FontSize::Px(12.0), ..default() },
             TextColor(Color::srgb(0.8, 0.8, 0.8)), ReplayTickText));
     });
 }
 
-/// Handle backward seek: re-initialize simulation world and replay forward to target tick.
-/// This is necessary because simulation state can only go forward.
+/// Async seek system: handles backward/forward seek across multiple frames.
+/// When async_seek is true, processes SEEK_TICKS_PER_FRAME ticks per frame
+/// until reaching seek_target, then resumes normal playback.
 pub fn replay_seek_system(
     mut ctrl: Option<ResMut<ReplayController>>,
     mut sim_world: NonSendMut<SimulationWorld>,
@@ -119,11 +129,14 @@ pub fn replay_seek_system(
     mut pending: ResMut<PendingEvents>,
 ) {
     let Some(ref mut ctrl) = ctrl else { return };
-    let Some(target) = ctrl.seek_target else { return };
+    if !ctrl.async_seek { return; }
+    let Some(target) = ctrl.seek_target else {
+        ctrl.async_seek = false;
+        return;
+    };
 
-    // If target is behind current position, must restart from tick 0
+    // If target is behind current position, reinitialize world
     if target < ctrl.current_tick {
-        // Re-initialize simulation world with same seed and map
         let seed = ctrl.replay.seed;
         let map_size = ctrl.replay.map_size;
         let mut world = simulation::init_simulation_world(seed);
@@ -134,8 +147,9 @@ pub fn replay_seek_system(
         pending.events.clear();
     }
 
-    // Fast-forward from current tick to target
-    while ctrl.current_tick < target {
+    // Process up to SEEK_TICKS_PER_FRAME ticks this frame
+    let end = (ctrl.current_tick + SEEK_TICKS_PER_FRAME).min(target);
+    while ctrl.current_tick < end {
         ctrl.current_tick += 1;
         let cmds = ctrl.replay.commands_for_tick(ctrl.current_tick).to_vec();
         {
@@ -146,7 +160,12 @@ pub fn replay_seek_system(
     }
 
     tick_clock.current_tick = ctrl.current_tick;
-    ctrl.seek_target = None;
+
+    // Check if seek is complete
+    if ctrl.current_tick >= target {
+        ctrl.seek_target = None;
+        ctrl.async_seek = false;
+    }
 }
 
 /// Update replay player UI each frame.

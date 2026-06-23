@@ -55,6 +55,7 @@ pub struct ReplayController {
     pub is_paused: bool,
     pub speed_multiplier: u32,  // 1, 2, 4
     pub seek_target: Option<u32>,  // None = play to end
+    pub async_seek: bool,          // true = multi-frame seek in progress
 }
 
 /// Status exposed to render_view for progress bar display.

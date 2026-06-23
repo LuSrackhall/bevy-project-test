@@ -259,7 +259,7 @@ fn reset_game_system(
         if let Some(replay) = replay_file {
             let total = replay.total_ticks;
             commands.insert_resource(bevy_adapter::replay::ReplayController {
-                replay, current_tick: 0, is_paused: false,
+                replay, current_tick: 0, is_paused: false, async_seek: false,
                 speed_multiplier: 1, seek_target: None,
             });
             commands.insert_resource(bevy_adapter::replay::ReplayStatus {
