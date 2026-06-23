@@ -148,6 +148,9 @@ fn reset_game_system(
         selection.clear();
 
         // Rebuild simulation world with random seed
+        #[cfg(target_arch = "wasm32")]
+        let seed = js_sys::Date::now() as u64;
+        #[cfg(not(target_arch = "wasm32"))]
         let seed = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
