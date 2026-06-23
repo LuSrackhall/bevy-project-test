@@ -1,6 +1,7 @@
 //! Replay player UI — control bar shown during replay playback.
 
 use bevy::prelude::*;
+use bevy::window::PrimaryWindow;
 use bevy::ui_widgets::{Activate, Button as WidgetButton};
 use bevy::picking::hover::Hovered;
 use crate::ui::hud::ButtonTheme;
@@ -13,7 +14,7 @@ pub struct ReplayPlayerUI;
 pub struct ReplayTickText;
 
 #[derive(Component)]
-pub struct ReplaySpeedBtn(u32);
+pub struct ReplaySpeedBtn(pub u32);
 
 #[derive(Component)]
 pub struct ReplayPauseBtnText;
@@ -24,9 +25,15 @@ pub struct ReplayProgressFill;
 #[derive(Component)]
 pub struct ReplayProgressBg;
 
+#[derive(Resource, Default)]
+pub struct ProgressDragState {
+    dragging: bool,
+}
+
 /// Setup replay player UI when entering Playing state in Replay mode.
 pub fn setup_replay_player(mut commands: Commands, asset_server: Res<AssetServer>) {
     let font = asset_server.load("fonts/Arial Unicode.ttf");
+    commands.insert_resource(ProgressDragState::default());
     commands.spawn((Node {
         width: Val::Percent(100.0), height: Val::Px(44.0),
         position_type: PositionType::Absolute,
@@ -39,7 +46,7 @@ pub fn setup_replay_player(mut commands: Commands, asset_server: Res<AssetServer
         ..default()
     }, BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.75)), ReplayPlayerUI))
     .with_children(|bar| {
-        // Pause/Play button — text is on the same entity as the button
+        // Pause/Play button
         bar.spawn((WidgetButton, Node { padding: UiRect::horizontal(Val::Px(8.0)), border: UiRect::all(Val::Px(1.0)), ..default() },
             ButtonTheme::dark(), Hovered::default(),
             BorderColor::all(Color::srgba(0.35, 0.35, 0.40, 1.0))))
@@ -65,38 +72,69 @@ pub fn setup_replay_player(mut commands: Commands, asset_server: Res<AssetServer
 
         // Progress bar: background + fill child
         bar.spawn((Node {
-            width: Val::Px(300.0), height: Val::Px(10.0),
+            width: Val::Px(300.0), height: Val::Px(14.0),
             border: UiRect::all(Val::Px(1.0)), ..default()
         }, BackgroundColor(Color::srgba(0.15, 0.15, 0.15, 1.0)),
           BorderColor::all(Color::srgba(0.4, 0.4, 0.4, 1.0)),
-          WidgetButton, ReplayProgressBg, Pickable::default(), Hovered::default()))
+          ReplayProgressBg, Pickable::default()))
             .with_children(|bg| {
-                // Fill — width updated each frame
                 bg.spawn((Node {
                     width: Val::Percent(0.0), height: Val::Percent(100.0),
                     ..default()
                 }, BackgroundColor(Color::srgba(0.3, 0.6, 0.9, 1.0)),
                   ReplayProgressFill));
-            })
-            .observe(|ev: On<Activate>, q: Query<&ReplayProgressBg>, node_q: Query<&Node>,
-                      mut ctrl: Option<ResMut<ReplayController>>| {
-                // Click on progress bar to seek
-                if q.get(ev.entity).is_ok() {
-                    if let Some(ref mut c) = ctrl {
-                        let total = c.replay.total_ticks;
-                        // Simple: seek to a proportional position based on click
-                        // For now use a simple approach: seek forward by 10% of remaining
-                        let remaining = total.saturating_sub(c.current_tick);
-                        let jump = (remaining / 10).max(1);
-                        c.seek_target = Some((c.current_tick + jump).min(total));
-                    }
-                }
             });
 
         // Tick counter
         bar.spawn((Text::new("T 0 / 0"), TextFont { font: font.clone().into(), font_size: FontSize::Px(13.0), ..default() },
             TextColor(Color::srgb(0.8, 0.8, 0.8)), ReplayTickText));
     });
+}
+
+/// Handle click and drag on the progress bar to seek.
+/// Uses ComputedNode for size and GlobalTransform for position.
+pub fn progress_bar_seek_system(
+    mouse: Res<ButtonInput<MouseButton>>,
+    windows: Query<&Window, With<PrimaryWindow>>,
+    progress_bar: Query<(&ComputedNode, &GlobalTransform), With<ReplayProgressBg>>,
+    mut drag_state: ResMut<ProgressDragState>,
+    mut ctrl: Option<ResMut<ReplayController>>,
+) {
+    let Some(ref mut ctrl) = ctrl else { return };
+    let total = ctrl.replay.total_ticks;
+    if total == 0 { return; }
+
+    let Ok(window) = windows.single() else { return };
+    let Some(cursor) = window.cursor_position() else { return };
+
+    let Ok((node, gt)) = progress_bar.single() else { return };
+    let size = node.size();
+    // GlobalTransform.translation gives center position; compute top-left
+    let bar_left = gt.translation().x - size.x / 2.0;
+    let bar_right = gt.translation().x + size.x / 2.0;
+    let bar_top = gt.translation().y - size.y / 2.0;
+    let bar_bottom = gt.translation().y + size.y / 2.0;
+
+    // Start drag on press
+    if mouse.just_pressed(MouseButton::Left) {
+        if cursor.x >= bar_left && cursor.x <= bar_right
+            && cursor.y >= bar_top && cursor.y <= bar_bottom
+        {
+            drag_state.dragging = true;
+        }
+    }
+
+    // End drag on release
+    if mouse.just_released(MouseButton::Left) {
+        drag_state.dragging = false;
+    }
+
+    // While dragging, update seek position
+    if drag_state.dragging && size.x > 0.0 {
+        let pct = ((cursor.x - bar_left) / size.x).clamp(0.0, 1.0);
+        let target_tick = (pct * total as f32) as u32;
+        ctrl.seek_target = Some(target_tick.min(total));
+    }
 }
 
 /// Update replay player UI each frame.
@@ -113,18 +151,15 @@ pub fn update_replay_player(
     let total = ctrl.replay.total_ticks.max(1);
     let current = ctrl.current_tick;
 
-    // Update tick text
     for mut text in tick_text.iter_mut() {
         **text = format!("T {} / {}", current, total);
     }
 
-    // Update pause/play icon
     let icon = if ctrl.is_paused { "▶" } else { "⏸" };
     for mut text in pause_text.iter_mut() {
         **text = icon.to_string();
     }
 
-    // Update progress bar fill
     let pct = (current as f32 / total as f32 * 100.0).min(100.0);
     for mut node in progress_fill.iter_mut() {
         node.width = Val::Percent(pct);
@@ -132,7 +167,11 @@ pub fn update_replay_player(
 }
 
 /// Cleanup replay player UI.
-pub fn cleanup_replay_player(mut commands: Commands, query: Query<Entity, With<ReplayPlayerUI>>) {
+pub fn cleanup_replay_player(
+    mut commands: Commands,
+    query: Query<Entity, With<ReplayPlayerUI>>,
+) {
+    commands.remove_resource::<ProgressDragState>();
     for e in query.iter() { commands.entity(e).despawn(); }
 }
 
