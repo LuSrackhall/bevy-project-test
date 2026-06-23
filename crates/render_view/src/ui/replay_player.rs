@@ -64,13 +64,13 @@ pub fn setup_replay_player(mut commands: Commands, asset_server: Res<AssetServer
                 });
         }
 
-        // Progress bar: background + fill child
+        // Progress bar: click seeks to position
         bar.spawn((Node {
             width: Val::Px(300.0), height: Val::Px(14.0),
             border: UiRect::all(Val::Px(1.0)), ..default()
         }, BackgroundColor(Color::srgba(0.15, 0.15, 0.15, 1.0)),
           BorderColor::all(Color::srgba(0.4, 0.4, 0.4, 1.0)),
-          ReplayProgressBg, Pickable::default()))
+          WidgetButton, ReplayProgressBg, Pickable::default(), Hovered::default()))
             .with_children(|bg| {
                 bg.spawn((Node {
                     width: Val::Percent(0.0), height: Val::Percent(100.0),
@@ -85,12 +85,13 @@ pub fn setup_replay_player(mut commands: Commands, asset_server: Res<AssetServer
     });
 }
 
-/// Handle click and drag on the progress bar to seek.
-/// Uses ComputedNode for size and GlobalTransform for screen position.
+/// Single system for all progress bar interaction: click + drag to seek.
+/// Uses ComputedNode (physical px) + inverse_scale_factor → logical px,
+/// and GlobalTransform for screen position.
 pub fn progress_bar_seek_system(
     mouse: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window, With<PrimaryWindow>>,
-    progress_bar: Query<(&ComputedNode, &GlobalTransform), With<ReplayProgressBg>>,
+    bar_q: Query<(&ComputedNode, &GlobalTransform), With<ReplayProgressBg>>,
     mut drag_state: Local<bool>,
     mut ctrl: Option<ResMut<ReplayController>>,
 ) {
@@ -101,17 +102,22 @@ pub fn progress_bar_seek_system(
     let Ok(window) = windows.single() else { return };
     let Some(cursor) = window.cursor_position() else { return };
 
-    let Ok((node, gt)) = progress_bar.single() else { return };
-    let size = node.size();
-    if size.x <= 0.0 { return; }
+    let Ok((node, gt)) = bar_q.single() else { return };
 
-    // GlobalTransform.translation = center of node in window coords (top-left origin, Y down)
-    let half_w = size.x / 2.0;
-    let half_h = size.y / 2.0;
-    let bar_left = gt.translation().x - half_w;
-    let bar_right = gt.translation().x + half_w;
-    let bar_top = gt.translation().y - half_h;
-    let bar_bottom = gt.translation().y + half_h;
+    // ComputedNode.size is in PHYSICAL pixels; cursor is in LOGICAL pixels.
+    // Convert: logical = physical * inverse_scale_factor
+    let inv_scale = node.inverse_scale_factor();
+    let logical_size = node.size() * inv_scale;
+    if logical_size.x <= 0.0 { return; }
+
+    // GlobalTransform.translation is the center in physical pixels.
+    // Convert to logical: center_logical = physical * inv_scale
+    let center = gt.translation().truncate() * inv_scale;
+
+    let bar_left = center.x - logical_size.x / 2.0;
+    let bar_right = center.x + logical_size.x / 2.0;
+    let bar_top = center.y - logical_size.y / 2.0;
+    let bar_bottom = center.y + logical_size.y / 2.0;
 
     let inside = cursor.x >= bar_left && cursor.x <= bar_right
               && cursor.y >= bar_top && cursor.y <= bar_bottom;
@@ -125,9 +131,9 @@ pub fn progress_bar_seek_system(
         *drag_state = false;
     }
 
-    // While dragging, update seek position
+    // While dragging or on initial click inside, update seek position
     if *drag_state {
-        let pct = ((cursor.x - bar_left) / size.x).clamp(0.0, 1.0);
+        let pct = ((cursor.x - bar_left) / logical_size.x).clamp(0.0, 1.0);
         let target_tick = (pct * total as f32) as u32;
         ctrl.seek_target = Some(target_tick.min(total));
     }
