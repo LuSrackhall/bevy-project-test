@@ -110,10 +110,6 @@ jobs:
           cp -r assets staging/city-conquest/
           cd staging && tar czf ../city-conquest-${{ matrix.target }}.tar.gz city-conquest
 
-      - name: Package (WASM)
-        if: matrix.target == 'wasm32-unknown-unknown'
-        run: tar czf city-conquest-${{ matrix.target }}.tar.gz -C dist .
-
       - name: Upload artifact (native)
         if: matrix.target != 'aarch64-unknown-linux-gnu' && matrix.target != 'wasm32-unknown-unknown'
         uses: actions/upload-artifact@v4
@@ -133,7 +129,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: city-conquest-${{ matrix.target }}
-          path: city-conquest-${{ matrix.target }}.${{ matrix.artifact_ext }}
+          path: dist/
 
   release:
     needs: build
@@ -151,7 +147,12 @@ jobs:
         run: |
           mkdir -p release
           for dir in artifacts/city-conquest-*; do
-            cp "$dir"/* release/ 2>/dev/null || true
+            name=$(basename "$dir")
+            if [ "$name" = "city-conquest-wasm32-unknown-unknown" ]; then
+              cd "$dir" && tar czf ../../release/city-conquest-wasm32-unknown-unknown.tar.gz . && cd ../..
+            else
+              cp "$dir"/* release/ 2>/dev/null || true
+            fi
           done
           ls -la release/
 
