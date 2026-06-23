@@ -3,6 +3,8 @@ pub mod debug_shape;
 pub mod selection;
 pub mod ui;
 pub mod unit_info_bar;
+#[cfg(target_arch = "wasm32")]
+pub mod wasm_keyboard;
 
 use bevy::prelude::*;
 
@@ -37,7 +39,14 @@ impl Plugin for RenderViewPlugin {
             .init_resource::<crate::selection::SelectionState>()
             .add_plugins(crate::ui::UiPlugin)
             .add_systems(Startup, crate::camera::setup_camera)
-            .init_resource::<crate::unit_info_bar::UnitInfoBarSettings>()
+            .init_resource::<crate::unit_info_bar::UnitInfoBarSettings>();
+
+        #[cfg(target_arch = "wasm32")]
+        app.add_systems(Startup, crate::wasm_keyboard::setup_wasm_keyboard);
+        #[cfg(target_arch = "wasm32")]
+        app.add_systems(Last, crate::wasm_keyboard::clear_wasm_keyboard_just_pressed);
+
+        app
             // Lifecycle: reset on enter Playing, cleanup on exit
             .add_systems(
                 OnEnter(GameState::Playing),
