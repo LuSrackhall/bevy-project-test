@@ -1,7 +1,6 @@
 //! Replay player UI — control bar shown during replay playback.
 
 use bevy::prelude::*;
-use bevy::window::PrimaryWindow;
 use bevy::ui_widgets::{Activate, Button as WidgetButton};
 use bevy::picking::hover::Hovered;
 use crate::ui::hud::ButtonTheme;
@@ -22,8 +21,10 @@ pub struct ReplayPauseBtnText;
 #[derive(Component)]
 pub struct ReplayProgressFill;
 
-#[derive(Component)]
-pub struct ReplayProgressBg;
+/// Ticks per second at 20Hz
+const TICKS_PER_SEC: u32 = 20;
+/// Skip interval: 10 seconds
+const SKIP_TICKS: u32 = TICKS_PER_SEC * 10;
 
 /// Setup replay player UI when entering Playing state in Replay mode.
 pub fn setup_replay_player(mut commands: Commands, asset_server: Res<AssetServer>) {
@@ -35,11 +36,23 @@ pub fn setup_replay_player(mut commands: Commands, asset_server: Res<AssetServer
         flex_direction: FlexDirection::Row,
         align_items: AlignItems::Center,
         justify_content: JustifyContent::Center,
-        column_gap: Val::Px(10.0),
+        column_gap: Val::Px(8.0),
         padding: UiRect::horizontal(Val::Px(16.0)),
         ..default()
     }, BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.75)), ReplayPlayerUI))
     .with_children(|bar| {
+        // Skip backward 10s
+        bar.spawn((WidgetButton, Node { padding: UiRect::horizontal(Val::Px(8.0)), border: UiRect::all(Val::Px(1.0)), ..default() },
+            ButtonTheme::dark(), Hovered::default(),
+            BorderColor::all(Color::srgba(0.35, 0.35, 0.40, 1.0))))
+            .with_child((Text::new("⏪10s"), TextFont { font: font.clone().into(), font_size: FontSize::Px(13.0), ..default() }))
+            .observe(|_ev: On<Activate>, mut ctrl: Option<ResMut<ReplayController>>| {
+                if let Some(ref mut c) = ctrl {
+                    let target = c.current_tick.saturating_sub(SKIP_TICKS).max(1);
+                    c.seek_target = Some(target);
+                }
+            });
+
         // Pause/Play button
         bar.spawn((WidgetButton, Node { padding: UiRect::horizontal(Val::Px(8.0)), border: UiRect::all(Val::Px(1.0)), ..default() },
             ButtonTheme::dark(), Hovered::default(),
@@ -50,6 +63,18 @@ pub fn setup_replay_player(mut commands: Commands, asset_server: Res<AssetServer
             })
             .observe(|_ev: On<Activate>, mut ctrl: Option<ResMut<ReplayController>>| {
                 if let Some(ref mut c) = ctrl { c.is_paused = !c.is_paused; }
+            });
+
+        // Skip forward 10s
+        bar.spawn((WidgetButton, Node { padding: UiRect::horizontal(Val::Px(8.0)), border: UiRect::all(Val::Px(1.0)), ..default() },
+            ButtonTheme::dark(), Hovered::default(),
+            BorderColor::all(Color::srgba(0.35, 0.35, 0.40, 1.0))))
+            .with_child((Text::new("10s⏩"), TextFont { font: font.clone().into(), font_size: FontSize::Px(13.0), ..default() }))
+            .observe(|_ev: On<Activate>, mut ctrl: Option<ResMut<ReplayController>>| {
+                if let Some(ref mut c) = ctrl {
+                    let target = (c.current_tick + SKIP_TICKS).min(c.replay.total_ticks);
+                    c.seek_target = Some(target);
+                }
             });
 
         // Speed buttons
@@ -64,13 +89,12 @@ pub fn setup_replay_player(mut commands: Commands, asset_server: Res<AssetServer
                 });
         }
 
-        // Progress bar: click/drag handled by progress_bar_seek_system
+        // Progress bar (visual only — shows current position)
         bar.spawn((Node {
-            width: Val::Px(300.0), height: Val::Px(14.0),
+            width: Val::Px(300.0), height: Val::Px(8.0),
             border: UiRect::all(Val::Px(1.0)), ..default()
         }, BackgroundColor(Color::srgba(0.15, 0.15, 0.15, 1.0)),
-          BorderColor::all(Color::srgba(0.4, 0.4, 0.4, 1.0)),
-          ReplayProgressBg, Pickable::default()))
+          BorderColor::all(Color::srgba(0.4, 0.4, 0.4, 1.0))))
             .with_children(|bg| {
                 bg.spawn((Node {
                     width: Val::Percent(0.0), height: Val::Percent(100.0),
@@ -80,51 +104,9 @@ pub fn setup_replay_player(mut commands: Commands, asset_server: Res<AssetServer
             });
 
         // Tick counter
-        bar.spawn((Text::new("T 0 / 0"), TextFont { font: font.clone().into(), font_size: FontSize::Px(13.0), ..default() },
+        bar.spawn((Text::new("T 0:00 / 0:00"), TextFont { font: font.clone().into(), font_size: FontSize::Px(13.0), ..default() },
             TextColor(Color::srgb(0.8, 0.8, 0.8)), ReplayTickText));
     });
-}
-
-/// Progress bar click/drag to seek.
-/// The bar is 300px wide, centered in the bottom control bar.
-/// We compute its screen position from window width.
-pub fn progress_bar_seek_system(
-    mouse: Res<ButtonInput<MouseButton>>,
-    windows: Query<&Window, With<PrimaryWindow>>,
-    mut drag_state: Local<bool>,
-    mut ctrl: Option<ResMut<ReplayController>>,
-) {
-    let Some(ref mut ctrl) = ctrl else { return };
-    let total = ctrl.replay.total_ticks;
-    if total == 0 { return; }
-
-    let Ok(window) = windows.single() else { return };
-    let Some(cursor) = window.cursor_position() else { return };
-
-    // Bar is 300px wide, centered horizontally, at bottom of screen (44px bar)
-    let bar_w = 300.0f32;
-    let win_w = window.width();
-    let win_h = window.height();
-    let bar_left = (win_w - bar_w) / 2.0;
-    let bar_right = bar_left + bar_w;
-    let bar_top = win_h - 44.0; // control bar is 44px at bottom
-    let bar_bottom = win_h;
-
-    let inside = cursor.x >= bar_left && cursor.x <= bar_right
-              && cursor.y >= bar_top && cursor.y <= bar_bottom;
-
-    if mouse.just_pressed(MouseButton::Left) && inside {
-        *drag_state = true;
-    }
-    if mouse.just_released(MouseButton::Left) {
-        *drag_state = false;
-    }
-
-    if *drag_state && bar_w > 0.0 {
-        let pct = ((cursor.x - bar_left) / bar_w).clamp(0.0, 1.0);
-        let target_tick = (pct * total as f32) as u32;
-        ctrl.seek_target = Some(target_tick.min(total));
-    }
 }
 
 /// Update replay player UI each frame.
@@ -141,8 +123,11 @@ pub fn update_replay_player(
     let total = ctrl.replay.total_ticks.max(1);
     let current = ctrl.current_tick;
 
+    // Format as M:SS
+    let cur_sec = current / TICKS_PER_SEC;
+    let tot_sec = total / TICKS_PER_SEC;
     for mut text in tick_text.iter_mut() {
-        **text = format!("T {} / {}", current, total);
+        **text = format!("{}:{:02} / {}:{:02}", cur_sec / 60, cur_sec % 60, tot_sec / 60, tot_sec % 60);
     }
 
     let icon = if ctrl.is_paused { "▶" } else { "⏸" };
