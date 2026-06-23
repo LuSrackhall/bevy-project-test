@@ -44,6 +44,8 @@ impl Plugin for RenderViewPlugin {
         #[cfg(target_arch = "wasm32")]
         app.add_systems(Startup, crate::wasm_keyboard::setup_wasm_keyboard);
         #[cfg(target_arch = "wasm32")]
+        app.add_systems(Update, crate::wasm_keyboard::maintain_wasm_keyboard_focus);
+        #[cfg(target_arch = "wasm32")]
         app.add_systems(Last, crate::wasm_keyboard::clear_wasm_keyboard_just_pressed);
 
         app

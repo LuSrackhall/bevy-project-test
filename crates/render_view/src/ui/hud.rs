@@ -9,19 +9,6 @@ use bevy_adapter::tick::{SimulationWorld, TickClock};
 use simulation::city::config::CityGlobalConfig;
 use simulation::command::*;
 use simulation::soldier::config::SoldierConfig;
-#[cfg(target_arch = "wasm32")]
-fn focus_canvas_on_wasm() {
-    if let Some(window) = web_sys::window() {
-        use wasm_bindgen::JsCast;
-        if let Some(document) = window.document() {
-            if let Ok(Some(canvas)) = document.query_selector("canvas") {
-                if let Ok(html) = canvas.dyn_into::<web_sys::HtmlElement>() {
-                    let _ = html.focus();
-                }
-            }
-        }
-    }
-}
 use simulation::soldier::*;
 use simulation::types::*;
 use std::collections::HashMap;
@@ -489,8 +476,6 @@ pub(crate) fn setup_hud(
                 .observe(|_ev: On<Activate>, mut state: ResMut<SeekPanelState>, mut tq: Query<&mut Text>, ht: Res<HudTexts>| {
                     if !state.input_active {
                         state.input_active = true;
-                        #[cfg(target_arch = "wasm32")]
-                        focus_canvas_on_wasm();
                         state.input_cursor_visible = true;
                         state.input_blink_timer = 0.0;
                         // Show cursor immediately on activation
