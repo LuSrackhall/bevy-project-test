@@ -4467,6 +4467,8 @@ dependencies = [
  "js-sys",
  "presentation",
  "simulation",
+ "wasm-bindgen",
+ "web-sys",
 ]
 
 [[package]]
