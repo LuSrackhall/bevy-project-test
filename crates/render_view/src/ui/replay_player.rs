@@ -152,10 +152,9 @@ pub fn replay_seek_system(
         pending.events.clear();
     }
 
-    // Time-budget approach: spend up to 100ms per frame on seek ticks
-    let frame_start = std::time::Instant::now();
-    let budget = std::time::Duration::from_millis(1000); // rendering skipped during seek, can use more time
-    while ctrl.current_tick < target && frame_start.elapsed() < budget {
+    // Fixed batch: process up to 5000 ticks per frame
+    let end = (ctrl.current_tick + 5000).min(target);
+    while ctrl.current_tick < end {
         ctrl.current_tick += 1;
         let cmds = ctrl.replay.commands_for_tick(ctrl.current_tick).to_vec();
         {
