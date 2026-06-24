@@ -158,7 +158,8 @@ mod tests {
             // Simulate a player command at tick 50: move a player soldier
             if tick == 50 {
                 let mut q = world1.query::<(&UnitIdComponent, &FactionComponent, &SoldierMarker)>();
-                if let Some((id, fac, _)) = q.iter(&world1).find(|(_, f, _)| f.0 == Faction::Player)
+                if let Some((id, _fac, _)) =
+                    q.iter(&world1).find(|(_, f, _)| f.0 == Faction::Player)
                 {
                     let uid = id.0;
                     let target = FixedVec2::new(Fixed::from_int(300), Fixed::from_int(300));
@@ -253,7 +254,7 @@ mod tests {
             if tick == 100 {
                 let mut q =
                     world_rec.query::<(&UnitIdComponent, &FactionComponent, &SoldierMarker)>();
-                if let Some((id, fac, _)) =
+                if let Some((id, _fac, _)) =
                     q.iter(&world_rec).find(|(_, f, _)| f.0 == Faction::Player)
                 {
                     let cmd = GameCommand {
