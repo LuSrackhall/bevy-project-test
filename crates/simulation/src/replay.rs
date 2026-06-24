@@ -202,4 +202,55 @@ mod tests {
         assert_eq!(hash1, hash2,
             "AI-only replay must produce identical world state");
     }
+
+    /// Test: replay with seek produces same final state as continuous replay.
+    /// This catches accumulator drift and seek-related determinism bugs.
+    #[test]
+    fn test_seek_determinism() {
+        let seed = 54321u64;
+        let map_size = MapSize::Small;
+        let total_ticks = 2000u32;
+
+        // Create replay with some commands
+        let mut world_rec = init_simulation_world(seed);
+        map::generate_map(&mut world_rec, map_size);
+        let mut replay = ReplayFile::new(seed, map_size, total_ticks);
+
+        for tick in 1..=total_ticks {
+            if tick == 100 {
+                let mut q = world_rec.query::<(&UnitIdComponent, &FactionComponent, &SoldierMarker)>();
+                if let Some((id, fac, _)) = q.iter(&world_rec).find(|(_, f, _)| f.0 == Faction::Player) {
+                    let cmd = GameCommand { tick: 101, player_id: 0,
+                        action: Action::MoveTo { unit: id.0, target: FixedVec2::new(Fixed::from_int(300), Fixed::from_int(300)) } };
+                    world_rec.resource_mut::<CommandBuffer>().push(cmd.clone());
+                    replay.record_tick(101, vec![cmd]);
+                }
+            }
+            run_tick(&mut world_rec, tick);
+        }
+        let hash_continuous = hash_world_state(&mut world_rec);
+
+        // Replay with forward seek at tick 500, then continue to end
+        let mut world_seek = init_simulation_world(seed);
+        map::generate_map(&mut world_seek, map_size);
+        let seek_target = 500u32;
+
+        // Phase 1: seek forward to tick 500
+        for tick in 1..=seek_target {
+            let cmds = replay.commands_for_tick(tick).to_vec();
+            for cmd in cmds { world_seek.resource_mut::<CommandBuffer>().push(cmd); }
+            run_tick(&mut world_seek, tick);
+        }
+
+        // Phase 2: continue playback from tick 500 to end
+        for tick in (seek_target + 1)..=total_ticks {
+            let cmds = replay.commands_for_tick(tick).to_vec();
+            for cmd in cmds { world_seek.resource_mut::<CommandBuffer>().push(cmd); }
+            run_tick(&mut world_seek, tick);
+        }
+
+        let hash_seek = hash_world_state(&mut world_seek);
+        assert_eq!(hash_continuous, hash_seek,
+            "Replay with seek must produce identical state as continuous replay");
+    }
 }
