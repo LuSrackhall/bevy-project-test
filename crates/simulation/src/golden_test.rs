@@ -5,12 +5,8 @@ use bevy_ecs::world::World;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
-use crate::types::*;
-use crate::command::*;
 use crate::soldier::*;
-use crate::init_simulation_world;
-use crate::run_tick;
-use crate::map;
+use crate::types::*;
 
 /// Compute a deterministic hash of the entire simulation world state.
 /// Extracts fields from all entities (sorted by UnitId) and hashes them.
@@ -27,7 +23,9 @@ pub fn hash_world_state(world: &mut World) -> u64 {
     (entities.len() as u64).hash(&mut hasher);
 
     for uid in &entities {
-        let Some(entity) = find_entity_by_unit_id(world, *uid) else { continue };
+        let Some(entity) = find_entity_by_unit_id(world, *uid) else {
+            continue;
+        };
         let em = world.entity(entity);
 
         uid.0.hash(&mut hasher);
@@ -104,7 +102,10 @@ mod tests {
 
         let hash1 = hash_world_state(&mut world1);
         let hash2 = hash_world_state(&mut world2);
-        assert_eq!(hash1, hash2, "Same seed should produce identical world state after 1000 ticks");
+        assert_eq!(
+            hash1, hash2,
+            "Same seed should produce identical world state after 1000 ticks"
+        );
     }
 
     #[test]
@@ -121,7 +122,10 @@ mod tests {
 
         let hash1 = hash_world_state(&mut world1);
         let hash2 = hash_world_state(&mut world2);
-        assert_ne!(hash1, hash2, "Different seeds should produce different world state");
+        assert_ne!(
+            hash1, hash2,
+            "Different seeds should produce different world state"
+        );
     }
 
     #[test]
@@ -134,15 +138,18 @@ mod tests {
         for tick in 1..=500 {
             if tick == 10 {
                 let mut q = world1.query::<(&UnitIdComponent, &FactionComponent, &SoldierMarker)>();
-                if let Some((id, fac, _)) = q.iter(&world1).find(|(_, f, _)| f.0 == Faction::Player) {
+                if let Some((id, fac, _)) = q.iter(&world1).find(|(_, f, _)| f.0 == Faction::Player)
+                {
                     let uid = id.0;
                     let target = FixedVec2::new(Fixed::from_int(200), Fixed::from_int(200));
                     world1.resource_mut::<CommandBuffer>().push(GameCommand {
-                        tick: 11, player_id: 0,
+                        tick: 11,
+                        player_id: 0,
                         action: Action::MoveTo { unit: uid, target },
                     });
                     world2.resource_mut::<CommandBuffer>().push(GameCommand {
-                        tick: 11, player_id: 0,
+                        tick: 11,
+                        player_id: 0,
                         action: Action::MoveTo { unit: uid, target },
                     });
                 }
@@ -153,7 +160,10 @@ mod tests {
 
         let hash1 = hash_world_state(&mut world1);
         let hash2 = hash_world_state(&mut world2);
-        assert_eq!(hash1, hash2, "Same seed + same commands → identical state after 500 ticks");
+        assert_eq!(
+            hash1, hash2,
+            "Same seed + same commands → identical state after 500 ticks"
+        );
     }
 
     #[test]
@@ -169,6 +179,9 @@ mod tests {
 
         let hash1 = run_sim();
         let hash2 = run_sim();
-        assert_eq!(hash1, hash2, "Simulation must be deterministic across multiple runs");
+        assert_eq!(
+            hash1, hash2,
+            "Simulation must be deterministic across multiple runs"
+        );
     }
 }

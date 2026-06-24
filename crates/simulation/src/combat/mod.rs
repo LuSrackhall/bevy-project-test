@@ -268,7 +268,9 @@ fn try_passive_block(
     }
 
     let passive_block_chance = combat_config.shield.passive_block_chance;
-    let block_roll = world.resource_mut::<DeterministicRng>().gen_probability_permyriad();
+    let block_roll = world
+        .resource_mut::<DeterministicRng>()
+        .gen_probability_permyriad();
 
     if block_roll < passive_block_chance {
         if let Some(mut shield_item) = world.get_mut::<ShieldItem>(target_entity) {
@@ -467,9 +469,14 @@ pub fn melee_attack_system(world: &mut World, current_tick: u32) {
         // Cavalry dodge (permyriad arithmetic)
         if tst == Some(SoldierType::Cavalry) && hp_max > 0 {
             let hp_ratio_pm = (hp_cur as u64 * 10000) / hp_max as u64; // 0..10000
-            let decay = ((10000 - hp_ratio_pm) * combat_config.cavalry.dodge_decay_rate as u64) / 10000;
+            let decay =
+                ((10000 - hp_ratio_pm) * combat_config.cavalry.dodge_decay_rate as u64) / 10000;
             let dc = (combat_config.cavalry.dodge_max_chance as u64).saturating_sub(decay);
-            if (world.resource_mut::<DeterministicRng>().gen_probability_permyriad() as u64) < dc {
+            if (world
+                .resource_mut::<DeterministicRng>()
+                .gen_probability_permyriad() as u64)
+                < dc
+            {
                 damage = 0;
                 world.entity_mut(te).insert(FearlessBuff {
                     remaining_ticks: combat_config.fearless.duration_ticks,
@@ -697,9 +704,14 @@ pub fn attack_windup_system(world: &mut World, current_tick: u32) {
         // Cavalry dodge (permyriad arithmetic)
         if tst == Some(SoldierType::Cavalry) && hp_max > 0 {
             let hp_ratio_pm = (hp_cur as u64 * 10000) / hp_max as u64;
-            let decay = ((10000 - hp_ratio_pm) * combat_config.cavalry.dodge_decay_rate as u64) / 10000;
+            let decay =
+                ((10000 - hp_ratio_pm) * combat_config.cavalry.dodge_decay_rate as u64) / 10000;
             let dc = (combat_config.cavalry.dodge_max_chance as u64).saturating_sub(decay);
-            if (world.resource_mut::<DeterministicRng>().gen_probability_permyriad() as u64) < dc {
+            if (world
+                .resource_mut::<DeterministicRng>()
+                .gen_probability_permyriad() as u64)
+                < dc
+            {
                 damage = 0;
                 world.entity_mut(te).insert(FearlessBuff {
                     remaining_ticks: combat_config.fearless.duration_ticks,
@@ -999,7 +1011,8 @@ pub fn archer_attack_system(world: &mut World) {
             // Spread: 65% dead-on, 35% ±0.1°–10°
             let spread_angle = {
                 let mut rng = world.resource_mut::<DeterministicRng>();
-                if rng.gen_probability_permyriad() < 6500 {  // 65%
+                if rng.gen_probability_permyriad() < 6500 {
+                    // 65%
                     Fixed::ZERO // perfect aim
                 } else {
                     let angle = Fixed(1 + (rng.next_u64() % 44) as i64); // 0.1°–10°
@@ -1096,11 +1109,9 @@ pub fn arrow_movement_system(world: &mut World, current_tick: u32) {
     };
 
     // arrow_building_damage_ratio is permyriad (e.g. 50 = 0.5%). Denom = 10000 / ratio.
-    let arrow_building_damage_denom = if combat_config.arrow_building_damage_ratio > 0 {
-        10000u32 / combat_config.arrow_building_damage_ratio
-    } else {
-        0
-    };
+    let arrow_building_damage_denom = 10000u32
+        .checked_div(combat_config.arrow_building_damage_ratio)
+        .unwrap_or(0);
 
     let mut to_despawn: Vec<Entity> = Vec::new();
     // Collect pierce decisions before query to avoid borrow conflict

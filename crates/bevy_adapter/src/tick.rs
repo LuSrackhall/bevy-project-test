@@ -1,7 +1,7 @@
+use crate::replay::ReplayRecorder;
 use bevy::prelude::*;
 use simulation::command::{CommandBuffer, GameCommand};
 use simulation::SimulationEvents;
-use crate::replay::ReplayRecorder;
 
 /// Drives the fixed-tick simulation loop.
 #[derive(Resource)]

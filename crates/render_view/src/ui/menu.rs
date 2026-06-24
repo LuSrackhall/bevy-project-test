@@ -1,9 +1,9 @@
 use crate::ui::hud::ButtonTheme;
+use crate::AutoRecordReplay;
 use bevy::picking::hover::Hovered;
 use bevy::prelude::*;
 use bevy::ui_widgets::{Activate, Button as WidgetButton};
 use simulation::map::MapSize;
-use crate::AutoRecordReplay;
 
 #[derive(Component)]
 pub struct MainMenuUI;
@@ -45,9 +45,17 @@ impl MapSizeBtn {
     }
 }
 
-pub fn setup_main_menu(mut commands: Commands, asset_server: Res<AssetServer>, auto_record: Res<AutoRecordReplay>) {
+pub fn setup_main_menu(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    auto_record: Res<AutoRecordReplay>,
+) {
     let font = asset_server.load("fonts/Arial Unicode.ttf");
-    let record_label = if auto_record.0 { "自动录制: 开" } else { "自动录制: 关" };
+    let record_label = if auto_record.0 {
+        "自动录制: 开"
+    } else {
+        "自动录制: 关"
+    };
     commands.spawn((
         Node { width: Val::Percent(100.0), height: Val::Percent(100.0),
             flex_direction: FlexDirection::Column,
@@ -84,7 +92,7 @@ pub fn setup_main_menu(mut commands: Commands, asset_server: Res<AssetServer>, a
                     AutoRecordToggle, ButtonTheme::dark(), Hovered::default(),
                     BorderColor::all(Color::srgba(0.35, 0.35, 0.40, 1.0))))
                     .with_child((Text::new(record_label), TextFont { font: font.clone().into(), font_size: FontSize::Px(16.0), ..default() }))
-                    .observe(|_ev: On<Activate>, mut auto_record: ResMut<AutoRecordReplay>, mut q: Query<&mut Text, With<AutoRecordToggle>>| {
+                    .observe(|_ev: On<Activate>, mut auto_record: ResMut<AutoRecordReplay>, _q: Query<&mut Text, With<AutoRecordToggle>>| {
                         auto_record.0 = !auto_record.0;
                         // Text update would need a separate system - for now just toggle the resource
                     });
@@ -135,13 +143,20 @@ pub fn cleanup_main_menu(mut commands: Commands, query: Query<Entity, With<MainM
 /// List .ron files in the replays/ directory.
 fn list_replay_files() -> Vec<String> {
     let dir = std::path::Path::new("replays");
-    if !dir.is_dir() { return vec![]; }
+    if !dir.is_dir() {
+        return vec![];
+    }
     let mut files: Vec<String> = std::fs::read_dir(dir)
         .ok()
         .into_iter()
         .flatten()
         .filter_map(|e| e.ok())
-        .filter(|e| e.path().extension().map(|ext| ext == "ron").unwrap_or(false))
+        .filter(|e| {
+            e.path()
+                .extension()
+                .map(|ext| ext == "ron")
+                .unwrap_or(false)
+        })
         .map(|e| e.path().to_string_lossy().to_string())
         .collect();
     files.sort();
@@ -151,7 +166,6 @@ fn list_replay_files() -> Vec<String> {
 
 /// Load and validate a replay file from disk.
 fn load_replay_file(path: &str) -> Result<simulation::replay::ReplayFile, String> {
-    let ron_str = std::fs::read_to_string(path)
-        .map_err(|e| format!("Cannot read file: {}", e))?;
+    let ron_str = std::fs::read_to_string(path).map_err(|e| format!("Cannot read file: {}", e))?;
     simulation::replay::ReplayFile::from_ron(&ron_str)
 }

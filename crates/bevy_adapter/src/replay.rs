@@ -3,12 +3,12 @@
 //! Recording: captures external player commands per tick in the tick_driver_system.
 //! Playback: replays commands from a ReplayFile, bypassing real-time tick accumulation.
 
+use crate::tick::{PendingEvents, SimulationWorld, TickClock};
 use bevy::prelude::*;
 use simulation::command::{CommandBuffer, GameCommand};
-use simulation::replay::ReplayFile;
 use simulation::map::MapSize;
-use simulation::{SimulationEvents, run_tick, init_simulation_world};
-use crate::tick::{TickClock, SimulationWorld, PendingEvents};
+use simulation::replay::ReplayFile;
+use simulation::run_tick;
 
 /// Current game mode — controls which tick driver runs.
 #[derive(Resource, Default, PartialEq, Eq)]
@@ -53,9 +53,9 @@ pub struct ReplayController {
     pub replay: ReplayFile,
     pub current_tick: u32,
     pub is_paused: bool,
-    pub speed_multiplier: u32,  // 1, 2, 4
-    pub seek_target: Option<u32>,  // None = play to end
-    pub async_seek: bool,          // true = multi-frame seek in progress
+    pub speed_multiplier: u32,    // 1, 2, 4
+    pub seek_target: Option<u32>, // None = play to end
+    pub async_seek: bool,         // true = multi-frame seek in progress
 }
 
 /// Status exposed to render_view for progress bar display.
@@ -74,13 +74,14 @@ pub fn replay_tick_driver_system(
     mut sim_world: NonSendMut<SimulationWorld>,
     mut pending: ResMut<PendingEvents>,
     mut tick_clock: ResMut<TickClock>,
-    mut commands: ResMut<CommandBuffer>,
+    _commands: ResMut<CommandBuffer>,
 ) {
     let Some(ref mut ctrl) = controller else {
         return;
     };
-    if ctrl.is_paused || ctrl.async_seek { return; }
-
+    if ctrl.is_paused || ctrl.async_seek {
+        return;
+    }
 
     let total = ctrl.replay.total_ticks;
     let speed = ctrl.speed_multiplier.max(1);
@@ -97,8 +98,12 @@ pub fn replay_tick_driver_system(
 
         let cmds = ctrl.replay.commands_for_tick(ctrl.current_tick).to_vec();
         {
-            let mut sim_cmds = sim_world.0.resource_mut::<simulation::command::CommandBuffer>();
-            for cmd in cmds { sim_cmds.0.push(cmd); }
+            let mut sim_cmds = sim_world
+                .0
+                .resource_mut::<simulation::command::CommandBuffer>();
+            for cmd in cmds {
+                sim_cmds.0.push(cmd);
+            }
         }
 
         let events = run_tick(&mut sim_world.0, ctrl.current_tick);
