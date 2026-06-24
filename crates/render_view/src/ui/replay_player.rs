@@ -41,7 +41,7 @@ pub fn setup_replay_player(mut commands: Commands, asset_server: Res<AssetServer
         column_gap: Val::Px(6.0),
         padding: UiRect::horizontal(Val::Px(12.0)),
         ..default()
-    }, BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.75)), ReplayPlayerUI))
+    }, BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.75)), ReplayPlayerUI, Pickable::IGNORE))
     .with_children(|bar| {
         // Skip backward 10s (async multi-frame seek)
         bar.spawn((WidgetButton, Node { padding: UiRect::horizontal(Val::Px(6.0)), border: UiRect::all(Val::Px(1.0)), ..default() },
