@@ -151,7 +151,7 @@ fn reset_game_system(
     mut needs_reset: ResMut<NeedsGameReset>,
     mut paused: ResMut<bevy_adapter::Paused>,
     mut game_active: ResMut<bevy_adapter::GameActive>,
-    mut game_mode: ResMut<bevy_adapter::replay::GameMode>,
+    mut _driver: ResMut<bevy_adapter::driver::SimulationDriver>,
     mut current_map_size: ResMut<bevy_adapter::CurrentMapSize>,
     mut recorder: ResMut<bevy_adapter::replay::ReplayRecorder>,
     auto_record: Res<AutoRecordReplay>,
@@ -160,7 +160,6 @@ fn reset_game_system(
 ) {
     paused.0 = false;
     game_active.0 = true;
-    *game_mode = bevy_adapter::replay::GameMode::Live;
 
     let _is_replay = matches!(&*needs_reset, NeedsGameReset::Replay(_));
 
@@ -257,20 +256,12 @@ fn reset_game_system(
         // If loading a replay, set up replay mode after entity backfill
         if let Some(replay) = replay_file {
             let total = replay.total_ticks;
-            commands.insert_resource(bevy_adapter::replay::ReplayController {
-                replay,
-                current_tick: 0,
-                is_paused: false,
-                async_seek: false,
-                speed_multiplier: 1,
-                seek_target: None,
-            });
+            commands.insert_resource(bevy_adapter::driver::SimulationDriver::new_replay(replay));
             commands.insert_resource(bevy_adapter::replay::ReplayStatus {
                 is_replay: true,
                 total_ticks: total,
                 is_seeking: false,
             });
-            *game_mode = bevy_adapter::replay::GameMode::Replay;
         }
     }
 }
@@ -280,7 +271,7 @@ fn reset_game_system(
 fn cleanup_playing_system(
     mut commands: Commands,
     mut game_active: ResMut<bevy_adapter::GameActive>,
-    mut game_mode: ResMut<bevy_adapter::replay::GameMode>,
+    mut driver: ResMut<bevy_adapter::driver::SimulationDriver>,
     mut status: ResMut<bevy_adapter::replay::ReplayStatus>,
     mut recorder: ResMut<bevy_adapter::replay::ReplayRecorder>,
     tick_clock: Res<bevy_adapter::tick::TickClock>,
@@ -288,9 +279,8 @@ fn cleanup_playing_system(
     pause_query: Query<Entity, With<crate::ui::pause::PauseUI>>,
 ) {
     game_active.0 = false;
-    *game_mode = bevy_adapter::replay::GameMode::Live;
+    *driver = bevy_adapter::driver::SimulationDriver::new_live();
     *status = bevy_adapter::replay::ReplayStatus::default();
-    commands.remove_resource::<bevy_adapter::replay::ReplayController>();
 
     // Save replay file if recording was active
     if recorder.is_recording && !recorder.command_log.is_empty() {

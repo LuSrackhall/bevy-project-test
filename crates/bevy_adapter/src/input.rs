@@ -15,7 +15,7 @@ pub fn input_translation_system(
     _q_windows: Query<&Window>,
     _camera_query: Query<(&Camera, &GlobalTransform)>,
     mut _cmd_buf: ResMut<CommandBuffer>,
-    _tick_clock: Res<crate::tick::TickClock>,
+    _tick_clock: Res<crate::driver::TickClock>,
 ) {
     // The actual input translation will be implemented when render_view
     // exposes SelectionState. For now, this is a placeholder.
