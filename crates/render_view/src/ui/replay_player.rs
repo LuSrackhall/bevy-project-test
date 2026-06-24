@@ -172,6 +172,7 @@ pub fn replay_seek_system(
         ctrl.seek_target = None;
         ctrl.async_seek = false;
         status.is_seeking = false;
+        tick_clock.accumulator = 0.0;  // Prevent stale accumulator from causing tick drift
     }
 }
 
