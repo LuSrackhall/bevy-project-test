@@ -41,7 +41,7 @@ pub fn setup_replay_player(mut commands: Commands, asset_server: Res<AssetServer
         column_gap: Val::Px(6.0),
         padding: UiRect::horizontal(Val::Px(12.0)),
         ..default()
-    }, BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.75)), ReplayPlayerUI, Pickable::IGNORE))
+    }, BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.75)), ReplayPlayerUI))
     .with_children(|bar| {
         // Skip backward 10s (async multi-frame seek)
         bar.spawn((WidgetButton, Node { padding: UiRect::horizontal(Val::Px(6.0)), border: UiRect::all(Val::Px(1.0)), ..default() },
@@ -149,11 +149,12 @@ pub fn replay_seek_system(
         sim_world.0 = world;
         ctrl.current_tick = 0;
         tick_clock.current_tick = 0;
+        tick_clock.accumulator = 0.0;
         pending.events.clear();
     }
 
     // Fixed batch: process up to 5000 ticks per frame
-    let end = (ctrl.current_tick + 5000).min(target);
+    let end = (ctrl.current_tick + 500).min(target);
     while ctrl.current_tick < end {
         ctrl.current_tick += 1;
         let cmds = ctrl.replay.commands_for_tick(ctrl.current_tick).to_vec();
@@ -199,7 +200,7 @@ pub fn update_replay_player(
         **text = icon.to_string();
     }
 
-    let pct = (current as f32 / total as f32 * 100.0).min(100.0);
+    let pct = (current.min(total) as f32 / total as f32 * 100.0).min(100.0);
     for mut node in progress_fill.iter_mut() {
         node.width = Val::Percent(pct);
     }

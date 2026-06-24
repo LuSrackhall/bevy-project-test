@@ -106,7 +106,7 @@ pub fn replay_tick_driver_system(
     }
 
     // If replay finished, switch back to Live mode
-    if ctrl.current_tick >= total {
+    if ctrl.current_tick >= total && !ctrl.async_seek {
         *game_mode = GameMode::Live;
     }
 }
