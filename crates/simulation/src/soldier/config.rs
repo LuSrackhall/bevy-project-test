@@ -111,8 +111,7 @@ impl SoldierUnitConfig {
         if level < self.pierce_unlock_level {
             return 0;
         }
-        (self.pierce_base_chance
-            + (level - self.pierce_unlock_level) * self.pierce_per_level)
+        (self.pierce_base_chance + (level - self.pierce_unlock_level) * self.pierce_per_level)
             .min(10000)
     }
 }

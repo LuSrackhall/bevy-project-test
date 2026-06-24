@@ -2,15 +2,15 @@ pub mod binding;
 pub mod input;
 pub mod lifecycle;
 pub mod mapper;
-pub mod tick;
 pub mod replay;
+pub mod tick;
 
 use crate::input::ForceMoveNext;
 use crate::mapper::UnitIdMapper;
+use crate::replay::{GameMode, ReplayRecorder, ReplayStatus};
 use crate::tick::{PendingEvents, TickClock};
 use bevy::prelude::*;
 use simulation::command::CommandBuffer;
-use crate::replay::{GameMode, ReplayRecorder, ReplayStatus};
 
 /// Owned by bevy_adapter; set by render_view to gate tick/sync systems.
 #[derive(Resource, Default, PartialEq)]

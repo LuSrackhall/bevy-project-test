@@ -539,11 +539,7 @@ pub fn city_spawn_system(world: &mut World) {
                 if let Some(mut city) = em.get_mut::<CityComponent>() {
                     city.population += 1;
                     let mult = soldier_config.get(spawn_type).spawn_speed_mult;
-                    city.spawn_cooldown = if mult > 0 {
-                        (600000 / mult).max(1)
-                    } else {
-                        60
-                    };
+                    city.spawn_cooldown = 600000u32.checked_div(mult).map_or(60, |v| v.max(1));
                 }
             }
 
@@ -792,7 +788,8 @@ pub fn city_interaction_system(world: &mut World) {
             }
 
             if si.faction != ci.faction {
-                let dmg = (si.attack as u64 * combat_config.city_damage_per_soldier_ratio as u64 / 10000) as u32;
+                let dmg = (si.attack as u64 * combat_config.city_damage_per_soldier_ratio as u64
+                    / 10000) as u32;
                 if let Some(mut c) = world.entity_mut(ci.entity).get_mut::<CityComponent>() {
                     c.health_current = c.health_current.saturating_sub(dmg);
                     c.last_attacker_faction = Some(si.faction);
@@ -807,15 +804,18 @@ pub fn city_interaction_system(world: &mut World) {
                 if is_targeted {
                     let mut consumed = false;
                     if ci.hp < ci.max_hp {
-                        let heal = (ci.max_hp as u64 * city_config.heal_ratio as u64 / 10000) as u32;
+                        let heal =
+                            (ci.max_hp as u64 * city_config.heal_ratio as u64 / 10000) as u32;
                         if let Some(mut c) = world.entity_mut(ci.entity).get_mut::<CityComponent>()
                         {
                             c.health_current = (c.health_current + heal).min(c.health_max);
                         }
                         consumed = true;
                     } else if ci.level < ci.max_level {
-                        let eg = (ci.max_hp as u64 * city_config.level_up_gain_ratio as u64 / 10000) as u64;
-                        let req = (ci.max_hp as u64 * city_config.level_up_cost_multiplier as u64 / 10000 * ci.level as u64) as u64;
+                        let eg = ci.max_hp as u64 * city_config.level_up_gain_ratio as u64 / 10000;
+                        let req = ci.max_hp as u64 * city_config.level_up_cost_multiplier as u64
+                            / 10000
+                            * ci.level as u64;
                         let mut new_radius: Option<u32> = None;
                         if let Some(mut c) = world.entity_mut(ci.entity).get_mut::<CityComponent>()
                         {

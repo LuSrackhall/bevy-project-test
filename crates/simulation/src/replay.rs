@@ -1,9 +1,9 @@
 //! Replay data structures — pure data, no I/O or engine concepts.
 
-use serde::{Serialize, Deserialize};
-use std::collections::BTreeMap;
 use crate::command::GameCommand;
 use crate::map::MapSize;
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 /// A recorded replay file. Contains everything needed to reconstruct a simulation.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -45,7 +45,10 @@ impl ReplayFile {
 
     /// Get commands for a specific tick (empty slice if none).
     pub fn commands_for_tick(&self, tick: u32) -> &[GameCommand] {
-        self.commands_per_tick.get(&tick).map(|v| v.as_slice()).unwrap_or(&[])
+        self.commands_per_tick
+            .get(&tick)
+            .map(|v| v.as_slice())
+            .unwrap_or(&[])
     }
 
     /// Serialize to RON format.
@@ -55,12 +58,13 @@ impl ReplayFile {
 
     /// Deserialize from RON format.
     pub fn from_ron(ron_str: &str) -> Result<Self, String> {
-        let file: ReplayFile = ron::from_str(ron_str)
-            .map_err(|e| format!("Failed to parse replay file: {}", e))?;
+        let file: ReplayFile =
+            ron::from_str(ron_str).map_err(|e| format!("Failed to parse replay file: {}", e))?;
         if file.format_version != Self::CURRENT_VERSION {
             return Err(format!(
                 "Replay format version mismatch: file={}, supported={}",
-                file.format_version, Self::CURRENT_VERSION
+                file.format_version,
+                Self::CURRENT_VERSION
             ));
         }
         Ok(file)
@@ -70,24 +74,46 @@ impl ReplayFile {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::*;
     use crate::command::*;
-    use crate::soldier::*;
-    use crate::init_simulation_world;
-    use crate::run_tick;
-    use crate::map;
     use crate::golden_test::hash_world_state;
+    use crate::init_simulation_world;
+    use crate::map;
+    use crate::run_tick;
+    use crate::soldier::*;
+    use crate::types::*;
 
     #[test]
     fn test_replay_file_roundtrip_ron() {
         let mut replay = ReplayFile::new(42, MapSize::Small, 100);
-        replay.record_tick(5, vec![
-            GameCommand { tick: 5, player_id: 0, action: Action::MoveTo { unit: UnitId(1), target: FixedVec2::new(Fixed::from_int(100), Fixed::from_int(200)) } },
-        ]);
-        replay.record_tick(10, vec![
-            GameCommand { tick: 10, player_id: 0, action: Action::Attack { unit: UnitId(1), target: UnitId(2) } },
-            GameCommand { tick: 10, player_id: 0, action: Action::NoOp },
-        ]);
+        replay.record_tick(
+            5,
+            vec![GameCommand {
+                tick: 5,
+                player_id: 0,
+                action: Action::MoveTo {
+                    unit: UnitId(1),
+                    target: FixedVec2::new(Fixed::from_int(100), Fixed::from_int(200)),
+                },
+            }],
+        );
+        replay.record_tick(
+            10,
+            vec![
+                GameCommand {
+                    tick: 10,
+                    player_id: 0,
+                    action: Action::Attack {
+                        unit: UnitId(1),
+                        target: UnitId(2),
+                    },
+                },
+                GameCommand {
+                    tick: 10,
+                    player_id: 0,
+                    action: Action::NoOp,
+                },
+            ],
+        );
 
         let ron_str = replay.to_ron();
         let loaded = ReplayFile::from_ron(&ron_str).unwrap();
@@ -132,10 +158,15 @@ mod tests {
             // Simulate a player command at tick 50: move a player soldier
             if tick == 50 {
                 let mut q = world1.query::<(&UnitIdComponent, &FactionComponent, &SoldierMarker)>();
-                if let Some((id, fac, _)) = q.iter(&world1).find(|(_, f, _)| f.0 == Faction::Player) {
+                if let Some((id, fac, _)) = q.iter(&world1).find(|(_, f, _)| f.0 == Faction::Player)
+                {
                     let uid = id.0;
                     let target = FixedVec2::new(Fixed::from_int(300), Fixed::from_int(300));
-                    let cmd = GameCommand { tick: 51, player_id: 0, action: Action::MoveTo { unit: uid, target } };
+                    let cmd = GameCommand {
+                        tick: 51,
+                        player_id: 0,
+                        action: Action::MoveTo { unit: uid, target },
+                    };
                     world1.resource_mut::<CommandBuffer>().push(cmd.clone());
                     replay.record_tick(51, vec![cmd]);
                 }
@@ -199,8 +230,10 @@ mod tests {
         }
         let hash2 = hash_world_state(&mut world2);
 
-        assert_eq!(hash1, hash2,
-            "AI-only replay must produce identical world state");
+        assert_eq!(
+            hash1, hash2,
+            "AI-only replay must produce identical world state"
+        );
     }
 
     /// Test: replay with seek produces same final state as continuous replay.
@@ -218,10 +251,19 @@ mod tests {
 
         for tick in 1..=total_ticks {
             if tick == 100 {
-                let mut q = world_rec.query::<(&UnitIdComponent, &FactionComponent, &SoldierMarker)>();
-                if let Some((id, fac, _)) = q.iter(&world_rec).find(|(_, f, _)| f.0 == Faction::Player) {
-                    let cmd = GameCommand { tick: 101, player_id: 0,
-                        action: Action::MoveTo { unit: id.0, target: FixedVec2::new(Fixed::from_int(300), Fixed::from_int(300)) } };
+                let mut q =
+                    world_rec.query::<(&UnitIdComponent, &FactionComponent, &SoldierMarker)>();
+                if let Some((id, fac, _)) =
+                    q.iter(&world_rec).find(|(_, f, _)| f.0 == Faction::Player)
+                {
+                    let cmd = GameCommand {
+                        tick: 101,
+                        player_id: 0,
+                        action: Action::MoveTo {
+                            unit: id.0,
+                            target: FixedVec2::new(Fixed::from_int(300), Fixed::from_int(300)),
+                        },
+                    };
                     world_rec.resource_mut::<CommandBuffer>().push(cmd.clone());
                     replay.record_tick(101, vec![cmd]);
                 }
@@ -238,19 +280,25 @@ mod tests {
         // Phase 1: seek forward to tick 500
         for tick in 1..=seek_target {
             let cmds = replay.commands_for_tick(tick).to_vec();
-            for cmd in cmds { world_seek.resource_mut::<CommandBuffer>().push(cmd); }
+            for cmd in cmds {
+                world_seek.resource_mut::<CommandBuffer>().push(cmd);
+            }
             run_tick(&mut world_seek, tick);
         }
 
         // Phase 2: continue playback from tick 500 to end
         for tick in (seek_target + 1)..=total_ticks {
             let cmds = replay.commands_for_tick(tick).to_vec();
-            for cmd in cmds { world_seek.resource_mut::<CommandBuffer>().push(cmd); }
+            for cmd in cmds {
+                world_seek.resource_mut::<CommandBuffer>().push(cmd);
+            }
             run_tick(&mut world_seek, tick);
         }
 
         let hash_seek = hash_world_state(&mut world_seek);
-        assert_eq!(hash_continuous, hash_seek,
-            "Replay with seek must produce identical state as continuous replay");
+        assert_eq!(
+            hash_continuous, hash_seek,
+            "Replay with seek must produce identical state as continuous replay"
+        );
     }
 }

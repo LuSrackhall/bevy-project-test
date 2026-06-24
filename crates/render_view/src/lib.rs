@@ -42,7 +42,6 @@ impl Default for AutoRecordReplay {
     }
 }
 
-
 pub struct RenderViewPlugin;
 
 impl Plugin for RenderViewPlugin {
@@ -113,7 +112,7 @@ impl Plugin for RenderViewPlugin {
 
 /// Run condition: true when replay is actively seeking (skip rendering).
 fn replay_seeking(status: Option<Res<bevy_adapter::replay::ReplayStatus>>) -> bool {
-    status.map_or(false, |s| s.is_seeking)
+    status.is_some_and(|s| s.is_seeking)
 }
 
 /// Check if all cities of one faction are gone.
@@ -163,7 +162,7 @@ fn reset_game_system(
     game_active.0 = true;
     *game_mode = bevy_adapter::replay::GameMode::Live;
 
-    let is_replay = matches!(&*needs_reset, NeedsGameReset::Replay(_));
+    let _is_replay = matches!(&*needs_reset, NeedsGameReset::Replay(_));
 
     let (map_size, replay_file) = match std::mem::replace(&mut *needs_reset, NeedsGameReset::None) {
         NeedsGameReset::None => (None, None),
@@ -259,11 +258,17 @@ fn reset_game_system(
         if let Some(replay) = replay_file {
             let total = replay.total_ticks;
             commands.insert_resource(bevy_adapter::replay::ReplayController {
-                replay, current_tick: 0, is_paused: false, async_seek: false,
-                speed_multiplier: 1, seek_target: None,
+                replay,
+                current_tick: 0,
+                is_paused: false,
+                async_seek: false,
+                speed_multiplier: 1,
+                seek_target: None,
             });
             commands.insert_resource(bevy_adapter::replay::ReplayStatus {
-                is_replay: true, total_ticks: total, is_seeking: false,
+                is_replay: true,
+                total_ticks: total,
+                is_seeking: false,
             });
             *game_mode = bevy_adapter::replay::GameMode::Replay;
         }
@@ -271,6 +276,7 @@ fn reset_game_system(
 }
 
 /// Cleanup when leaving Playing state (to MainMenu or GameOver).
+#[allow(clippy::too_many_arguments)]
 fn cleanup_playing_system(
     mut commands: Commands,
     mut game_active: ResMut<bevy_adapter::GameActive>,

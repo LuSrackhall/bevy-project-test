@@ -678,10 +678,8 @@ pub(crate) fn update_bottom_panel(
                 &format!("兵 {}/{}", city.population, city.max_population),
             );
             let cc = w.resource::<CityGlobalConfig>();
-            let req = (city.health_max as u64
-                * cc.level_up_cost_multiplier as u64
-                / 10000
-                * city.level as u64) as u64;
+            let req = city.health_max as u64 * cc.level_up_cost_multiplier as u64 / 10000
+                * city.level as u64;
             set_text(
                 &mut tq,
                 ht.c_exp,

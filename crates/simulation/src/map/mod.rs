@@ -22,7 +22,7 @@ pub struct WallBounds {
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, Serialize, Deserialize, Default)]
 pub enum MapSize {
     #[default]
-    Small,  // 2000x2000
+    Small, // 2000x2000
     Medium, // 3500x3500
     Large,  // 5000x5000
     Huge,   // 8000x8000
@@ -154,7 +154,8 @@ pub fn generate_map(world: &mut World, map_size: MapSize) {
             rng_range(&mut rng, level * 2, level * 5)
         };
         let max_population = level * city_config.base_population_per_level + pop_extra;
-        let visual_radius = city_config.visual_radius_base + level * city_config.visual_radius_per_level;
+        let visual_radius =
+            city_config.visual_radius_base + level * city_config.visual_radius_per_level;
 
         let unit_id = {
             let mut id_gen = world.resource_mut::<IdGenerator>();
