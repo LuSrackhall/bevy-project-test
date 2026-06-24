@@ -81,7 +81,7 @@ pub struct DriverContext<'a> {
 - 每条命令每 tick 只消费一次
 - `commands_for_tick()` 是过滤读取，不消费 Bevy CommandBuffer
 - `run_tick()` 内部的 `consume_commands_system` 执行一次性消费
-- 消费后清除 Bevy CommandBuffer 中已处理的命令：`retain(|c| c.tick > current_tick)`
+- Bevy CommandBuffer 中已消费的命令由 `simulation_driver_system` 统一清理：`retain(|c| c.tick > current_tick)`
 - Bevy CommandBuffer 允许提前存在未来 tick 的命令，`retain` 不会误清
 
 ### D6: 录制契约
@@ -160,7 +160,7 @@ pub struct ReplayStatus {
 **已有测试（保留）**：93 个 simulation 层测试（含黄金确定性、seek 确定性）
 
 **新增测试**：
-- `test_speed_determinism`：Driver 层验证不同调度密度下结果一致
+- `test_speed_determinism`：通过 SimulationDriver 推进不同调度密度（1x vs 4x），验证最终状态一致（不是直接比较 run_tick()，而是测试 Driver 层的确定性）
 - `test_seek_determinism`：seek 后继续播放与连续播放结果一致
 - `test_command_single_consumption`：Live 命令每 tick 只消费一次
 - `test_seek_clears_accumulator`：seek 后 accumulator 为 0
