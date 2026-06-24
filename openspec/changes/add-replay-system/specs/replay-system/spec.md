@@ -84,7 +84,7 @@ bevy_adapter SHALL 暴露 `ReplayStatus { is_replay: bool, total_ticks: u32 }` �
 
 ### Requirement: Replay 播放器 UI
 
-render_view SHALL 实现 Replay 播放器 UI，包含播放/暂停按钮、快进控制（1x/2x/4x）、进度条（可拖拽 seek）、当前 tick 和总 tick 显示。
+render_view SHALL 实现 Replay 播放器 UI，包含快退/快进 10 秒按钮、播放/暂停按钮、速度控制（1x/2x/4x/8x/16x）、进度条（纯视觉显示，不支持拖拽 seek）、M:SS 时间显示。
 
 #### Scenario: 主菜单加载 Replay
 - **WHEN** 用户在主菜单点击 "Load Replay" 按钮

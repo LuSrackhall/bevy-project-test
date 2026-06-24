@@ -39,15 +39,15 @@ bevy_adapter SHALL 定义 `ReplayRecorder` 资源，包含录制缓冲区（`Vec
 
 ### Requirement: ReplayController 资源
 
-bevy_adapter SHALL 定义 `ReplayController` 资源，包含 replay_data、current_tick、target_tick、speed、is_paused、is_seeking。
+bevy_adapter SHALL 定义 `ReplayController` 资源，包含 replay、current_tick、speed_multiplier(u32)、is_paused、seek_target(Option<u32>)、async_seek(bool)。
 
 #### Scenario: 快进执行
-- **WHEN** speed 设为 Fast4x 且游戏未暂停
-- **THEN** 每帧执行 4 个 tick（调用 run_tick 4 次）
+- **WHEN** speed_multiplier 设为 4 且游戏未暂停
+- **THEN** 累积时间乘以 4，等效每帧执行约 4 个 tick
 
 ### Requirement: ReplayStatus 资源
 
-bevy_adapter SHALL 暴露 `ReplayStatus { is_replay: bool, total_ticks: u32 }` 资源。render_view 读取此资源显示进度条，SHALL NOT import simulation 类型。
+bevy_adapter SHALL 暴露 `ReplayStatus { is_replay: bool, total_ticks: u32, is_seeking: bool }` 资源。is_seeking 在 seek 期间为 true，render_view 据此跳过渲染系统。render_view 读取此资源显示进度条，SHALL NOT import simulation 类型。
 
 #### Scenario: 状态暴露
 - **WHEN** GameMode 为 Replay，ReplayFile.total_ticks = 12000

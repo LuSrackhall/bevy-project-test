@@ -153,7 +153,7 @@ pub fn replay_seek_system(
         pending.events.clear();
     }
 
-    // Fixed batch: process up to 5000 ticks per frame
+    // Fixed batch: process up to 500 ticks per frame
     let end = (ctrl.current_tick + 500).min(target);
     while ctrl.current_tick < end {
         ctrl.current_tick += 1;

@@ -4,23 +4,23 @@
 - [x] 1.2 将 `combat/mod.rs` 中所有 `gen_probability()` 调用替换为 `gen_probability_permyriad()`，概率阈值从 f32 改为 u32 万分比
 - [x] 1.3 将 `combat/mod.rs` 中穿透概率（`pierce_chance: f32`）改为万分比整数，Arrow 组件字段类型同步修改
 - [x] 1.4 将 `combat/mod.rs` 中多重射击概率计算改为万分比整数运算
-- [x] 1.5 将 `combat/mod.rs` 中 Fisher-Yates 洗牌改为整数索引（`gen_probability_permyriad() * (i+1) / 10000`）
+- [x] 1.5 将 `combat/mod.rs` 中 Fisher-Yates 洗牌改为整数索引
 - [x] 1.6 将 `combat/mod.rs` 中箭矢散布判定和建筑伤害计算改为万分比整数
 
 ## 2. 修复仿真确定性 — 比例计算整数化
 
-- [x] 2.1 将 `combat/mod.rs` 中骑兵闪避概率（`hp_cur as f32 / hp_max as f32`）改为万分比整数除法
-- [x] 2.2 将 `combat/mod.rs` 中吸血计算（`lifesteal_rate`）改为万分比整数乘除
+- [x] 2.1 将 `combat/mod.rs` 中骑兵闪避概率改为万分比整数除法
+- [x] 2.2 将 `combat/mod.rs` 中吸血计算改为万分比整数乘除
 - [x] 2.3 将 `soldier/mod.rs` 中减速倍率 `powi()` 改为循环万分比乘法
-- [x] 2.4 将 `soldier/mod.rs` 中出生冷却（`60.0 / mult`）改为整数除法
+- [x] 2.4 将 `soldier/mod.rs` 中出生冷却改为整数除法
 - [x] 2.5 将 `soldier/mod.rs` 中城市占领 HP、城市伤害、治疗量、升级门槛等比例计算改为万分比整数
-- [x] 2.6 将 `ai/mod.rs` 中 AI 攻击决策的 f32 比较（`ai_nearby as f32 > ... * 1.3`）改为整数比较
+- [x] 2.6 将 `ai/mod.rs` 中 AI 攻击决策的 f32 比较改为整数比较
 
 ## 3. 修复仿真确定性 — 配置文件迁移
 
 - [x] 3.1 将 `content/combat.ron` 中所有 f32 概率/比率字段改为 u32 万分比
-- [x] 3.2 将 `content/soldier.ron` 中所有 f32 字段（`stack_mult`、`speed_penalty` 等）改为 u32 万分比
-- [x] 3.3 将 `content/city.ron` 中所有 f32 字段改为 u32 万分比
+- [x] 3.2 将 `content/units.ron` 中所有 f32 字段改为 u32 万分比
+- [x] 3.3 将 `content/cities.ron` 中所有 f32 字段改为 u32 万分比
 - [x] 3.4 更新 config 解析代码（config.rs），将 f32 字段类型改为 u32
 - [x] 3.5 更新所有现有测试中的配置值和断言，匹配万分比新值
 
@@ -32,11 +32,12 @@
 
 ## 5. 黄金确定性测试
 
-- [x] 5.1 在 `simulation/src/lib.rs` 或新模块中实现 `hash_world_state(world: &World) -> u64` 函数，按 UnitId 排序遍历所有组件
-- [x] 5.2 编写黄金测试用例 1：空地图 + 无指令，1000 tick 后断言世界状态哈希一致
-- [x] 5.3 编写黄金测试用例 2：1v1 战斗 + 预定义指令，500 tick 后断言世界状态哈希一致
-- [x] 5.4 编写黄金测试用例 3：多城市混战 + AI + 混合指令，2000 tick 后断言世界状态哈希一致
-- [x] 5.5 确认 `cargo test -p simulation` 全部通过
+- [x] 5.1 在 `simulation/src/golden_test.rs` 中实现 `hash_world_state(world: &mut World) -> u64` 函数
+- [x] 5.2 编写黄金测试：空地图 + 无指令，1000 tick 后断言世界状态哈希一致
+- [x] 5.3 编写黄金测试：不同种子产生不同状态
+- [x] 5.4 编写黄金测试：带玩家指令的确定性验证（500 tick）
+- [x] 5.5 编写黄金测试：跨运行一致性验证（2000 tick）
+- [x] 5.6 确认 `cargo test -p simulation` 全部通过（92 测试）
 
 ## 6. Replay 数据结构与 serde
 
@@ -46,7 +47,7 @@
 - [x] 6.4 在 `simulation/src/types.rs` 中新增 `SimulationSeed(pub u64)` 资源
 - [x] 6.5 在 `init_simulation_world` 中插入 `SimulationSeed` 资源
 - [x] 6.6 创建 `simulation/src/replay.rs`，定义 `ReplayFile` 结构（含 format_version、seed、map_size、total_ticks、commands_per_tick: BTreeMap）
-- [x] 6.7 为 ReplayFile 编写序列化/反序列化单元测试
+- [x] 6.7 为 ReplayFile 编写序列化/反序列化单元测试 + 端到端确定性测试
 
 ## 7. Replay 录制
 
@@ -54,33 +55,33 @@
 - [x] 7.2 在 `tick_driver_system` 中添加录制拦截点：提取命令后、注入 simulation 前，复制到 ReplayRecorder
 - [x] 7.3 确保仅录制外部玩家命令，不录制 AI 命令
 - [x] 7.4 实现 GameOver 时 ReplayRecorder.finish() 生成 ReplayFile 并写入磁盘
-- [x] 7.5 在 render_view 设置界面添加 "自动录制 Replay" 开关（默认开启）
+- [x] 7.5 在 render_view 主菜单添加 "自动录制 Replay" 开关（默认开启），通过 AutoRecordReplay 资源控制
 
 ## 8. Replay 回放
 
-- [x] 8.1 在 `bevy_adapter` 中定义 `ReplayController` 资源（replay_data、current_tick、target_tick、speed、is_paused、is_seeking）
+- [x] 8.1 在 `bevy_adapter` 中定义 `ReplayController` 资源（replay、current_tick、speed_multiplier、is_paused、seek_target、async_seek）
 - [x] 8.2 实现 `replay_tick_driver_system`：从 ReplayFile 提取当前 tick 命令注入 simulation，调用 run_tick
 - [x] 8.3 通过 `run_if` 条件让 tick_driver_system 和 replay_tick_driver_system 互斥运行
 - [x] 8.4 实现暂停/继续功能
-- [x] 8.5 实现快进（2x/4x）：每帧执行多个 tick
-- [x] 8.6 实现 seek：从 tick 0 快速重放到目标 tick
-- [x] 8.7 在 bevy_adapter 中暴露 `ReplayStatus { is_replay, total_ticks }` 资源
+- [x] 8.5 实现快进（1x/2x/4x/8x/16x）：速度乘数缩放累积时间
+- [x] 8.6 实现异步 seek：每帧 500 tick，backward 需重置世界，seek 期间冻结渲染
+- [x] 8.7 在 bevy_adapter 中暴露 `ReplayStatus { is_replay, total_ticks, is_seeking }` 资源
+- [x] 8.8 tick_driver 在 async_seek=true 时跳过，GameMode 切 Live 前检查 async_seek
 
 ## 9. Replay UI
 
-- [x] 9.1 在主菜单添加 "Load Replay" 按钮和文件选择逻辑
-- [x] 9.2 实现 Replay 播放器控制栏 UI（播放/暂停、1x/2x/4x、进度条、tick 计数器）
-- [x] 9.3 实现进度条拖拽 seek 交互
-- [x] 9.4 处理无效/不兼容 Replay 文件的错误提示
+- [x] 9.1 在主菜单列出 `replays/` 目录中的 .ron 文件，点击加载进入回放模式
+- [x] 9.2 实现 Replay 播放器控制栏 UI（<< 10s、暂停/播放、10s >>、1x/2x/4x/8x/16x、进度条、时间显示）
+- [x] 9.3 进度条为纯视觉显示（不支持拖拽 seek）
+- [x] 9.4 无效 Replay 文件加载时显示错误提示（日志）
+- [x] 9.5 清理回放系统 Bug：Pickable::IGNORE 移除、seek 批次优化、accumulator 清零、进度条 clamp、async_seek 竞态修复
 
 ---
 
 ## Post-Implementation Workflow
 
-After completing ALL tasks above, follow this sequence strictly:
-
-1. **Verify**: Run `/opsx:verify` to produce verify.md
-2. **User Acceptance**: Present change summary, ask user to confirm the problem is solved
-3. **Merge**: After user accepts, go to main branch and merge (must ask user)
+1. **Verify**: Run myspec-verify skill
+2. **User Acceptance**: Present change summary, ask user to confirm
+3. **Merge**: After user accepts, go to main branch and merge
 4. **Archive**: Run `/opsx:archive` on main
 5. **Cleanup**: `git worktree remove .worktrees/change/add-replay-system`

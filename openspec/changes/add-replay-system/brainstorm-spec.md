@@ -78,7 +78,7 @@ pub enum GameMode {
 pub struct ReplayController {
     pub replay_data: ReplayFile,
     pub target_tick: Option<u32>,   // seek 目标，None = 播放到结尾
-    pub speed_multiplier: f32,      // 1.0, 2.0, 4.0
+    pub speed_multiplier: u32,      // 1, 2, 4, 8, 16
     pub is_paused: bool,
     pub is_seeking: bool,
 }

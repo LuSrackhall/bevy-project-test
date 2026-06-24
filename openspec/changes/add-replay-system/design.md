@@ -1,6 +1,6 @@
 ## Context
 
-本设计基于 brainstorm-spec.md 中经 5 路评审确认的方案。项目为 Bevy 0.18 RTS 游戏，严格分层架构 `simulation ← bevy_adapter ← presentation ← render_view`。仿真层使用 Fixed(i64) 定点数和 CommandBuffer 驱动，但存在 12-15 处 f32 泄漏。Replay 系统是验证确定性并通向 P2P 联机的第一步。
+本设计基于 brainstorm-spec.md 中经 5 路评审确认的方案。项目为 Bevy 0.18→0.19 RTS 游戏，严格分层架构 `simulation ← bevy_adapter ← presentation ← render_view`。仿真层使用 Fixed(i64) 定点数和 CommandBuffer 驱动，但存在 12-15 处 f32 泄漏。Replay 系统是验证确定性并通向 P2P 联机的第一步。
 
 ## Goals / Non-Goals
 
@@ -23,7 +23,7 @@
 **运行时计算**：所有概率比较改为整数域。
 ```
 旧: rng.gen_probability() < 0.3
-新: rng.gen_probability_permille() < 3000   // gen 返回 0..10000
+新: rng.gen_probability_permyriad() < 3000   // gen 返回 0..10000
 ```
 
 **比例乘法**：整数乘法 + 万分比除法。
@@ -32,10 +32,10 @@
 新: (hp as u64 * ratio as u64) / 10000
 ```
 
-**powi 替换**：减速倍率的 `powi(n)` 改为循环定点数乘法。
+**powi 替换**：减速倍率的 `powi(n)` 改为循环万分比乘法。
 ```
 旧: base.powi(stacks - 1)
-新: let mut result = 10000u32; for _ in 0..stacks-1 { result = result * base / 10000; }
+新: let mut mult_pm = 10000u64; for _ in 0..(stacks-1) { mult_pm = mult_pm * base as u64 / 10000; }
 ```
 
 **理由**：万分比提供 0.01% 精度，覆盖所有游戏配置需求。Fixed 的 8-bit 精度（1/256 ≈ 0.39%）对概率比较不足。
@@ -50,11 +50,11 @@ pub fn gen_probability_permyriad(&mut self) -> u32 {
 }
 ```
 
-保留原 `gen_probability() -> f32` 仅供 presentation 层使用（如视觉效果随机化），但在 simulation 层禁用。
+保留原 `gen_probability() -> f32`（标记 deprecated）仅供 presentation 层使用。
 
 ### D3: HashMap→BTreeMap 改造
 
-`combat/mod.rs` 中 `enemy_positions: HashMap<UnitId, FixedVec2>` 改为 `BTreeMap<UnitId, FixedVec2>`。当两个敌人距离完全相同时，BTreeMap 按 UnitId 排序保证迭代顺序确定。
+`combat/mod.rs` 中 `enemy_positions: HashMap<UnitId, FixedVec2>` 改为 `BTreeMap<UnitId, FixedVec2>`。
 
 ### D4: Replay 文件格式
 
@@ -69,58 +69,66 @@ ReplayFile {
 }
 ```
 
-bincode 格式在 Phase 3 引入，通过文件头魔数区分格式。
+bincode 格式在未来引入，通过文件头魔数区分格式。
 
 ### D5: 录制拦截点
 
-在 bevy_adapter 的 `tick_driver_system` 中，命令从 Bevy 侧 CommandBuffer 提取后、注入 simulation 前，复制一份到 ReplayRecorder。
+在 bevy_adapter 的 `tick_driver_system` 中，命令从 Bevy 侧 CommandBuffer 提取后、注入 simulation 前，复制一份到 ReplayRecorder。AI 命令不录制（确定性，从 seed 重新生成）。
 
-关键区分：
-- **外部命令**（玩家通过 CommandBuffer 注入的）→ 录制
-- **AI 命令**（在 run_tick 内部 ai_decide 产生的）→ 不录制（确定性，从 seed 重新生成）
-
-### D6: Replay 播放控制架构
+### D6: Replay 播放控制架构（实际实现）
 
 ```rust
-// bevy_adapter 新增资源
-#[derive(Resource)]
-pub enum GameMode {
-    Live,
-    Replay(ReplayController),
-}
+// bevy_adapter: GameMode 为独立枚举，ReplayController 为独立资源
+#[derive(Resource, Default, PartialEq, Eq)]
+pub enum GameMode { #[default] Live, Replay }
 
+#[derive(Resource)]
 pub struct ReplayController {
     pub replay: ReplayFile,
     pub current_tick: u32,
-    pub target_tick: Option<u32>,   // None = 播放到末尾
-    pub speed: ReplaySpeed,
     pub is_paused: bool,
-    pub is_seeking: bool,
+    pub speed_multiplier: u32,    // 1, 2, 4, 8, 16
+    pub seek_target: Option<u32>,
+    pub async_seek: bool,         // 多帧异步 seek 标志
 }
 
-pub enum ReplaySpeed {
-    Normal,     // 1x，每帧 1 tick
-    Fast2x,     // 2x
-    Fast4x,     // 4x
-    SeekTo(u32), // 快放到目标 tick
+#[derive(Resource, Default)]
+pub struct ReplayStatus {
+    pub is_replay: bool,
+    pub total_ticks: u32,
+    pub is_seeking: bool,         // seek 期间冻结渲染
 }
 ```
 
-`replay_tick_driver_system` 与 `tick_driver_system` 通过 `run_if` 条件互斥运行。
+- `replay_tick_driver_system` 驱动正常回放（按累积时间推进 tick）
+- `replay_seek_system`（在 render_view 中）处理异步 seek（每帧 500 tick，backward 需重置世界）
+- 两个系统通过 `async_seek` 标志协调，tick_driver 在 `async_seek=true` 时跳过
+- seek 期间 `is_seeking=true` 冻结渲染系统，全力处理 tick
 
-### D7: render_view 进度条数据流
+### D7: UI 控件设计（实际实现）
+
+回放控制栏包含：
+- `<< 10s` — 快退 10 秒（异步 seek，重新初始化世界 + 快放）
+- `||` / `>` — 暂停/播放
+- `10s >>` — 快进 10 秒（异步 seek）
+- `1x 2x 4x 8x 16x` — 播放速度控制
+- 进度条 — 纯视觉显示（不支持拖拽 seek）
+- 时间显示 — M:SS 格式
+
+不支持拖拽 seek（仿真回放不是视频，跳转需重放，体验不可接受）。
+
+### D8: render_view 数据流
 
 ```
-bevy_adapter: GameMode → ReplayStatus { is_replay: bool, total_ticks: u32 }
-render_view: 读取 ReplayStatus + TickClock.current_tick → 渲染进度条
-render_view: 用户拖拽进度条 → 设置 GameMode.Replay.target_tick
+bevy_adapter: ReplayStatus { is_replay, total_ticks, is_seeking }
+render_view: 读取 ReplayStatus + ReplayController.current_tick → 渲染 UI
+render_view: 不 import simulation 类型，只通过 bevy_adapter 资源交互
 ```
-
-render_view 不 import 任何 simulation 类型，只通过 bevy_adapter 的轻量资源交互。
 
 ## Risks / Trade-offs
 
-- [f32→整数精度损失] → 万分比 0.01% 精度足够。极端情况（如 0.001% 概率）在当前游戏中不存在。
-- [seek 性能] → Phase 2 接受 10 分钟对局 ~6 秒 seek。Phase 3 引入 silent tick + 快照优化。
-- [配置迁移工作量] → 约 20 个字段需要从 f32 改为 u32，同步更新所有使用处。模式统一，机械性工作。
-- [SmallRng 跨版本] → 锁定 Cargo.lock。未来可替换为自实现的确定性 RNG（如 xoshiro256++）。
+- [f32→整数精度损失] → 万分比 0.01% 精度足够。
+- [seek 性能] → 每帧 500 tick，10 分钟对局回退到开头约 24 帧 ≈ 1.2 秒。
+- [backward seek 需要重置世界] → 无法倒放，只能从头快放。快退 10 秒几乎瞬间。
+- [进度条不支持拖拽] → 仿真回放不适合拖拽 seek，用快退/快进按钮替代。
+- [SmallRng 跨版本] → 锁定 Cargo.lock。

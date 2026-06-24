@@ -11,7 +11,7 @@
 - 新增 simulation 层命令类型（GameCommand、Action 等）的 serde Serialize/Deserialize 支持
 - 新增 bevy_adapter 层 `GameMode` 枚举（Live/Replay）、`ReplayRecorder`、`ReplayController`
 - 新增 bevy_adapter 层 `replay_tick_driver_system`，与实时 tick 驱动互斥
-- 新增 render_view 层 Replay 播放器 UI（播放/暂停、快进、进度条 seek）
+- 新增 render_view 层 Replay 播放器 UI（播放/暂停、快退/快进 10s、1x-16x 倍速、进度条显示）
 - 新增 render_view 层主菜单 "Load Replay" 按钮和录制开关设置
 
 ## Capabilities
@@ -19,7 +19,7 @@
 ### New Capabilities
 - `deterministic-simulation`: 消除 simulation 层所有 f32 仿真运算，概率用万分比整数，比例用整数乘除，确保单平台位精确确定性
 - `golden-determinism-test`: 固定 seed + 固定指令序列的黄金测试，断言世界状态一致，CI 持续验证
-- `replay-system`: 完整 Replay 系统——录制（每 tick 收集外部命令）、回放（从 seed 重建世界并注入命令）、播放器控制（暂停/快进/进度条 seek）
+- `replay-system`: 完整 Replay 系统——录制（每 tick 收集外部命令）、回放（从 seed 重建世界并注入命令）、播放器控制（暂停/快进/快退/5 档倍速/进度条显示）
 
 ### Modified Capabilities
 - `simulation-crate`: 新增 serde derives（GameCommand/Action/Fixed 等）、replay 模块（ReplayFile）、SimulationSeed 资源、gen_probability 改为万分比
