@@ -6,7 +6,6 @@
 use bevy::prelude::*;
 use simulation::command::{CommandBuffer, GameCommand};
 use simulation::replay::ReplayFile;
-use simulation::SimulationEvents;
 use crate::tick::{PendingEvents, SimulationWorld};
 use crate::replay::ReplayRecorder;
 
@@ -153,11 +152,14 @@ impl SimulationDriver {
 pub fn simulation_driver_system(
     time: Res<Time>,
     mut driver: ResMut<SimulationDriver>,
+    mut tick_clock: ResMut<TickClock>,
     mut sim_world: NonSendMut<SimulationWorld>,
     mut pending: ResMut<PendingEvents>,
     mut cmd_buf: ResMut<CommandBuffer>,
     mut recorder: ResMut<ReplayRecorder>,
 ) {
+    // Sync SimulationDriver.clock → standalone TickClock (presentation layer reads this)
+    tick_clock.current_tick = driver.clock.current_tick;
     if driver.scheduler.is_paused {
         return;
     }

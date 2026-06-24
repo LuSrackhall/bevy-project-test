@@ -55,6 +55,7 @@ impl Plugin for BevyAdapterPlugin {
             .init_resource::<GameActive>()
             .init_resource::<Paused>()
             .init_resource::<CurrentMapSize>()
+            .init_resource::<crate::driver::TickClock>()
             .init_resource::<ReplayRecorder>()
             .init_resource::<ReplayStatus>()
             // Unified driver: simulation_driver_system + sync_entities
