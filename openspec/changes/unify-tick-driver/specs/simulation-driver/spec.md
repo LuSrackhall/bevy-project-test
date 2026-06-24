@@ -17,11 +17,11 @@ bevy_adapter SHALL 定义 `SimulationDriver` 资源，包含 `TickClock`（时�
 bevy_adapter SHALL 定义 `CommandSource` 枚举（Live/Replay），通过 `commands_for_tick(tick, ctx)` 方法获取命令。Live 模式通过 `DriverContext.bevy_cmds` 访问 Bevy CommandBuffer，Replay 模式从 ReplayFile 读取。
 
 #### Scenario: Live 模式命令获取
-- **WHEN** GameMode 为 Live，tick 为 N
+- **WHEN** SimulationDriver.source 为 Live，tick 为 N
 - **THEN** commands_for_tick 返回 Bevy CommandBuffer 中 tick == N 的命令
 
 #### Scenario: Replay 模式命令获取
-- **WHEN** GameMode 为 Replay，tick 为 N
+- **WHEN** SimulationDriver.source 为 Replay，tick 为 N
 - **THEN** commands_for_tick 返回 ReplayFile 中 tick N 的命令
 
 ### Requirement: simulation_driver_system
