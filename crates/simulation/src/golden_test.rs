@@ -87,7 +87,7 @@ pub fn hash_world_state(world: &mut World) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::command::CommandBuffer;
+    use crate::command::*;
     use crate::init_simulation_world;
     use crate::run_tick;
     use crate::map;
