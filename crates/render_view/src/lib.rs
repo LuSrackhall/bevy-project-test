@@ -280,12 +280,17 @@ fn reset_game_system(
 fn cleanup_playing_system(
     mut commands: Commands,
     mut game_active: ResMut<bevy_adapter::GameActive>,
+    mut game_mode: ResMut<bevy_adapter::replay::GameMode>,
+    mut status: ResMut<bevy_adapter::replay::ReplayStatus>,
     mut recorder: ResMut<bevy_adapter::replay::ReplayRecorder>,
     tick_clock: Res<bevy_adapter::tick::TickClock>,
     hud_query: Query<Entity, With<crate::ui::hud::HudRoot>>,
     pause_query: Query<Entity, With<crate::ui::pause::PauseUI>>,
 ) {
     game_active.0 = false;
+    *game_mode = bevy_adapter::replay::GameMode::Live;
+    *status = bevy_adapter::replay::ReplayStatus::default();
+    commands.remove_resource::<bevy_adapter::replay::ReplayController>();
 
     // Save replay file if recording was active
     if recorder.is_recording && !recorder.command_log.is_empty() {
