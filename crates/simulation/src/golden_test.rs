@@ -6,6 +6,10 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 use crate::soldier::*;
+use crate::command::CommandBuffer;
+use crate::init_simulation_world;
+use crate::run_tick;
+use crate::map;
 use crate::types::*;
 
 /// Compute a deterministic hash of the entire simulation world state.
