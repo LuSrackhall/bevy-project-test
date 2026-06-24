@@ -3,12 +3,14 @@ pub mod input;
 pub mod lifecycle;
 pub mod mapper;
 pub mod tick;
+pub mod replay;
 
 use crate::input::ForceMoveNext;
 use crate::mapper::UnitIdMapper;
 use crate::tick::{PendingEvents, TickClock};
 use bevy::prelude::*;
 use simulation::command::CommandBuffer;
+use crate::replay::{GameMode, ReplayRecorder, ReplayStatus};
 
 /// Owned by bevy_adapter; set by render_view to gate tick/sync systems.
 #[derive(Resource, Default, PartialEq)]
@@ -53,6 +55,10 @@ impl Plugin for BevyAdapterPlugin {
             .init_resource::<GameActive>()
             .init_resource::<Paused>()
             .init_resource::<CurrentMapSize>()
+            .init_resource::<GameMode>()
+            .init_resource::<ReplayRecorder>()
+            .init_resource::<ReplayStatus>()
+            // Live mode: tick_driver + sync_entities
             .add_systems(
                 Update,
                 (
@@ -61,8 +67,18 @@ impl Plugin for BevyAdapterPlugin {
                 )
                     .run_if(
                         resource_exists_and_equals(GameActive(true))
-                            .and_then(not(resource_exists_and_equals(Paused(true)))),
+                            .and_then(not(resource_exists_and_equals(Paused(true))))
+                            .and_then(resource_exists_and_equals(GameMode::Live)),
                     ),
+            )
+            // Replay mode: replay_tick_driver + sync_entities
+            .add_systems(
+                Update,
+                (
+                    crate::replay::replay_tick_driver_system,
+                    crate::lifecycle::sync_entities_system,
+                )
+                    .run_if(resource_exists_and_equals(GameMode::Replay)),
             );
     }
 }

@@ -17,12 +17,12 @@ pub struct AuraConfig {
 pub struct CityGlobalConfig {
     pub level_hp_multiplier: u32,
     pub base_population_per_level: u32,
-    pub visual_radius_base: f32,
-    pub visual_radius_per_level: f32,
-    pub heal_ratio: f32,
-    pub level_up_cost_multiplier: f32,
-    pub level_up_gain_ratio: f32,
-    pub capture_hp_ratio: f32,
+    pub visual_radius_base: u32,
+    pub visual_radius_per_level: u32,
+    pub heal_ratio: u32,
+    pub level_up_cost_multiplier: u32,
+    pub level_up_gain_ratio: u32,
+    pub capture_hp_ratio: u32,
     pub aura: AuraConfig,
 }
 

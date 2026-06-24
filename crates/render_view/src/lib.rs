@@ -28,7 +28,20 @@ pub enum NeedsGameReset {
     SameSize,
     /// New game with specified map size
     NewGame(simulation::map::MapSize),
+    /// Load a replay file
+    Replay(simulation::replay::ReplayFile),
 }
+
+/// Whether to auto-record replays. Defaults to true.
+#[derive(Resource)]
+pub struct AutoRecordReplay(pub bool);
+
+impl Default for AutoRecordReplay {
+    fn default() -> Self {
+        Self(true)
+    }
+}
+
 
 pub struct RenderViewPlugin;
 
@@ -36,6 +49,7 @@ impl Plugin for RenderViewPlugin {
     fn build(&self, app: &mut App) {
         app.init_state::<GameState>()
             .init_resource::<NeedsGameReset>()
+            .init_resource::<AutoRecordReplay>()
             .init_resource::<crate::selection::SelectionState>()
             .add_plugins(crate::ui::UiPlugin)
             .add_systems(Startup, crate::camera::setup_camera)
@@ -59,7 +73,7 @@ impl Plugin for RenderViewPlugin {
                 crate::ui::hud::setup_hud.after(reset_game_system),
             )
             .add_systems(OnExit(GameState::Playing), cleanup_playing_system)
-            // Gameplay systems: only when Playing AND not paused
+            // Gameplay systems: only when Playing AND not paused AND not seeking
             .add_systems(
                 Update,
                 (
@@ -80,7 +94,8 @@ impl Plugin for RenderViewPlugin {
                 )
                     .run_if(
                         in_state(GameState::Playing)
-                            .and_then(not(resource_exists_and_equals(bevy_adapter::Paused(true)))),
+                            .and_then(not(resource_exists_and_equals(bevy_adapter::Paused(true))))
+                            .and_then(not(replay_seeking)),
                     ),
             )
             // Camera: always active
@@ -94,6 +109,11 @@ impl Plugin for RenderViewPlugin {
                 ),
             );
     }
+}
+
+/// Run condition: true when replay is actively seeking (skip rendering).
+fn replay_seeking(status: Option<Res<bevy_adapter::replay::ReplayStatus>>) -> bool {
+    status.map_or(false, |s| s.is_seeking)
 }
 
 /// Check if all cities of one faction are gone.
@@ -132,17 +152,24 @@ fn reset_game_system(
     mut needs_reset: ResMut<NeedsGameReset>,
     mut paused: ResMut<bevy_adapter::Paused>,
     mut game_active: ResMut<bevy_adapter::GameActive>,
+    mut game_mode: ResMut<bevy_adapter::replay::GameMode>,
     mut current_map_size: ResMut<bevy_adapter::CurrentMapSize>,
+    mut recorder: ResMut<bevy_adapter::replay::ReplayRecorder>,
+    auto_record: Res<AutoRecordReplay>,
     map_bounds: Option<ResMut<bevy_adapter::MapBounds>>,
     game_entities: Query<Entity, With<bevy_adapter::binding::LogicEntityRef>>,
 ) {
     paused.0 = false;
     game_active.0 = true;
+    *game_mode = bevy_adapter::replay::GameMode::Live;
 
-    let map_size = match &*needs_reset {
-        NeedsGameReset::None => None,
-        NeedsGameReset::SameSize => Some(current_map_size.0),
-        NeedsGameReset::NewGame(size) => Some(*size),
+    let is_replay = matches!(&*needs_reset, NeedsGameReset::Replay(_));
+
+    let (map_size, replay_file) = match std::mem::replace(&mut *needs_reset, NeedsGameReset::None) {
+        NeedsGameReset::None => (None, None),
+        NeedsGameReset::SameSize => (Some(current_map_size.0), None),
+        NeedsGameReset::NewGame(size) => (Some(size), None),
+        NeedsGameReset::Replay(replay) => (Some(replay.map_size), Some(replay)),
     };
 
     if let Some(map_size) = map_size {
@@ -158,20 +185,26 @@ fn reset_game_system(
         pending.events.clear();
         selection.clear();
 
-        // Rebuild simulation world with random seed
-        #[cfg(target_arch = "wasm32")]
-        let seed = js_sys::Date::now() as u64;
-        #[cfg(not(target_arch = "wasm32"))]
-        let seed = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+        // Rebuild simulation world
+        let seed = replay_file.as_ref().map(|r| r.seed).unwrap_or_else(|| {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs()
+        });
         let mut world = simulation::init_simulation_world(seed);
         simulation::map::generate_map(&mut world, map_size);
         sim_world.0 = world;
 
         // Update current map size and MapBounds
         current_map_size.0 = map_size;
+
+        // Initialize replay recorder (disabled when loading a replay)
+        recorder.seed = seed;
+        recorder.map_size = map_size;
+        recorder.command_log.clear();
+        recorder.is_recording = replay_file.is_none() && auto_record.0;
+
         let config = map_size.load_config();
         let w = config.width as f32;
         let h = config.height as f32;
@@ -188,8 +221,6 @@ fn reset_game_system(
         } else {
             commands.insert_resource(new_bounds);
         }
-
-        *needs_reset = NeedsGameReset::None;
 
         // Backfill: create Bevy entities for all simulation entities
         {
@@ -223,6 +254,19 @@ fn reset_game_system(
                 mapper.register(unit_id, entity);
             }
         }
+
+        // If loading a replay, set up replay mode after entity backfill
+        if let Some(replay) = replay_file {
+            let total = replay.total_ticks;
+            commands.insert_resource(bevy_adapter::replay::ReplayController {
+                replay, current_tick: 0, is_paused: false, async_seek: false,
+                speed_multiplier: 1, seek_target: None,
+            });
+            commands.insert_resource(bevy_adapter::replay::ReplayStatus {
+                is_replay: true, total_ticks: total, is_seeking: false,
+            });
+            *game_mode = bevy_adapter::replay::GameMode::Replay;
+        }
     }
 }
 
@@ -230,14 +274,46 @@ fn reset_game_system(
 fn cleanup_playing_system(
     mut commands: Commands,
     mut game_active: ResMut<bevy_adapter::GameActive>,
+    mut game_mode: ResMut<bevy_adapter::replay::GameMode>,
+    mut status: ResMut<bevy_adapter::replay::ReplayStatus>,
+    mut recorder: ResMut<bevy_adapter::replay::ReplayRecorder>,
+    tick_clock: Res<bevy_adapter::tick::TickClock>,
     hud_query: Query<Entity, With<crate::ui::hud::HudRoot>>,
     pause_query: Query<Entity, With<crate::ui::pause::PauseUI>>,
 ) {
     game_active.0 = false;
+    *game_mode = bevy_adapter::replay::GameMode::Live;
+    *status = bevy_adapter::replay::ReplayStatus::default();
+    commands.remove_resource::<bevy_adapter::replay::ReplayController>();
+
+    // Save replay file if recording was active
+    if recorder.is_recording && !recorder.command_log.is_empty() {
+        let replay = recorder.finish(tick_clock.current_tick);
+        let ron = replay.to_ron();
+        let dir = std::path::PathBuf::from("replays");
+        let _ = std::fs::create_dir_all(&dir);
+        let filename = format!("replay_{}.ron", chrono_timestamp());
+        let path = dir.join(&filename);
+        if let Err(e) = std::fs::write(&path, &ron) {
+            bevy::log::warn!("Failed to save replay: {}", e);
+        } else {
+            bevy::log::info!("Replay saved: {}", path.display());
+        }
+    }
+    recorder.is_recording = false;
+
     for e in hud_query.iter() {
         commands.entity(e).despawn();
     }
     for e in pause_query.iter() {
         commands.entity(e).despawn();
     }
+}
+
+/// Simple timestamp for filenames (no external crate needed).
+fn chrono_timestamp() -> String {
+    let d = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    format!("{}", d.as_secs())
 }

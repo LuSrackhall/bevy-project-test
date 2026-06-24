@@ -3,3 +3,4 @@ dist/
 .claude/worktrees/
 .worktrees/
 .DS_Store
+replays/

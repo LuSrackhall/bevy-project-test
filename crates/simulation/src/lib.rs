@@ -4,7 +4,9 @@ pub mod combat;
 pub mod command;
 pub mod events;
 pub mod facing;
+pub mod golden_test;
 pub mod map;
+pub mod replay;
 pub mod soldier;
 pub mod types;
 
@@ -41,6 +43,7 @@ pub fn init_simulation_world(seed: u64) -> World {
     world.insert_resource(CommandBuffer::default());
     world.insert_resource(GlobalSeekDirective::default());
     world.insert_resource(SimulationEvents::new());
+    world.insert_resource(SimulationSeed(seed));
 
     world
 }

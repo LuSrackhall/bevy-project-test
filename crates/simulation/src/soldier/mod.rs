@@ -331,21 +331,29 @@ pub fn soldier_movement_system(world: &mut World) {
                     continue;
                 }
             }
-            let mut speed = mov.speed as f32;
+            let mut speed = mov.speed as u64;
             if let Some(sl) = slow {
                 let sc = &combat_config.slow_debuff;
-                speed *= (sc.base_amount * sc.stack_mult.powi(sl.stacks as i32 - 1))
-                    .max(sc.max_reduction);
+                // Permyriad multiply: base_amount and stack_mult are permyriad (e.g. 8500 = 0.85)
+                let stacks = sl.stacks.max(1);
+                let mut mult_pm = 10000u64;
+                for _ in 0..(stacks - 1) {
+                    mult_pm = mult_pm * sc.stack_mult as u64 / 10000;
+                }
+                let reduction_pm = sc.base_amount as u64 * mult_pm / 10000;
+                speed = speed * reduction_pm / 10000;
+                let min_speed = mov.speed as u64 * sc.max_reduction as u64 / 10000;
+                speed = speed.max(min_speed);
             }
             if let Some(sh) = shield {
                 if sh.state == ShieldState::Blocking {
-                    speed = combat_config.shield.speed_penalty as f32;
+                    speed = combat_config.shield.speed_penalty as u64;
                 }
             }
-            if speed <= 0.0 {
+            if speed == 0 {
                 continue;
             }
-            let mut speed_fixed = Fixed::from_float(speed);
+            let mut speed_fixed = Fixed::from_int(speed as i32);
 
             let is_cav = st.0 == SoldierType::Cavalry;
             let target_pos = if is_cav {
@@ -531,8 +539,8 @@ pub fn city_spawn_system(world: &mut World) {
                 if let Some(mut city) = em.get_mut::<CityComponent>() {
                     city.population += 1;
                     let mult = soldier_config.get(spawn_type).spawn_speed_mult;
-                    city.spawn_cooldown = if mult > 0.0 {
-                        ((60.0 / mult) as u32).max(1)
+                    city.spawn_cooldown = if mult > 0 {
+                        (600000 / mult).max(1)
                     } else {
                         60
                     };
@@ -677,7 +685,7 @@ pub fn city_capture_check_system(world: &mut World) {
                 let nm = nl * city_config.level_hp_multiplier;
                 c.level = nl;
                 c.health_max = nm;
-                c.health_current = (nm as f32 * city_config.capture_hp_ratio) as u32;
+                c.health_current = (nm as u64 * city_config.capture_hp_ratio as u64 / 10000) as u32;
                 c.population = 0;
                 c.level_exp = 0;
                 c.last_attacker_faction = None;
@@ -688,8 +696,7 @@ pub fn city_capture_check_system(world: &mut World) {
             }
         };
         em.insert(FactionComponent(new_faction));
-        let r = (city_config.visual_radius_base + nl as f32 * city_config.visual_radius_per_level)
-            as u32;
+        let r = city_config.visual_radius_base + nl * city_config.visual_radius_per_level;
         em.insert(CityRadius(r));
 
         let mut events = world.resource_mut::<SimulationEvents>();
@@ -785,7 +792,7 @@ pub fn city_interaction_system(world: &mut World) {
             }
 
             if si.faction != ci.faction {
-                let dmg = (si.attack as f32 * combat_config.city_damage_per_soldier_ratio) as u32;
+                let dmg = (si.attack as u64 * combat_config.city_damage_per_soldier_ratio as u64 / 10000) as u32;
                 if let Some(mut c) = world.entity_mut(ci.entity).get_mut::<CityComponent>() {
                     c.health_current = c.health_current.saturating_sub(dmg);
                     c.last_attacker_faction = Some(si.faction);
@@ -800,17 +807,15 @@ pub fn city_interaction_system(world: &mut World) {
                 if is_targeted {
                     let mut consumed = false;
                     if ci.hp < ci.max_hp {
-                        let heal = (ci.max_hp as f32 * city_config.heal_ratio) as u32;
+                        let heal = (ci.max_hp as u64 * city_config.heal_ratio as u64 / 10000) as u32;
                         if let Some(mut c) = world.entity_mut(ci.entity).get_mut::<CityComponent>()
                         {
                             c.health_current = (c.health_current + heal).min(c.health_max);
                         }
                         consumed = true;
                     } else if ci.level < ci.max_level {
-                        let eg = (ci.max_hp as f32 * city_config.level_up_gain_ratio) as u64;
-                        let req = (ci.max_hp as f32
-                            * city_config.level_up_cost_multiplier
-                            * ci.level as f32) as u64;
+                        let eg = (ci.max_hp as u64 * city_config.level_up_gain_ratio as u64 / 10000) as u64;
+                        let req = (ci.max_hp as u64 * city_config.level_up_cost_multiplier as u64 / 10000 * ci.level as u64) as u64;
                         let mut new_radius: Option<u32> = None;
                         if let Some(mut c) = world.entity_mut(ci.entity).get_mut::<CityComponent>()
                         {
@@ -822,9 +827,8 @@ pub fn city_interaction_system(world: &mut World) {
                                 c.health_current = c.health_max;
                                 c.max_population = c.level * city_config.base_population_per_level;
                                 new_radius = Some(
-                                    (city_config.visual_radius_base
-                                        + c.level as f32 * city_config.visual_radius_per_level)
-                                        as u32,
+                                    city_config.visual_radius_base
+                                        + c.level * city_config.visual_radius_per_level,
                                 );
                             }
                         }

@@ -5,13 +5,14 @@
 
 use crate::types::{FixedVec2, ShieldState, SoldierType, UnitId};
 use bevy_ecs::prelude::Resource;
+use serde::{Deserialize, Serialize};
 
 // ═══════════════════════════════════════════════════════════════
 // SeekScope + SeekDirective
 // ═══════════════════════════════════════════════════════════════
 
 /// Scope of a seek-stance command.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SeekScope {
     /// Apply to all friendly units.
     All,
@@ -20,7 +21,7 @@ pub enum SeekScope {
 }
 
 /// A seek directive recorded in the global directive resource.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SeekDirective {
     pub scope: SeekScope,
     pub seek_range: u32,
@@ -32,7 +33,7 @@ pub struct SeekDirective {
 // ═══════════════════════════════════════════════════════════════
 
 /// A single atomic action issued to one unit.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Action {
     /// Move a unit to a world position.
     MoveTo { unit: UnitId, target: FixedVec2 },
@@ -82,7 +83,7 @@ pub struct GlobalSeekDirective(pub Vec<SeekDirective>);
 // ═══════════════════════════════════════════════════════════════
 
 /// A command issued by a player for a specific tick.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GameCommand {
     /// The tick this command should be consumed.
     pub tick: u32,

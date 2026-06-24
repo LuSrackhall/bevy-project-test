@@ -3,9 +3,19 @@ use bevy::picking::hover::Hovered;
 use bevy::prelude::*;
 use bevy::ui_widgets::{Activate, Button as WidgetButton};
 use simulation::map::MapSize;
+use crate::AutoRecordReplay;
 
 #[derive(Component)]
 pub struct MainMenuUI;
+
+#[derive(Component)]
+pub struct AutoRecordToggle;
+
+#[derive(Component)]
+pub struct ReplayFileList;
+
+#[derive(Component)]
+pub struct ReplayFileEntry(pub String); // stores file path
 
 #[derive(Component, Clone, Copy)]
 pub enum MapSizeBtn {
@@ -35,8 +45,9 @@ impl MapSizeBtn {
     }
 }
 
-pub fn setup_main_menu(mut commands: Commands, asset_server: Res<AssetServer>) {
+pub fn setup_main_menu(mut commands: Commands, asset_server: Res<AssetServer>, auto_record: Res<AutoRecordReplay>) {
     let font = asset_server.load("fonts/Arial Unicode.ttf");
+    let record_label = if auto_record.0 { "自动录制: 开" } else { "自动录制: 关" };
     commands.spawn((
         Node { width: Val::Percent(100.0), height: Val::Percent(100.0),
             flex_direction: FlexDirection::Column,
@@ -65,6 +76,53 @@ pub fn setup_main_menu(mut commands: Commands, asset_server: Res<AssetServer>) {
                         });
                 }
             });
+        // Settings row
+        parent.spawn(Node { flex_direction: FlexDirection::Row, column_gap: Val::Px(10.0),
+            margin: UiRect::top(Val::Px(30.0)), ..default() })
+            .with_children(|row| {
+                row.spawn((WidgetButton, Node { padding: UiRect::all(Val::Px(10.0)), border: UiRect::all(Val::Px(2.0)), ..default() },
+                    AutoRecordToggle, ButtonTheme::dark(), Hovered::default(),
+                    BorderColor::all(Color::srgba(0.35, 0.35, 0.40, 1.0))))
+                    .with_child((Text::new(record_label), TextFont { font: font.clone().into(), font_size: FontSize::Px(16.0), ..default() }))
+                    .observe(|_ev: On<Activate>, mut auto_record: ResMut<AutoRecordReplay>, mut q: Query<&mut Text, With<AutoRecordToggle>>| {
+                        auto_record.0 = !auto_record.0;
+                        // Text update would need a separate system - for now just toggle the resource
+                    });
+            });
+        // Replay section
+        let replays = list_replay_files();
+        if !replays.is_empty() {
+            parent.spawn((Text::new("回放录像"), TextFont { font: font.clone().into(), font_size: FontSize::Px(20.0), ..default() },
+                Node { margin: UiRect::top(Val::Px(20.0)), ..default() }));
+            parent.spawn((Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(5.0),
+                margin: UiRect::top(Val::Px(10.0)), max_height: Val::Px(200.0), ..default() },
+                ReplayFileList,
+            )).with_children(|list| {
+                for path in replays {
+                    let label = std::path::Path::new(&path)
+                        .file_stem().and_then(|s| s.to_str()).unwrap_or(&path).to_string();
+                    list.spawn((WidgetButton, Node { padding: UiRect::all(Val::Px(8.0)), border: UiRect::all(Val::Px(1.0)), ..default() },
+                        ReplayFileEntry(path.clone()), ButtonTheme::dark(), Hovered::default(),
+                        BorderColor::all(Color::srgba(0.3, 0.3, 0.35, 1.0))))
+                        .with_child((Text::new(label), TextFont { font: font.clone().into(), font_size: FontSize::Px(14.0), ..default() }))
+                        .observe(|_ev: On<Activate>, q: Query<&ReplayFileEntry>,
+                            mut next: ResMut<NextState<crate::GameState>>,
+                            mut needs_reset: ResMut<crate::NeedsGameReset>| {
+                            if let Ok(entry) = q.get(_ev.entity) {
+                                match load_replay_file(&entry.0) {
+                                    Ok(replay) => {
+                                        *needs_reset = crate::NeedsGameReset::Replay(replay);
+                                        next.set(crate::GameState::Playing);
+                                    }
+                                    Err(e) => {
+                                        bevy::log::warn!("Failed to load replay: {}", e);
+                                    }
+                                }
+                            }
+                        });
+                }
+            });
+        }
     });
 }
 
@@ -72,4 +130,28 @@ pub fn cleanup_main_menu(mut commands: Commands, query: Query<Entity, With<MainM
     for e in query.iter() {
         commands.entity(e).despawn();
     }
+}
+
+/// List .ron files in the replays/ directory.
+fn list_replay_files() -> Vec<String> {
+    let dir = std::path::Path::new("replays");
+    if !dir.is_dir() { return vec![]; }
+    let mut files: Vec<String> = std::fs::read_dir(dir)
+        .ok()
+        .into_iter()
+        .flatten()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().extension().map(|ext| ext == "ron").unwrap_or(false))
+        .map(|e| e.path().to_string_lossy().to_string())
+        .collect();
+    files.sort();
+    files.reverse(); // newest first
+    files
+}
+
+/// Load and validate a replay file from disk.
+fn load_replay_file(path: &str) -> Result<simulation::replay::ReplayFile, String> {
+    let ron_str = std::fs::read_to_string(path)
+        .map_err(|e| format!("Cannot read file: {}", e))?;
+    simulation::replay::ReplayFile::from_ron(&ron_str)
 }
