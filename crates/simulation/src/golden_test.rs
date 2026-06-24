@@ -89,8 +89,8 @@ mod tests {
     use super::*;
     use crate::command::*;
     use crate::init_simulation_world;
-    use crate::run_tick;
     use crate::map;
+    use crate::run_tick;
 
     #[test]
     fn test_golden_empty_map_no_commands() {
@@ -142,7 +142,8 @@ mod tests {
         for tick in 1..=500 {
             if tick == 10 {
                 let mut q = world1.query::<(&UnitIdComponent, &FactionComponent, &SoldierMarker)>();
-                if let Some((id, fac, _)) = q.iter(&world1).find(|(_, f, _)| f.0 == Faction::Player)
+                if let Some((id, _fac, _)) =
+                    q.iter(&world1).find(|(_, f, _)| f.0 == Faction::Player)
                 {
                     let uid = id.0;
                     let target = FixedVec2::new(Fixed::from_int(200), Fixed::from_int(200));
