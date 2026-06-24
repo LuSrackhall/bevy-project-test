@@ -81,7 +81,7 @@ pub struct DriverContext<'a> {
 - 每条命令每 tick 只消费一次
 - `commands_for_tick()` 是过滤读取，不消费 Bevy CommandBuffer
 - `run_tick()` 内部的 `consume_commands_system` 执行一次性消费
-- Bevy CommandBuffer 中已消费的命令由 `simulation_driver_system` 统一清理：`retain(|c| c.tick > current_tick)`
+- Bevy CommandBuffer 中已消费的命令由 `simulation_driver_system` 统一清理：`retain(|c| c.tick > current_tick)`。其他系统不得执行此清理操作。
 - Bevy CommandBuffer 允许提前存在未来 tick 的命令，`retain` 不会误清
 
 ### D6: 录制契约
@@ -129,7 +129,7 @@ render_view 通过此方法检查模式，不直接 `matches!` 枚举。
 
 ```rust
 pub struct ReplayStatus {
-    pub is_replay: bool,     // 回放元数据
+    pub is_replay: bool,     // 展示态缓存（派生自 source，非权威状态）
     pub total_ticks: u32,    // 回放元数据（进度条用）
     pub is_seeking: bool,    // 运行态（render_view 据此冻结渲染）
 }
