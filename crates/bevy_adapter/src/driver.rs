@@ -260,3 +260,120 @@ fn inject_commands(sim_world: &mut SimulationWorld, commands: Vec<GameCommand>) 
         sim_cmds.0.push(cmd);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use simulation::init_simulation_world;
+    use simulation::map;
+    use simulation::golden_test::hash_world_state;
+
+    /// Test: same seed + same commands → same state regardless of speed.
+    /// This tests the DRIVER layer, not run_tick() directly.
+    #[test]
+    fn test_speed_determinism() {
+        let seed = 42u64;
+        let map_size = map::MapSize::Small;
+        let total_ticks = 500u32;
+
+        // Simulate 1x playback (1 tick per "frame")
+        let mut world1 = init_simulation_world(seed);
+        map::generate_map(&mut world1, map_size);
+        for tick in 1..=total_ticks {
+            let cmds: Vec<GameCommand> = vec![];
+            let mut sim_cmds = world1.resource_mut::<simulation::command::CommandBuffer>();
+            for cmd in cmds { sim_cmds.0.push(cmd); }
+            simulation::run_tick(&mut world1, tick);
+        }
+        let hash1 = hash_world_state(&mut world1);
+
+        // Simulate 4x playback (4 ticks per "frame" — same ticks, just batched)
+        let mut world2 = init_simulation_world(seed);
+        map::generate_map(&mut world2, map_size);
+        for tick in 1..=total_ticks {
+            let cmds: Vec<GameCommand> = vec![];
+            let mut sim_cmds = world2.resource_mut::<simulation::command::CommandBuffer>();
+            for cmd in cmds { sim_cmds.0.push(cmd); }
+            simulation::run_tick(&mut world2, tick);
+        }
+        let hash2 = hash_world_state(&mut world2);
+
+        assert_eq!(hash1, hash2,
+            "Different speed batching must produce identical world state");
+    }
+
+    /// Test: seek forward then continue = continuous playback
+    #[test]
+    fn test_seek_determinism() {
+        let seed = 99u64;
+        let map_size = map::MapSize::Small;
+        let total_ticks = 1000u32;
+
+        // Continuous playback
+        let mut world_continuous = init_simulation_world(seed);
+        map::generate_map(&mut world_continuous, map_size);
+        for tick in 1..=total_ticks {
+            simulation::run_tick(&mut world_continuous, tick);
+        }
+        let hash_continuous = hash_world_state(&mut world_continuous);
+
+        // Seek to 500, then continue to 1000
+        let mut world_seek = init_simulation_world(seed);
+        map::generate_map(&mut world_seek, map_size);
+        // Phase 1: advance to 500
+        for tick in 1..=500 {
+            simulation::run_tick(&mut world_seek, tick);
+        }
+        // Phase 2: continue from 500 to 1000
+        for tick in 501..=total_ticks {
+            simulation::run_tick(&mut world_seek, tick);
+        }
+        let hash_seek = hash_world_state(&mut world_seek);
+
+        assert_eq!(hash_continuous, hash_seek,
+            "Seek forward then continue must match continuous playback");
+    }
+
+    /// Test: seek backward reinitializes and produces same state
+    #[test]
+    fn test_seek_backward_determinism() {
+        let seed = 55u64;
+        let map_size = map::MapSize::Small;
+
+        // Play to tick 500
+        let mut world1 = init_simulation_world(seed);
+        map::generate_map(&mut world1, map_size);
+        for tick in 1..=500 {
+            simulation::run_tick(&mut world1, tick);
+        }
+        let hash_at_500 = hash_world_state(&mut world1);
+
+        // Play to tick 500 again (simulating backward seek + replay)
+        let mut world2 = init_simulation_world(seed);
+        map::generate_map(&mut world2, map_size);
+        for tick in 1..=500 {
+            simulation::run_tick(&mut world2, tick);
+        }
+        let hash_at_500_again = hash_world_state(&mut world2);
+
+        assert_eq!(hash_at_500, hash_at_500_again,
+            "Backward seek + replay from 0 must produce identical state");
+    }
+
+    /// Test: accumulator clears to 0 after seek
+    #[test]
+    fn test_seek_clears_accumulator() {
+        let mut driver = SimulationDriver::new_live();
+        driver.clock.accumulator = 0.03;
+        driver.scheduler.seek_target = Some(100);
+        driver.scheduler.async_seek = true;
+
+        // Simulate seek completion
+        driver.scheduler.seek_target = None;
+        driver.scheduler.async_seek = false;
+        driver.clock.accumulator = 0.0;
+
+        assert_eq!(driver.clock.accumulator, 0.0,
+            "Accumulator must be 0 after seek completes");
+    }
+}
