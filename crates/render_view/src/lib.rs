@@ -32,12 +32,6 @@ pub enum NeedsGameReset {
     Replay(simulation::replay::ReplayFile),
 }
 
-impl Default for NeedsGameReset {
-    fn default() -> Self {
-        Self::None
-    }
-}
-
 /// Whether to auto-record replays. Defaults to true.
 #[derive(Resource)]
 pub struct AutoRecordReplay(pub bool);
