@@ -13,6 +13,15 @@ use crate::tick::PendingEvents;
 use bevy::prelude::*;
 use simulation::command::CommandBuffer;
 
+/// Lightweight gate for input systems. Live = normal game, Replay = playback.
+/// SimulationDriver handles the actual replay mechanics; this only gates input systems.
+#[derive(Resource, Default, PartialEq, Eq)]
+pub enum GameMode {
+    #[default]
+    Live,
+    Replay,
+}
+
 /// Owned by bevy_adapter; set by render_view to gate tick/sync systems.
 #[derive(Resource, Default, PartialEq)]
 pub struct GameActive(pub bool);
@@ -55,6 +64,7 @@ impl Plugin for BevyAdapterPlugin {
             .init_resource::<GameActive>()
             .init_resource::<Paused>()
             .init_resource::<CurrentMapSize>()
+            .init_resource::<GameMode>()
             .insert_resource(crate::driver::SimulationDriver::new_live())
             .init_resource::<crate::driver::TickClock>()
             .init_resource::<ReplayRecorder>()

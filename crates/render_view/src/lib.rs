@@ -94,7 +94,8 @@ impl Plugin for RenderViewPlugin {
                     .run_if(
                         in_state(GameState::Playing)
                             .and_then(not(resource_exists_and_equals(bevy_adapter::Paused(true))))
-                            .and_then(not(replay_seeking)),
+                            .and_then(not(replay_seeking))
+                            .and_then(not(resource_exists_and_equals(bevy_adapter::GameMode::Replay))),
                     ),
             )
             // Camera: always active
@@ -257,6 +258,7 @@ fn reset_game_system(
         if let Some(replay) = replay_file {
             let total = replay.total_ticks;
             commands.insert_resource(bevy_adapter::driver::SimulationDriver::new_replay(replay));
+            commands.insert_resource(bevy_adapter::GameMode::Replay);
             commands.insert_resource(bevy_adapter::replay::ReplayStatus {
                 is_replay: true,
                 total_ticks: total,
@@ -281,6 +283,7 @@ fn cleanup_playing_system(
     game_active.0 = false;
     *driver = bevy_adapter::driver::SimulationDriver::new_live();
     *status = bevy_adapter::replay::ReplayStatus::default();
+    commands.insert_resource(bevy_adapter::GameMode::Live);
 
     // Save replay file if recording was active
     if recorder.is_recording && !recorder.command_log.is_empty() {
