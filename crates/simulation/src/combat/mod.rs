@@ -85,7 +85,7 @@ pub fn combat_engagement_system(world: &mut World) {
     let _soldier_config = world.resource::<SoldierConfig>().clone();
 
     // Collect all entity positions & factions
-    let all_units: HashMap<UnitId, (FixedVec2, Faction)> = {
+    let all_units: BTreeMap<UnitId, (FixedVec2, Faction)> = {
         let mut q = world.query::<(
             Entity,
             &UnitIdComponent,
@@ -640,7 +640,7 @@ pub fn attack_windup_system(world: &mut World, current_tick: u32) {
     }
 
     // Position lookup for range checks
-    let positions: HashMap<UnitId, FixedVec2> = {
+    let positions: BTreeMap<UnitId, FixedVec2> = {
         let mut q = world.query::<(Entity, &UnitIdComponent, &LogicalPosition)>();
         q.iter(world).map(|(_, id, pos)| (id.0, pos.0)).collect()
     };

@@ -13,6 +13,7 @@ use bevy_ecs::component::Component;
 use bevy_ecs::entity::Entity;
 use bevy_ecs::world::World;
 use std::collections::{HashMap, HashSet};
+use std::collections::BTreeMap;
 
 // ══════════ Components ══════════
 
@@ -285,7 +286,7 @@ pub fn soldier_movement_system(world: &mut World) {
     let soldier_config = world.resource::<SoldierConfig>().clone();
 
     // Build position lookup from ALL entities with UnitIdComponent
-    let positions: HashMap<UnitId, FixedVec2> = {
+    let positions: BTreeMap<UnitId, FixedVec2> = {
         let mut q = world.query::<(Entity, &UnitIdComponent, &LogicalPosition)>();
         q.iter(world).map(|(_, id, pos)| (id.0, pos.0)).collect()
     };
