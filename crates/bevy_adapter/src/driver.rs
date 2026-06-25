@@ -193,14 +193,7 @@ pub fn simulation_driver_system(
 
         // 2. Record if Live + recording enabled + not seeking
         if is_live && !is_seeking {
-            if !commands.is_empty() {
-                bevy::log::warn!("LIVE tick={} cmds={}", tick, commands.len());
-            }
             recorder.record_tick(tick, &commands);
-        }
-        // Diagnostic: log replay commands
-        if !is_live && !commands.is_empty() {
-            bevy::log::warn!("REPLAY tick={} cmds={}", tick, commands.len());
         }
 
         // 3. Inject into simulation CommandBuffer
