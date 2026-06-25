@@ -72,7 +72,7 @@ impl Plugin for RenderViewPlugin {
                 crate::ui::hud::setup_hud.after(reset_game_system),
             )
             .add_systems(OnExit(GameState::Playing), cleanup_playing_system)
-            // Gameplay systems: only when Playing AND not paused AND not seeking
+            // Visual systems: always run during Playing (including replay)
             .add_systems(
                 Update,
                 (
@@ -81,15 +81,26 @@ impl Plugin for RenderViewPlugin {
                     crate::debug_shape::draw_boundary_walls_system,
                     crate::unit_info_bar::unit_info_bar_system,
                     crate::unit_info_bar::info_bar_mode_toggle_system,
+                    crate::selection::selection_visual_system,
+                    crate::selection::drag_visual_system,
+                    crate::selection::waypoint_cleanup_system,
+                    check_victory_system,
+                )
+                    .run_if(
+                        in_state(GameState::Playing)
+                            .and_then(not(resource_exists_and_equals(bevy_adapter::Paused(true))))
+                            .and_then(not(replay_seeking)),
+                    ),
+            )
+            // Input systems: only when Playing AND Live (not replay)
+            .add_systems(
+                Update,
+                (
                     crate::selection::selection_click_system,
                     crate::selection::drag_select_system,
                     crate::selection::selection_shortcut_system,
-                    crate::selection::selection_visual_system,
-                    crate::selection::drag_visual_system,
                     crate::selection::command_issue_system,
                     crate::selection::seek_stance_shortcut_system,
-                    crate::selection::waypoint_cleanup_system,
-                    check_victory_system,
                 )
                     .run_if(
                         in_state(GameState::Playing)
