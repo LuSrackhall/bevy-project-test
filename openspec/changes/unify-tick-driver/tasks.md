@@ -10,7 +10,7 @@
 - [x] 2.1 实现 `simulation_driver_system`：累积器推进、命令获取、注入、run_tick 调用、Bevy CommandBuffer 清理
 - [x] 2.2 实现 `handle_seek`：向后 seek（重新初始化世界）、向前 seek（当前位置推进）、分帧 500 tick、accumulator 清零
 - [x] 2.3 实现录制拦截：Live + 录制开启 + 非 seek 时保存命令到 ReplayRecorder
-- [x] 2.4 实现 `inject_commands` 辅助函数：将命令注入 simulation CommandBuffer
+- [x] 2.4 实现 `inject_commands` 辅助函数
 
 ## 3. 迁移与清理
 
@@ -37,8 +37,19 @@
 - [x] 5.4 编写 `test_seek_clears_accumulator`：seek 后 accumulator 为 0
 - [x] 5.5 运行 `cargo test -p simulation` 确认 93+ 测试通过
 - [x] 5.6 运行 `cargo test -p bevy_adapter` 确认 Driver 测试通过
-- [x] 5.7 运行 `cargo test replay` 确认 Replay 回归通过
+- [x] 5.7 运行 `cargo test -p simulation --lib replay` 确认 Replay 回归通过
 - [x] 5.8 运行 `cargo check` 确认全项目编译通过
+
+## 6. 运行时修复（实施中发现）
+
+- [x] 6.1 TickClock 作为独立 Resource 注册并同步（presentation 层兼容）
+- [x] 6.2 SimulationDriver 用 insert_resource 注册（不实现 Default）
+- [x] 6.3 恢复 GameMode 枚举作为输入系统门控（防止回放时输入系统干扰仿真）
+- [x] 6.4 分离视觉系统和输入系统的 GameMode 门控
+- [x] 6.5 simulation 层 HashMap → HashMap + 排序遍历（消除非确定性迭代）
+- [x] 6.6 添加 pending.events.clear()（与旧 tick_driver_system 行为一致）
+- [x] 6.7 保留 world_fingerprint 工具函数（#[allow(dead_code)]）
+- [x] 6.8 清理诊断日志
 
 ---
 

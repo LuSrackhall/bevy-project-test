@@ -6,7 +6,9 @@
 
 两者共享相同的 tick 推进骨架（累积器 → 注入命令 → run_tick），但实现分散。快放/seek 后 AI 行为可能与原始对局不一致，因为两个系统的命令注入和时序处理存在微妙差异。
 
-项目宪法 2.4 明确要求：「所有仿真必须由 GameCommand 驱动，使用同一套命令注入与消费流水线」。当前两个系统违反了这一原则。
+此外，simulation 层存在 HashMap 非确定性迭代问题（combat/mod.rs、soldier/mod.rs），导致相同输入在不同运行中可能产生不同结果。
+
+项目宪法 2.4 要求：「所有仿真必须由 GameCommand 驱动，使用同一套命令注入与消费流水线」。
 
 ## Goals / Non-Goals
 
@@ -28,8 +30,8 @@
 
 **Driver 决定 How many ticks；Simulation 决定 How one tick executes。**
 
-- Frame（渲染帧）层面：允许变化（1x = 1 tick/frame, 4x = 4 ticks/frame, seek = N ticks/frame）
-- Tick（仿真）层面：绝对不变（Tick N → inject commands → run_tick(N) → Tick N+1）
+- Frame 层面：允许变化（1x = 1 tick/frame, 4x = 4 ticks/frame, seek = N ticks/frame）
+- Tick 层面：绝对不变（Tick N → inject → run_tick(N) → Tick N+1）
 
 ### D2: CommandSource 采用 enum + impl（无 trait）
 
@@ -38,20 +40,13 @@ pub enum CommandSource {
     Live(LiveCommandSource),
     Replay(ReplayCommandSource),
 }
-
 impl CommandSource {
-    fn commands_for_tick(&mut self, tick: u32, ctx: &DriverContext) -> Vec<GameCommand> {
-        match self {
-            Self::Live(s) => s.commands_for_tick(tick, ctx),
-            Self::Replay(s) => s.commands_for_tick(tick, ctx),
-        }
-    }
+    fn commands_for_tick(&mut self, tick: u32, ctx: &DriverContext) -> Vec<GameCommand> { ... }
+    fn is_live(&self) -> bool { ... }
 }
 ```
 
-**理由**：当前只有 Live/Replay 两种来源，enum + impl 足够。YAGNI 原则：等 Lockstep 出现时再提取 trait，外部调用点基本不用改。
-
-**归属**：bevy_adapter 层（Driver 层），不属于 simulation。simulation 只认 `CommandBuffer`。
+当前只有 Live/Replay 两种来源，enum + impl 足够。YAGNI 原则：等 Lockstep 出现时再提取 trait。
 
 ### D3: SimulationDriver 三层分离
 
@@ -62,113 +57,113 @@ SimulationDriver（协调者）
     └── CommandSource     — 命令：Live / Replay
 ```
 
-- `current_tick` 只在 `TickClock` 中持有，是唯一权威值
-- `ReplayCommandSource` 不持有 tick 状态
-- `SchedulerState` 管理用户交互（暂停/倍速/seek），与命令来源解耦
+- `current_tick` 只在 `TickClock` 中持有
+- `SchedulerState` 管理用户交互（暂停/倍速/seek）
+- SimulationDriver 通过 `insert_resource(SimulationDriver::new_live())` 注册
 
 ### D4: DriverContext 传递运行时依赖
 
 ```rust
 pub struct DriverContext<'a> {
-    pub bevy_cmds: &'a CommandBuffer,  // Bevy 侧命令缓冲（Live 模式需要）
+    pub bevy_cmds: &'a CommandBuffer,
 }
 ```
 
-`LiveCommandSource` 通过 `ctx.bevy_cmds` 访问 Bevy CommandBuffer，不直接持有引用。`DriverContext` 定义为只读上下文。
+LiveCommandSource 通过 ctx 访问 Bevy CommandBuffer。DriverContext 为只读上下文。
 
 ### D5: 命令消费契约
 
 - 每条命令每 tick 只消费一次
-- `commands_for_tick()` 是过滤读取，不消费 Bevy CommandBuffer
-- `run_tick()` 内部的 `consume_commands_system` 执行一次性消费
-- Bevy CommandBuffer 中已消费的命令由 `simulation_driver_system` 统一清理：`retain(|c| c.tick > current_tick)`。其他系统不得执行此清理操作。
-- Bevy CommandBuffer 允许提前存在未来 tick 的命令，`retain` 不会误清
+- `commands_for_tick()` 是过滤读取，不消费
+- 已消费命令由 `simulation_driver_system` 统一清理，其他系统不得执行此操作
 
 ### D6: 录制契约
 
-- 仅在 Live + 录制开启 + 非 seek 时录制外部命令
-- AI 命令（run_tick 内部产生）不录制（确定性，从 seed 重新生成）
-- async_seek == true 时不录制（seek 是仿真重建，不是游戏过程）
+- 仅在 Live + 录制开启 + 非 seek 时录制
+- AI 命令不录制（确定性，从 seed 重新生成）
+- async_seek == true 时不录制
 
 ### D7: Seek 语义
 
-- Seek 不是"跳过若干 tick 的帧调度"，而是"在同一 driver 下连续推进多个 tick"
-- 向后 seek：重新初始化世界后从 0 推进到目标
-- 向前 seek：从当前位置推进到目标
-- 分帧完成（每帧 500 tick），`async_seek` 在到达目标前保持 true
-- Seek 完成后 `accumulator = 0.0`，防止残留累积器导致 tick 漂移
-- Seek 期间 `is_seeking = true`，render_view 据此冻结渲染系统
+- 同一 driver 下连续推进多个 tick
+- 向后 seek：重新初始化世界后从 0 推进
+- 向前 seek：从当前位置推进
+- 分帧完成（每帧 500 tick）
+- Seek 完成后 `accumulator = 0.0`
+- Seek 期间 `is_seeking = true`，render_view 冻结渲染系统
 
-### D8: 统一系统调度
-
-```rust
-// 替换 tick_driver_system + replay_tick_driver_system
-.add_systems(Update, (
-    simulation_driver_system.before(sync_entities_system),
-    sync_entities_system,
-).run_if(resource_exists_and_equals(GameActive(true))))
-```
-
-- 不再需要 GameMode 的 run_if 条件
-- GameActive 是唯一的外部门控
-- 系统顺序显式声明（.before()），不依赖 tuple 顺序
-
-### D9: SimulationDriver 辅助方法
+### D8: 统一系统调度 + GameMode 门控
 
 ```rust
-impl SimulationDriver {
-    fn is_replay(&self) -> bool {
-        matches!(self.source, CommandSource::Replay(_))
-    }
-}
+// 统一驱动
+simulation_driver_system.before(sync_entities_system)
+    .run_if(GameActive(true))
+
+// 视觉系统（回放时也运行）
+visual_systems.run_if(GameActive(true) && !Paused(true) && !replay_seeking)
+
+// 输入系统（仅 Live 模式）
+input_systems.run_if(GameActive(true) && !Paused(true) && !replay_seeking && !GameMode::Replay)
 ```
 
-render_view 通过此方法检查模式，不直接 `matches!` 枚举。
+- `GameMode` 枚举（Live/Replay）作为轻量门控
+- 输入系统在回放时不运行，防止干扰仿真
+- 视觉系统在两种模式都运行
 
-### D10: ReplayStatus 边界
+### D9: TickClock 双份同步
 
+`SimulationDriver.clock` 是权威时钟，`TickClock` 作为独立 Resource 注册（presentation 层兼容）。`simulation_driver_system` 每帧同步 current_tick 和 accumulator。
+
+### D10: HashMap + 排序遍历
+
+simulation 层位置查询使用 `HashMap`（O(1) 查找），遍历前对 keys 排序保证确定性：
 ```rust
-pub struct ReplayStatus {
-    pub is_replay: bool,     // 展示态缓存（派生自 source，非权威状态）
-    pub total_ticks: u32,    // 回放元数据（进度条用）
-    pub is_seeking: bool,    // 运行态（render_view 据此冻结渲染）
-}
+let mut sorted_ids: Vec<UnitId> = positions.keys().copied().collect();
+sorted_ids.sort();
 ```
 
-单向数据流：bevy_adapter 写入 → render_view 只读。UI 只提交控制意图（修改 scheduler），驱动层负责落地。
+`enemy_positions` 保留 `BTreeMap`（最近敌人 tie-break 专用）。
+
+### D11: pending.events 清理
+
+`simulation_driver_system` 在帧首调用 `pending.events.clear()`，与旧 tick_driver_system 行为一致。
+
+### D12: world_fingerprint 工具
+
+保留 `world_fingerprint` 函数（`#[allow(dead_code)]`），用于确定性调试。需要时临时加日志即可定位回放分叉点。
 
 ## Risks / Trade-offs
 
-- [tick_duration: f32] → 当前 20Hz 下 0.05f32 精确，不改。未来联机时审视是否需要 f64 或整数化。
-- [SimulationDriver 不直接修改 World] → I7 不变量约束。唯一合法路径：commands → inject → run_tick。
-- [bevy_adapter 测试复杂度] → Driver 层测试需要 Bevy App。折中：先写纯逻辑的 accumulator 推进测试。
+- [tick_duration: f32] → 当前 20Hz 下精确，未来联机时审视
+- [HashMap + 排序遍历] → 10 万+ 实体时排序开销 O(n log n)，可接受
+- [TickClock 双份] → 需保持同步，已每帧更新
+- [GameMode 与 SimulationDriver 分离] → 轻量门控 vs 统一状态，当前方案平衡了关注点分离
 
 ## 关键不变量
 
 | # | 不变量 | 验证方式 |
 |---|--------|---------|
-| I1 | 相同 seed + 相同命令序列 → 相同世界状态 | 黄金测试（已有） |
-| I2 | 每个 Tick 都严格执行同一流水线：commands_for_tick → inject_commands → run_tick，不存在绕过该流水线的执行路径 | 代码审查（整个 crate 中只有 simulation_driver_system 调用 run_tick） |
-| I3 | Live 命令每 tick 只消费一次 | 测试 |
+| I1 | 相同 seed + 相同命令序列 → 相同世界状态 | 黄金测试（93 个） |
+| I2 | 每个 Tick 都严格执行同一流水线：commands_for_tick → inject_commands → run_tick | 代码审查 |
+| I3 | Live 命令每 tick 只消费一次 | 代码审查 |
 | I4 | seek 完成后 accumulator 为 0 | 测试 |
 | I5 | seek 期间不录制 | 代码审查 |
-| I6 | TickClock.current_tick 是唯一权威 tick 值 | 代码审查（无其他 tick 持有者） |
-| I7 | SimulationDriver 不得直接修改 SimulationWorld，唯一合法路径：commands → inject → run_tick | 代码审查 |
+| I6 | TickClock.current_tick 是唯一权威 tick 值 | 代码审查 |
+| I7 | SimulationDriver 不得直接修改 SimulationWorld | 代码审查 |
+| I8 | simulation 层 HashMap 遍历必须排序保证确定性 | 代码审查 + 黄金测试 |
 
 ## 验证策略
 
-**已有测试（保留）**：93 个 simulation 层测试（含黄金确定性、seek 确定性）
+**已有测试**：93 个 simulation 层测试（含黄金确定性、seek 确定性、e2e replay 测试）
 
 **新增测试**：
-- `test_speed_determinism`：通过 SimulationDriver 推进不同调度密度（1x vs 4x），验证最终状态一致（不是直接比较 run_tick()，而是测试 Driver 层的确定性）
-- `test_seek_determinism`：seek 后继续播放与连续播放结果一致
-- `test_command_single_consumption`：Live 命令每 tick 只消费一次
-- `test_seek_clears_accumulator`：seek 后 accumulator 为 0
+- Driver 层确定性测试（4 个）
+- Replay e2e 测试（录制→序列化→反序列化→回放→状态一致）
 
 **CI 门控**：
 ```bash
 cargo test -p simulation      # 93+ 测试
 cargo test -p bevy_adapter    # Driver 测试
-cargo test replay             # Replay 回归（独立门禁）
+cargo test -p simulation --lib replay  # Replay 回归
 cargo check                   # 全项目编译
 ```
