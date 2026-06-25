@@ -160,6 +160,8 @@ pub fn simulation_driver_system(
 ) {
     // Sync SimulationDriver.clock → standalone TickClock (presentation layer reads this)
     tick_clock.current_tick = driver.clock.current_tick;
+    tick_clock.accumulator = driver.clock.accumulator;
+    pending.events.clear();
     if driver.scheduler.is_paused {
         return;
     }
@@ -203,6 +205,10 @@ pub fn simulation_driver_system(
         // 5. Execute tick — the ONLY run_tick call point (I2, I7)
         let events = simulation::run_tick(&mut sim_world.0, tick);
         pending.events.push(events);
+
+        // Sync tick_clock for presentation layer
+        tick_clock.current_tick = driver.clock.current_tick;
+        tick_clock.accumulator = driver.clock.accumulator;
     }
 
     // Check replay end
