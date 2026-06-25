@@ -4,7 +4,8 @@ use crate::ui::hud::ButtonTheme;
 use bevy::picking::hover::Hovered;
 use bevy::prelude::*;
 use bevy::ui_widgets::{Activate, Button as WidgetButton};
-use bevy_adapter::replay::{GameMode, ReplayController, ReplayStatus};
+use bevy_adapter::driver::{CommandSource, SimulationDriver};
+use bevy_adapter::replay::ReplayStatus;
 use bevy_adapter::tick::{PendingEvents, SimulationWorld, TickClock};
 
 #[derive(Component)]
@@ -70,14 +71,14 @@ pub fn setup_replay_player(mut commands: Commands, asset_server: Res<AssetServer
                 },
             ))
             .observe(
-                |_ev: On<Activate>, mut ctrl: Option<ResMut<ReplayController>>| {
-                    if let Some(ref mut c) = ctrl {
-                        let target = c.current_tick.saturating_sub(SKIP_TICKS).max(1);
-                        if target < c.current_tick {
+                |_ev: On<Activate>, mut driver: Option<ResMut<SimulationDriver>>| {
+                    if let Some(ref mut d) = driver {
+                        let target = d.clock.current_tick.saturating_sub(SKIP_TICKS).max(1);
+                        if target < d.clock.current_tick {
                             // Backward seek: reinit world, enter async seek mode
-                            c.seek_target = Some(target);
-                            c.async_seek = true;
-                            c.is_paused = false;
+                            d.scheduler.seek_target = Some(target);
+                            d.scheduler.async_seek = true;
+                            d.scheduler.is_paused = false;
                         }
                     }
                 },
@@ -107,9 +108,9 @@ pub fn setup_replay_player(mut commands: Commands, asset_server: Res<AssetServer
                 ));
             })
             .observe(
-                |_ev: On<Activate>, mut ctrl: Option<ResMut<ReplayController>>| {
-                    if let Some(ref mut c) = ctrl {
-                        c.is_paused = !c.is_paused;
+                |_ev: On<Activate>, mut driver: Option<ResMut<SimulationDriver>>| {
+                    if let Some(ref mut d) = driver {
+                        d.scheduler.is_paused = !d.scheduler.is_paused;
                     }
                 },
             );
@@ -135,12 +136,12 @@ pub fn setup_replay_player(mut commands: Commands, asset_server: Res<AssetServer
                 },
             ))
             .observe(
-                |_ev: On<Activate>, mut ctrl: Option<ResMut<ReplayController>>| {
-                    if let Some(ref mut c) = ctrl {
-                        let target = (c.current_tick + SKIP_TICKS).min(c.replay.total_ticks);
-                        c.seek_target = Some(target);
-                        c.async_seek = true;
-                        c.is_paused = false;
+                |_ev: On<Activate>, mut driver: Option<ResMut<SimulationDriver>>| {
+                    if let Some(ref mut d) = driver {
+                        let target = (d.clock.current_tick + SKIP_TICKS).min(d.replay_total_ticks());
+                        d.scheduler.seek_target = Some(target);
+                        d.scheduler.async_seek = true;
+                        d.scheduler.is_paused = false;
                     }
                 },
             );
@@ -169,9 +170,9 @@ pub fn setup_replay_player(mut commands: Commands, asset_server: Res<AssetServer
                     },
                 ))
                 .observe(
-                    move |_ev: On<Activate>, mut ctrl: Option<ResMut<ReplayController>>| {
-                        if let Some(ref mut c) = ctrl {
-                            c.speed_multiplier = speed;
+                    move |_ev: On<Activate>, mut driver: Option<ResMut<SimulationDriver>>| {
+                        if let Some(ref mut d) = driver {
+                            d.scheduler.speed_multiplier = speed;
                         }
                     },
                 );
@@ -218,42 +219,46 @@ pub fn setup_replay_player(mut commands: Commands, asset_server: Res<AssetServer
 /// When async_seek is true, processes SEEK_TICKS_PER_FRAME ticks per frame
 /// until reaching seek_target, then resumes normal playback.
 pub fn replay_seek_system(
-    mut ctrl: Option<ResMut<ReplayController>>,
+    mut driver: Option<ResMut<SimulationDriver>>,
     mut status: ResMut<ReplayStatus>,
     mut sim_world: NonSendMut<SimulationWorld>,
     mut tick_clock: ResMut<TickClock>,
     mut pending: ResMut<PendingEvents>,
 ) {
-    let Some(ref mut ctrl) = ctrl else { return };
-    if !ctrl.async_seek {
+    let Some(ref mut driver) = driver else { return };
+    if !driver.scheduler.async_seek {
         status.is_seeking = false;
         return;
     }
-    let Some(target) = ctrl.seek_target else {
-        ctrl.async_seek = false;
+    let Some(target) = driver.scheduler.seek_target else {
+        driver.scheduler.async_seek = false;
         status.is_seeking = false;
         return;
     };
     status.is_seeking = true;
 
     // If target is behind current position, reinitialize world
-    if target < ctrl.current_tick {
-        let seed = ctrl.replay.seed;
-        let map_size = ctrl.replay.map_size;
+    if target < driver.clock.current_tick {
+        let CommandSource::Replay(ref rs) = driver.source else { return };
+        let seed = rs.replay.seed;
+        let map_size = rs.replay.map_size;
         let mut world = simulation::init_simulation_world(seed);
         simulation::map::generate_map(&mut world, map_size);
         sim_world.0 = world;
-        ctrl.current_tick = 0;
+        driver.clock.current_tick = 0;
         tick_clock.current_tick = 0;
         tick_clock.accumulator = 0.0;
         pending.events.clear();
     }
 
     // Fixed batch: process up to 500 ticks per frame
-    let end = (ctrl.current_tick + 500).min(target);
-    while ctrl.current_tick < end {
-        ctrl.current_tick += 1;
-        let cmds = ctrl.replay.commands_for_tick(ctrl.current_tick).to_vec();
+    let current = driver.clock.current_tick;
+    let CommandSource::Replay(ref mut rs) = driver.source else { return };
+    let end = (current + 500).min(target);
+    let mut tick = current;
+    while tick < end {
+        tick += 1;
+        let cmds = rs.replay.commands_for_tick(tick).to_vec();
         {
             let mut sim_cmds = sim_world
                 .0
@@ -262,15 +267,16 @@ pub fn replay_seek_system(
                 sim_cmds.0.push(cmd);
             }
         }
-        simulation::run_tick(&mut sim_world.0, ctrl.current_tick);
+        simulation::run_tick(&mut sim_world.0, tick);
     }
 
-    tick_clock.current_tick = ctrl.current_tick;
+    driver.clock.current_tick = tick;
+    tick_clock.current_tick = tick;
 
     // Check if seek is complete
-    if ctrl.current_tick >= target {
-        ctrl.seek_target = None;
-        ctrl.async_seek = false;
+    if driver.clock.current_tick >= target {
+        driver.scheduler.seek_target = None;
+        driver.scheduler.async_seek = false;
         status.is_seeking = false;
         tick_clock.accumulator = 0.0; // Prevent stale accumulator from causing tick drift
     }
@@ -278,17 +284,16 @@ pub fn replay_seek_system(
 
 /// Update replay player UI each frame.
 pub fn update_replay_player(
-    game_mode: Res<GameMode>,
-    ctrl: Option<Res<ReplayController>>,
+    driver: Option<Res<SimulationDriver>>,
     mut tick_text: Query<&mut Text, With<ReplayTickText>>,
     mut pause_text: Query<&mut Text, (With<ReplayPauseBtnText>, Without<ReplayTickText>)>,
     mut progress_fill: Query<&mut Node, With<ReplayProgressFill>>,
 ) {
-    let GameMode::Replay = *game_mode else { return };
-    let Some(ref ctrl) = ctrl else { return };
+    let Some(ref driver) = driver else { return };
+    if !driver.is_replay() { return; }
 
-    let total = ctrl.replay.total_ticks.max(1);
-    let current = ctrl.current_tick;
+    let total = driver.replay_total_ticks().max(1);
+    let current = driver.clock.current_tick;
 
     let cur_sec = current / TICKS_PER_SEC;
     let tot_sec = total / TICKS_PER_SEC;
@@ -302,7 +307,7 @@ pub fn update_replay_player(
         );
     }
 
-    let icon = if ctrl.is_paused { ">" } else { "||" };
+    let icon = if driver.scheduler.is_paused { ">" } else { "||" };
     for mut text in pause_text.iter_mut() {
         **text = icon.to_string();
     }
@@ -321,6 +326,6 @@ pub fn cleanup_replay_player(mut commands: Commands, query: Query<Entity, With<R
 }
 
 /// Condition: only show replay player when in Replay mode.
-pub fn in_replay_mode(game_mode: Res<GameMode>) -> bool {
-    *game_mode == GameMode::Replay
+pub fn in_replay_mode(driver: Option<Res<SimulationDriver>>) -> bool {
+    driver.map_or(false, |d| d.is_replay())
 }

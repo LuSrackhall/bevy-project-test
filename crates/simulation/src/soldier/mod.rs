@@ -13,6 +13,7 @@ use bevy_ecs::component::Component;
 use bevy_ecs::entity::Entity;
 use bevy_ecs::world::World;
 use std::collections::{HashMap, HashSet};
+// BTreeMap removed; using HashMap for positions
 
 // ══════════ Components ══════════
 

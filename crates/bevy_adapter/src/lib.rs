@@ -4,13 +4,23 @@ pub mod lifecycle;
 pub mod mapper;
 pub mod replay;
 pub mod tick;
+pub mod driver;
 
 use crate::input::ForceMoveNext;
 use crate::mapper::UnitIdMapper;
-use crate::replay::{GameMode, ReplayRecorder, ReplayStatus};
-use crate::tick::{PendingEvents, TickClock};
+use crate::replay::{ReplayRecorder, ReplayStatus};
+use crate::tick::PendingEvents;
 use bevy::prelude::*;
 use simulation::command::CommandBuffer;
+
+/// Lightweight gate for input systems. Live = normal game, Replay = playback.
+/// SimulationDriver handles the actual replay mechanics; this only gates input systems.
+#[derive(Resource, Default, PartialEq, Eq)]
+pub enum GameMode {
+    #[default]
+    Live,
+    Replay,
+}
 
 /// Owned by bevy_adapter; set by render_view to gate tick/sync systems.
 #[derive(Resource, Default, PartialEq)]
@@ -48,7 +58,6 @@ pub struct BevyAdapterPlugin;
 impl Plugin for BevyAdapterPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<UnitIdMapper>()
-            .init_resource::<TickClock>()
             .init_resource::<CommandBuffer>()
             .init_resource::<PendingEvents>()
             .init_resource::<ForceMoveNext>()
@@ -56,29 +65,18 @@ impl Plugin for BevyAdapterPlugin {
             .init_resource::<Paused>()
             .init_resource::<CurrentMapSize>()
             .init_resource::<GameMode>()
+            .insert_resource(crate::driver::SimulationDriver::new_live())
+            .init_resource::<crate::driver::TickClock>()
             .init_resource::<ReplayRecorder>()
             .init_resource::<ReplayStatus>()
-            // Live mode: tick_driver + sync_entities
+            // Unified driver: simulation_driver_system + sync_entities
             .add_systems(
                 Update,
                 (
-                    crate::tick::tick_driver_system,
+                    crate::driver::simulation_driver_system.before(crate::lifecycle::sync_entities_system),
                     crate::lifecycle::sync_entities_system,
                 )
-                    .run_if(
-                        resource_exists_and_equals(GameActive(true))
-                            .and_then(not(resource_exists_and_equals(Paused(true))))
-                            .and_then(resource_exists_and_equals(GameMode::Live)),
-                    ),
-            )
-            // Replay mode: replay_tick_driver + sync_entities
-            .add_systems(
-                Update,
-                (
-                    crate::replay::replay_tick_driver_system,
-                    crate::lifecycle::sync_entities_system,
-                )
-                    .run_if(resource_exists_and_equals(GameMode::Replay)),
+                    .run_if(resource_exists_and_equals(GameActive(true))),
             );
     }
 }

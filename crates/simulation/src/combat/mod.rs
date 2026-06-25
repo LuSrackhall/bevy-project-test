@@ -164,15 +164,18 @@ pub fn combat_engagement_system(world: &mut World) {
         let aggro = Fixed::from_int(sd.seek_range as i32);
         let aggro_sq = aggro * aggro;
 
-        // Find nearest enemy
+        // Find nearest enemy (sorted iteration for determinism)
         let mut best: Option<(UnitId, i64)> = None;
-        for (eid, (epos, efac)) in &all_units {
+        let mut sorted_ids: Vec<UnitId> = all_units.keys().copied().collect();
+        sorted_ids.sort();
+        for &eid in &sorted_ids {
+            let (epos, efac) = &all_units[&eid];
             if *efac == sd.faction {
                 continue;
             }
             let ds = (sd.pos - *epos).length_squared();
             if ds <= aggro_sq && best.as_ref().is_none_or(|(_, d)| ds.0 < *d) {
-                best = Some((*eid, ds.0));
+                best = Some((eid, ds.0));
             }
         }
 
