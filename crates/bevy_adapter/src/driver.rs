@@ -147,6 +147,7 @@ impl SimulationDriver {
 // World state fingerprint for replay determinism debugging
 // ═══════════════════════════════════════════════════════════════
 
+#[allow(dead_code)]
 /// Lightweight world state fingerprint: entity count + total HP.
 /// Used to detect replay divergence at each tick.
 fn world_fingerprint(sim_world: &mut SimulationWorld) -> u64 {
@@ -237,14 +238,6 @@ pub fn simulation_driver_system(
         // 5. Execute tick — the ONLY run_tick call point (I2, I7)
         let events = simulation::run_tick(&mut sim_world.0, tick);
         pending.events.push(events);
-
-        // Log world state fingerprint for replay determinism debugging
-        let fp = world_fingerprint(&mut sim_world);
-        if is_live {
-            bevy::log::warn!("LIVE_FP tick={} fp={}", tick, fp);
-        } else {
-            bevy::log::warn!("REPLAY_FP tick={} fp={}", tick, fp);
-        }
 
         // Sync tick_clock for presentation layer
         tick_clock.current_tick = driver.clock.current_tick;
