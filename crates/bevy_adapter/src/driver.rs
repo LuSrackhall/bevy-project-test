@@ -144,6 +144,38 @@ impl SimulationDriver {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// World state fingerprint for replay determinism debugging
+// ═══════════════════════════════════════════════════════════════
+
+/// Lightweight world state fingerprint: entity count + total HP.
+/// Used to detect replay divergence at each tick.
+fn world_fingerprint(sim_world: &mut SimulationWorld) -> u64 {
+    use std::hash::{Hash, Hasher};
+    use std::collections::hash_map::DefaultHasher;
+    let mut h = DefaultHasher::new();
+    let world = &mut sim_world.0;
+
+    let mut q = world.query::<&simulation::soldier::Health>();
+    let mut total_hp: u64 = 0;
+    let mut count: u32 = 0;
+    for hp in q.iter(world) {
+        total_hp += hp.current as u64;
+        count += 1;
+    }
+    count.hash(&mut h);
+    total_hp.hash(&mut h);
+
+    let mut q2 = world.query::<&simulation::soldier::CityComponent>();
+    for city in q2.iter(world) {
+        city.health_current.hash(&mut h);
+        city.level.hash(&mut h);
+        city.population.hash(&mut h);
+    }
+
+    h.finish()
+}
+
+// ═══════════════════════════════════════════════════════════════
 // simulation_driver_system — 统一驱动系统
 // ═══════════════════════════════════════════════════════════════
 
@@ -205,6 +237,14 @@ pub fn simulation_driver_system(
         // 5. Execute tick — the ONLY run_tick call point (I2, I7)
         let events = simulation::run_tick(&mut sim_world.0, tick);
         pending.events.push(events);
+
+        // Log world state fingerprint for replay determinism debugging
+        let fp = world_fingerprint(&mut sim_world);
+        if is_live {
+            bevy::log::warn!("LIVE_FP tick={} fp={}", tick, fp);
+        } else {
+            bevy::log::warn!("REPLAY_FP tick={} fp={}", tick, fp);
+        }
 
         // Sync tick_clock for presentation layer
         tick_clock.current_tick = driver.clock.current_tick;
