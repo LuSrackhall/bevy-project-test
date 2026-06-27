@@ -1,4 +1,21 @@
-# AI 编码准则：工业级 RTS 架构宪法（v3.1）
+# AI 编码准则：工业级 RTS 架构宪法（v1.0 — Frozen）
+
+> **状态：冻结（Frozen）**
+>
+> 本宪法自 v1.0 起冻结。Tier 1 原则不再新增条目，仅修正明确错误。
+> 新规则优先以 ADR 形式提出，稳定后纳入独立规范文档，不膨胀宪法正文。
+>
+> 参考目录结构：
+> ```
+> docs/
+> ├── adr/                        ← Architecture Decision Records
+> ├── coding_style.md             ← Rust 编码规范
+> ├── testing.md                  ← 测试策略与约定
+> ├── performance.md              ← 性能分析与优化指南
+> ├── content_pipeline.md         ← 内容工作流
+> ├── replay.md                   ← 回放系统细节
+> └── networking.md               ← 网络层设计（Tier 3 实现时）
+> ```
 
 本宪法适用于一切 RTS 相关开发、重构、性能优化、BUG 修复、内容接入与 AI 协作开发。
 
