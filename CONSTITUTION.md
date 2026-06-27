@@ -148,13 +148,26 @@ pub struct MoveSpeed(pub Fixed);
 3. 仿真层只消费 `CommandBuffer`，不得直接依赖外部输入源。
 
 ```rust
-#[repr(u8)]  // 显式判别值，禁止重排，保证跨编译确定性排序
 pub enum Action {
-    Stop          = 0,
-    HoldPosition  = 1,
-    MoveTo(FixedVec2) = 2,
-    Attack(UnitId)    = 3,
-    Build(u32)        = 4,
+    Stop,
+    HoldPosition,
+    MoveTo(FixedVec2),
+    Attack(UnitId),
+    Build(u32),
+}
+
+impl Action {
+    /// 显式排序标签，禁止重排，保证跨编译确定性排序。
+    /// 新增变体时必须分配新标签，不得复用或跳号。
+    pub const fn sort_tag(&self) -> u8 {
+        match self {
+            Action::Stop          => 0,
+            Action::HoldPosition  => 1,
+            Action::MoveTo(_)     => 2,
+            Action::Attack(_)     => 3,
+            Action::Build(_)      => 4,
+        }
+    }
 }
 
 pub struct GameCommand {
@@ -166,7 +179,7 @@ pub struct GameCommand {
 pub struct CommandBuffer(pub Vec<GameCommand>);
 ```
 
-**排序规则**：同一 Tick 内多条命令按 `(player_id, Action 判别值)` 字典序升序执行。`Action` 必须标注 `#[repr(u8)]` 显式判别值，禁止依赖 Rust 默认隐式赋值，防止枚举变体重排或跨编译环境导致执行顺序分歧。
+**排序规则**：同一 Tick 内多条命令按 `(player_id, action.sort_tag())` 字典序升序执行。`sort_tag()` 返回值必须显式硬编码，禁止依赖 Rust 枚举隐式判别值，防止跨编译环境或枚举重排导致执行顺序分歧。新增 `Action` 变体时必须分配新标签，不得复用已有值。
 
 ### 2.6 确定性要求
 
