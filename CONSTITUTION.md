@@ -13,7 +13,7 @@
 
 - 仿真 Tick 时间超过 2ms
 - 任一热点系统占用超过 Tick 预算的 30%
-- 活跃实体数超过 1,000
+- 活跃逻辑实体数超过 1,000（指参与本 Tick 逻辑更新的实体，不含纯静态装饰、已睡眠、已标记销毁但未清理的对象）
 
 ---
 
@@ -128,7 +128,12 @@ pub struct Health(pub u32);
 pub struct MoveSpeed(pub Fixed);
 ```
 
-**例外声明**：`TickClock.tick_duration` 使用 `f32` 是有意设计，仅影响调度密度（每秒 Tick 次数），不影响仿真内容。仿真状态的确定性由定点数保证，调度器的浮点精度不构成跨平台分歧源。
+**例外声明**：`TickClock.tick_duration` 使用 `f32` 是有意设计，仅影响调度密度（每秒 Tick 次数），不影响仿真内容。此 f32 存在范围严格限定于调度/驱动层，禁止进入以下路径：
+- `hash_world_state` 输入
+- Replay / Snapshot 序列化字段
+- 任何参与确定性比对的状态
+
+仿真状态的确定性由定点数保证，调度器的浮点精度不构成跨平台分歧源。
 
 ### 2.4 组件与系统边界
 
@@ -143,12 +148,13 @@ pub struct MoveSpeed(pub Fixed);
 3. 仿真层只消费 `CommandBuffer`，不得直接依赖外部输入源。
 
 ```rust
+#[repr(u8)]  // 显式判别值，禁止重排，保证跨编译确定性排序
 pub enum Action {
-    MoveTo(FixedVec2),
-    Attack(UnitId),
-    Build(u32),
-    Stop,
-    HoldPosition,
+    Stop          = 0,
+    HoldPosition  = 1,
+    MoveTo(FixedVec2) = 2,
+    Attack(UnitId)    = 3,
+    Build(u32)        = 4,
 }
 
 pub struct GameCommand {
@@ -159,6 +165,8 @@ pub struct GameCommand {
 
 pub struct CommandBuffer(pub Vec<GameCommand>);
 ```
+
+**排序规则**：同一 Tick 内多条命令按 `(player_id, Action 判别值)` 字典序升序执行。`Action` 必须标注 `#[repr(u8)]` 显式判别值，禁止依赖 Rust 默认隐式赋值，防止枚举变体重排或跨编译环境导致执行顺序分歧。
 
 ### 2.6 确定性要求
 
@@ -226,7 +234,12 @@ if pos.length_squared() < Fixed::from(25) { ... }
 | 回放 | O(cmd) | 仅处理当前 Tick 命令数 |
 | 哈希 | O(n) | 线性遍历所有实体 |
 
-Review 时发现系统复杂度超出其类别预算，必须附带豁免论证。
+Review 时发现系统复杂度超出其类别预算，必须满足以下豁免条件之一：
+
+1. **规模有界**——系统处理的实体集合在设计上存在硬上限（如"最多 16 个玩家"、"最多 256 条弹道"），且该上限在可预见范围内不会达到性能瓶颈。
+2. **非热点路径**——系统不属于每 Tick 调用的热点路径（如仅在初始化、事件触发、低频定时器中执行）。
+
+豁免时必须在代码注释或 ADR 中明确声明豁免理由与上限数值，不得无说明地超出预算。
 
 ---
 
