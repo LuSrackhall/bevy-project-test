@@ -198,7 +198,7 @@ pub struct CommandBuffer(pub Vec<GameCommand>);
 
 1. **指令收集**——从当前 Tick 的 `CommandSource` 取出所有待执行命令。
 2. **指令补齐**——若某 Tick 缺少某玩家的指令，必须注入明确的 No-Op 空指令。
-3. **指令排序**——同一 Tick 内的命令必须按 `(player_id, action_discriminant)` 确定性排序，确保多客户端执行顺序一致。
+3. **指令排序**——同一 Tick 内的命令必须按 `(player_id, action.sort_tag())` 确定性排序，确保多客户端执行顺序一致。
 4. **指令归档**——将当前 Tick 的完整命令快照写入回放记录。
 5. **确定性仿真**——按排序后的命令快照执行仿真系统。
 6. **状态输出**——将 Tick 结果对外暴露。
