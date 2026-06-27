@@ -4,8 +4,16 @@
 
 本宪法分三层执行：
 - **Tier 1**：当前强制执行。违反即不合格，必须重构后再合并。
-- **Tier 2**：单位规模超过 1,000 时启用。届时必须遵守，提前实现亦可。
+- **Tier 2**：性能扩展层。满足任一触发条件时启用，提前实现亦可。
 - **Tier 3**：路线图方向。不作为当前审查标准，但任何架构决策不得封堵其实现路径。
+
+### Tier 2 触发条件
+
+满足以下任一条件时，Tier 2 条款必须启用：
+
+- 仿真 Tick 时间超过 2ms
+- 任一热点系统占用超过 Tick 预算的 30%
+- 活跃实体数超过 1,000
 
 ---
 
@@ -197,6 +205,28 @@ if pos.length_squared() < Fixed::from(25) { ... }
 ### 4.2 禁止热点 O(n^2)
 
 在任何高频执行路径（每 Tick 调用的系统）中，禁止出现无界全局扫描导致的 O(n^2) 或更高复杂度。必须使用空间索引、分桶、局部邻域集或等价机制将热点查询控制在可接受复杂度内。
+
+### 4.3 复杂度预算 `Tier 1`
+
+每个新增仿真系统必须在文档注释中声明以下三项：
+
+```rust
+/// Complexity: O(n * k)   [n=entities, k=avg_neighbors]
+/// Memory:     O(n)        [spatial hash]
+/// Hot Path:   Yes         [called every tick]
+```
+
+当前系统的预算参考：
+
+| 系统类别 | 复杂度上限 | 说明 |
+|---------|----------|------|
+| 移动 | O(n) | 线性遍历所有实体 |
+| 战斗 | O(n * k) | n=实体数, k=局部邻域大小 |
+| 选择 | O(k) | 仅处理选中实体 |
+| 回放 | O(cmd) | 仅处理当前 Tick 命令数 |
+| 哈希 | O(n) | 线性遍历所有实体 |
+
+Review 时发现系统复杂度超出其类别预算，必须附带豁免论证。
 
 ---
 
@@ -404,7 +434,7 @@ pub struct RenderInterpolationAlpha(pub f32);
 
 ## 13. 扩展约束 `Tier 2`
 
-以下条款在单位规模超过 1,000 时必须启用。提前实现亦可，但不得以 Tier 2 为由豁免 Tier 1。
+以下条款在满足 Tier 2 触发条件时必须启用。提前实现亦可，但不得以 Tier 2 为由豁免 Tier 1。
 
 ### 13.1 空间索引强制
 
@@ -480,3 +510,185 @@ Lockstep 长时间运行后需要状态快照用于不一致恢复；权威服�
 - 可在大规模单位数量下稳定运行
 
 任何与以上目标冲突的实现方式，均视为不合格。
+
+---
+
+## 16. Architecture Decision Record (ADR) `Tier 1`
+
+### 16.1 ADR 要求
+
+所有影响 Tier 1 层面的重大架构决策必须记录 ADR。重大架构决策指：改变模块职责边界、引入新依赖、修改确定性保证、改变命令模型、修改序列化格式等。
+
+### 16.2 ADR 内容
+
+每份 ADR 必须包含以下四项：
+
+1. **决策内容**——做了什么，为什么这样做。
+2. **放弃的方案**——考虑过但未采用的替代方案及其原因。
+3. **代价**——做出此决策需要承受的已知代价或限制。
+4. **修改条件**——未来在什么条件下可以重新评估此决策。
+
+### 16.3 ADR 维护
+
+ADR 一旦批准，必须与代码同步维护。代码发生与 ADR 冲突的变更时，必须先更新 ADR 或新建 ADR 推翻旧决策。
+
+ADR 存放于 `docs/adr/` 目录，编号递增，格式为 `NNNN-title.md`。
+
+---
+
+## 17. 状态真相归属（Truth Ownership） `Tier 1`
+
+### 17.1 归属原则
+
+每一份仿真状态必须有且仅有一个拥有者（Owner），只有拥有者可以修改该状态。其他层级只能复制或只读访问。
+
+### 17.2 归属矩阵
+
+| 状态 | 拥有者 | bevy_adapter | presentation | render_view |
+|------|--------|-------------|-------------|-------------|
+| LogicalPosition | simulation | 映射桥接 | 只读复制 | — |
+| Health | simulation | 映射桥接 | — | — |
+| GameCommand | simulation | 写入（注入命令） | — | — |
+| PresentationPosition | — | — | 拥有 | 只读 |
+| InterpolationData | — | — | 拥有 | — |
+| Transform / Sprite | — | — | — | 拥有 |
+| UnitIdMapper | bevy_adapter | 拥有 | 只读查询 | 只读查询 |
+
+### 17.3 反向写入禁令
+
+不得出现以下模式：
+
+- `render_view` 向 `simulation` 写入任何状态
+- `presentation` 向 `simulation` 写入任何状态
+- `bevy_adapter` 向 `simulation` 写入非命令类状态
+
+---
+
+## 18. 实体生命周期（Entity Lifecycle） `Tier 1`
+
+### 18.1 生命周期状态机
+
+```
+Spawn → Alive → PendingDestroy → Destroyed → Recycle
+```
+
+| 状态 | 说明 | 各层行为 |
+|------|------|---------|
+| Spawn | 实体刚创建，尚未执行首个 Tick | simulation 分配 UnitId 并初始化组件；presentation 初始化插值数据（previous == current） |
+| Alive | 正常运行 | 正常仿真与渲染 |
+| PendingDestroy | 标记销毁，尚未清理 | simulation 不再对齐执行逻辑；presentation 开始清理动画/特效 |
+| Destroyed | 已从逻辑世界移除 | bevy_adapter 从映射表移除；presentation 销毁渲染实体 |
+| Recycle | 对象池回收（Tier 2） | 重置所有组件，等待下次 Spawn |
+
+### 18.2 生灭同步
+
+1. 逻辑实体诞生时，`bevy_adapter` 必须在同一个 Tick 内创建映射。
+2. 逻辑实体销毁时，`bevy_adapter` 必须同步更新映射表，`presentation` 必须同步销毁渲染实体。
+3. 禁止出现逻辑实体已销毁但渲染实体残留的"幽灵实体"。
+
+---
+
+## 19. 事件与状态分离（Event vs State） `Tier 1`
+
+### 19.1 分类定义
+
+- **State（状态）**：持续存在的可查询数据，如 `Health`、`LogicalPosition`、`Alive`。State 必须可回放——同一命令序列必须恢复相同的 State 快照。
+- **Event（事件）**：瞬间发生的信号，如 `DamageEvent`、`DeathEvent`、`ExplosionEvent`。Event 必须可从 State 重新推导——同一 State 序列必须能重现相同的 Event 流。
+
+### 19.2 核心规则
+
+1. 禁止将 Event 作为仿真决策的唯一依据。任何基于 Event 的决策必须有对应的 State 支撑。
+2. Replay 只回放 State + Command，不回放 Event。Event 在回放过程中由仿真系统重新生成。
+3. Event 不得携带无法从 State 推导的独有信息。
+
+### 19.3 实现规范
+
+```rust
+// Event 类型必须派生 Clone，支持回放期间重新生成
+#[derive(Clone, Debug)]
+pub struct DamageEvent {
+    pub target: UnitId,
+    pub amount: u32,
+    pub source: UnitId,
+}
+```
+
+---
+
+## 20. 序列化契约（Serialization Contract） `Tier 1`
+
+### 20.1 版本化要求
+
+所有跨进程、跨会话的序列化数据必须携带版本号：
+
+| 数据类型 | 版本化方式 | 说明 |
+|---------|----------|------|
+| GameCommand | `version: u32` 字段 | 命令格式变更时递增 |
+| Replay 文件 | 文件头 `magic + version` | 包含仿真版本与内容版本 |
+| Snapshot 快照 | `version: u32` 字段 | 状态结构变更时递增 |
+| Content 配置 | 配置文件头部 `content_version` | 平衡性或结构变更时递增 |
+
+### 20.2 兼容性规则
+
+1. 版本不兼容时必须快速失败，输出明确错误信息，不得静默降级或产生未定义行为。
+2. 向后兼容的版本变更（只增不删字段）应尝试自动升级。
+3. 不兼容的版本变更应拒绝加载，并提示用户使用匹配版本。
+
+---
+
+## 21. Feature Flag 策略 `Tier 1`
+
+### 21.1 分层约束
+
+| Feature Flag | 允许感知的层级 | 说明 |
+|-------------|--------------|------|
+| `debug_render` | render_view | 调试渲染开关，simulation 不可感知 |
+| `replay` | 全层级 | 回放功能，影响 CommandSource 切换 |
+| `server` | bevy_adapter, simulation | 权威服务器模式 |
+| `benchmark` | 独立二进制 | 性能基准测试 |
+| `editor` | render_view, presentation | 编辑器功能 |
+
+### 21.2 核心规则
+
+1. `simulation` 不得依赖任何仅属于 `render_view` 的 feature flag。
+2. 禁止通过 feature flag 在 `simulation` 中条件编译不同的仿真逻辑（除 `server` 模式的命令源切换）。
+3. feature flag 不得改变确定性保证——同一个 feature 组合下，仿真结果必须一致。
+
+---
+
+## 22. CI 自动化架构守护 `Tier 1`
+
+### 22.1 必须自动化的检查项
+
+| 检查项 | 实现方式 | 失败策略 |
+|-------|---------|---------|
+| simulation 不引入禁用类型 | CI grep 脚本检测 `bevy_render`、`bevy_window`、`bevy_ui`、`bevy_input`、`Vec2`、`Transform` 等 | 立即失败 |
+| simulation 不引入浮点运算 | `cargo clippy` + 自定义 lint 或 grep `f32`/`f64` 在非白名单上下文 | 立即失败 |
+| 依赖拓扑不被破坏 | `cargo udeps` 或自定义脚本检查 Cargo.toml 反向依赖 | 立即失败 |
+| 确定性黄金测试通过 | `cargo test` 回放哈希比对 | 立即失败 |
+| 独立编译通过 | `cargo test -p simulation` 单独运行 | 立即失败 |
+| hash_world_state 覆盖率 | CI 脚本比对仿真组件列表与 hash 函数覆盖列表 | 立即失败 |
+
+### 22.2 CI 流水线
+
+```
+cargo check (全项目)
+  → cargo clippy (全项目)
+  → simulation 禁用类型扫描 (grep/自定义脚本)
+  → simulation 浮点渗入扫描
+  → cargo test -p simulation (独立测试)
+  → cargo test (全项目，含回放黄金测试)
+  → hash_world_state 覆盖率检查
+```
+
+以上检查项全部通过后方可合并。CI 不通过时不得绕过（`--no-verify`）。
+
+### 22.3 新增系统 checklist
+
+新增任何仿真系统时，CI 或人工必须确认以下清单：
+
+- [ ] 复杂度声明（§4.3）
+- [ ] hash_world_state 覆盖更新（§10.2）
+- [ ] 确定性测试补充（§10.1）
+- [ ] 不引入禁用类型（§1.4）
+- [ ] 命令驱动，不直读外部输入（§2.5）
