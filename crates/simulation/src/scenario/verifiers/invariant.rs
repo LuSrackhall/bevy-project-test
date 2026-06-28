@@ -6,7 +6,7 @@ use crate::events::SimulationEvents;
 
 use super::super::verifier::{Verifier, VerifyError};
 
-type InvariantCheck = Box<dyn Fn(&World) -> Option<String>>;
+type InvariantCheck = Box<dyn Fn(&mut World) -> Option<String>>;
 
 /// Verifies invariants on the world state after simulation completes.
 pub struct InvariantVerifier {
@@ -20,7 +20,7 @@ impl InvariantVerifier {
 
     /// Add an invariant check. The closure returns None on success,
     /// Some(detail) on failure.
-    pub fn check(mut self, check: impl Fn(&World) -> Option<String> + 'static) -> Self {
+    pub fn check(mut self, check: impl Fn(&mut World) -> Option<String> + 'static) -> Self {
         self.checks.push(Box::new(check));
         self
     }

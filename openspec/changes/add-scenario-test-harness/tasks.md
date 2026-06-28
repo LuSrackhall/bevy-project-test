@@ -34,16 +34,16 @@
 - [x] 5.5 实现 `EventVerifier`（builder API: expect_spawned_at, expect_captured_at 等）
 - [x] 5.6 实现 `InvariantVerifier`（接受闭包列表）
 - [x] 5.7 实现 `CompositeVerifier`（组合多个 verifier，收集所有错误）
-- [ ] 5.8 为每个 Verifier 编写单元测试
+- [x] 5.8 为每个 Verifier 编写单元测试
 
 ## 6. Scenario + ScenarioOutput + run()
 
-- [ ] 6.1 实现 `Scenario` 结构体（seed, map_size, config, commands, max_tick, verifier）
-- [ ] 6.2 实现 `ScenarioOutput`（events_per_tick: HashMap<u32, SimulationEvents>）
-- [ ] 6.3 实现 `Scenario::run()` 方法：init_simulation_world + generate_map + 按 tick 分组 + 排序 + 注入 + run_tick + verify
-- [ ] 6.4 在 lib.rs 中导出 scenario 模块
-- [ ] 6.5 编写首个示例场景测试（城市产出 + SeekStance 继承 + 移动，300 tick）
-- [ ] 6.6 运行 `cargo test -p simulation` 确认所有测试通过
+- [x] 6.1 实现 `Scenario` 结构体（seed, map_size, config, commands, max_tick, verifier）
+- [x] 6.2 实现 `ScenarioOutput`（events_per_tick: HashMap<u32, SimulationEvents>）
+- [x] 6.3 实现 `Scenario::run()` 方法：init_simulation_world + generate_map + 按 tick 分组 + 排序 + 注入 + run_tick + verify
+- [x] 6.4 在 lib.rs 中导出 scenario 模块
+- [x] 6.5 编写首个示例场景测试（城市产出 + SeekStance 继承 + 移动，300 tick）
+- [x] 6.6 运行 `cargo test -p simulation` 确认所有测试通过
 
 ## 7. 文档与 ADR
 
