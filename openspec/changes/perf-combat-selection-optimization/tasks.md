@@ -17,7 +17,7 @@
 
 ## 3. 4 个战斗系统推广 SpatialHash
 
-- [ ] 3.1 combat_engagement_system 改用 SpatialHash 查询 + sorted_ids 排序外移
+- [x] 3.1 combat_engagement_system 改用 SpatialHash 查询 + sorted_ids 排序外移
 - [ ] 3.2 melee_attack_system 改用 SpatialHash 查询
 - [ ] 3.3 archer_attack_system 改用 SpatialHash 查询
 - [ ] 3.4 arrow_movement_system 改用 SpatialHash 查询

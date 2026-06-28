@@ -4,6 +4,7 @@ use crate::combat::config::CombatGlobalConfig;
 use crate::events::*;
 use crate::facing;
 use crate::soldier::config::SoldierConfig;
+use crate::soldier::spatial_hash::{SpatialEntry, SpatialHash};
 use crate::soldier::*;
 use crate::types::*;
 use bevy_ecs::component::Component;
@@ -84,22 +85,24 @@ pub(crate) fn drop_shield_on_death(world: &mut World, dying_entity: Entity, curr
 pub fn combat_engagement_system(world: &mut World) {
     let _soldier_config = world.resource::<SoldierConfig>().clone();
 
-    // Collect all entity positions & factions
-    let all_units: HashMap<UnitId, (FixedVec2, Faction)> = {
-        let mut q = world.query::<(
-            Entity,
-            &UnitIdComponent,
-            &LogicalPosition,
-            &FactionComponent,
-        )>();
-        q.iter(world)
-            .map(|(_, id, pos, fac)| (id.0, (pos.0, fac.0)))
-            .collect()
-    };
+    // Build spatial hash for O(k) neighbor queries
+    let cell_size = Fixed::from_int(200); // larger cells for seek_range queries
+    let mut spatial = SpatialHash::new(cell_size);
+    {
+        let mut q = world.query::<(&UnitIdComponent, &LogicalPosition)>();
+        for (id, pos) in q.iter(world) {
+            spatial.insert(SpatialEntry {
+                pos: pos.0,
+                radius: 0, // not used for distance comparison here
+                unit_id: id.0,
+            });
+        }
+    }
 
     // Collect soldiers to process
     struct EngData {
         entity: Entity,
+        unit_id: UnitId,
         pos: FixedVec2,
         faction: Faction,
         stype: SoldierType,
@@ -123,8 +126,9 @@ pub fn combat_engagement_system(world: &mut World) {
             Option<&SeekStance>,
         )>();
         q.iter(world)
-            .map(|(e, _id, pos, fac, st, sst, mov, seek)| EngData {
+            .map(|(e, id, pos, fac, st, sst, mov, seek)| EngData {
                 entity: e,
+                unit_id: id.0,
                 pos: pos.0,
                 faction: fac.0,
                 stype: st.0,
@@ -139,7 +143,12 @@ pub fn combat_engagement_system(world: &mut World) {
             .collect()
     };
 
-    for sd in soldiers {
+    // Pre-sort soldier UnitIds for deterministic iteration
+    let mut sorted_soldiers: Vec<usize> = (0..soldiers.len()).collect();
+    sorted_soldiers.sort_by_key(|&i| soldiers[i].unit_id);
+
+    for &si in &sorted_soldiers {
+        let sd = &soldiers[si];
         if sd.force_move {
             continue;
         }
@@ -164,18 +173,26 @@ pub fn combat_engagement_system(world: &mut World) {
         let aggro = Fixed::from_int(sd.seek_range as i32);
         let aggro_sq = aggro * aggro;
 
-        // Find nearest enemy (sorted iteration for determinism)
+        // Find nearest enemy using spatial hash (deterministic: BTreeMap + UnitId sorted)
+        let neighbors = spatial.query_nearby(sd.pos);
         let mut best: Option<(UnitId, i64)> = None;
-        let mut sorted_ids: Vec<UnitId> = all_units.keys().copied().collect();
-        sorted_ids.sort();
-        for &eid in &sorted_ids {
-            let (epos, efac) = &all_units[&eid];
-            if *efac == sd.faction {
+        for entry in &neighbors {
+            if entry.unit_id == sd.unit_id {
+                continue; // skip self
+            }
+            // Check faction: prefer UnitIdEntityIndex O(1), fallback to find_entity O(n)
+            let neigh_entity = world
+                .get_resource::<crate::unit_index::UnitIdEntityIndex>()
+                .and_then(|idx| idx.get(entry.unit_id))
+                .or_else(|| find_entity_by_unit_id(world, entry.unit_id));
+            let Some(ne) = neigh_entity else { continue };
+            let Some(fac) = world.entity(ne).get::<FactionComponent>() else { continue };
+            if fac.0 == sd.faction {
                 continue;
             }
-            let ds = (sd.pos - *epos).length_squared();
+            let ds = (sd.pos - entry.pos).length_squared();
             if ds <= aggro_sq && best.as_ref().is_none_or(|(_, d)| ds.0 < *d) {
-                best = Some((eid, ds.0));
+                best = Some((entry.unit_id, ds.0));
             }
         }
 
