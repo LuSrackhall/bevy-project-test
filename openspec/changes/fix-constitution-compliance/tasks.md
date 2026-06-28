@@ -21,11 +21,11 @@
 
 ## 4. CI 自动化检查
 
-- [ ] 4.1 在 `.github/workflows/ci.yml` 中添加 simulation 禁用类型扫描步骤（grep bevy_render/bevy_window/bevy_ui/bevy_input/bevy_asset/bevy_math）
-- [ ] 4.2 添加浮点渗入检测步骤（grep simulation crate 中非白名单的 f32/f64 使用）
-- [ ] 4.3 添加 hash_world_state 覆盖率检查步骤（比对组件列表）
-- [ ] 4.4 添加依赖拓扑检查步骤（simulation Cargo.toml 不依赖下游 crate）
-- [ ] 4.5 运行全量测试确认 CI 配置正确
+- [x] 4.1 在 `.github/workflows/ci.yml` 中添加 simulation 禁用类型扫描步骤（grep bevy_render/bevy_window/bevy_ui/bevy_input/bevy_asset/bevy_math）
+- [x] 4.2 添加浮点渗入检测步骤（grep simulation crate 中非白名单的 f32/f64 使用）
+- [x] 4.3 添加 hash_world_state 覆盖率检查步骤（比对组件列表）
+- [x] 4.4 添加依赖拓扑检查步骤（simulation Cargo.toml 不依赖下游 crate）
+- [x] 4.5 运行全量测试确认 CI 配置正确
 
 ## 5. 最终验证
 

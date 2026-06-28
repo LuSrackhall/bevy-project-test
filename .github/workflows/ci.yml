@@ -57,3 +57,41 @@ jobs:
 
       - name: Build
         run: cargo build --workspace
+
+      - name: Constitution — forbidden types in simulation
+        if: runner.os == 'Linux'
+        run: |
+          echo "Checking simulation crate for forbidden bevy_* imports..."
+          FORBIDDEN="bevy_render|bevy_window|bevy_ui|bevy_audio|bevy_input|bevy_asset|bevy_math"
+          if grep -rn "use ${FORBIDDEN}" crates/simulation/src/ --include="*.rs" 2>/dev/null; then
+            echo "::error::simulation crate contains forbidden bevy_* imports"
+            exit 1
+          fi
+          echo "PASS: no forbidden imports"
+
+      - name: Constitution — float infiltration in simulation
+        if: runner.os == 'Linux'
+        run: |
+          echo "Checking simulation crate for non-whitelisted f32/f64 usage..."
+          # Allow: from_float, to_float (config bridge), tick_duration (ADR), gen_probability_permyriad (returns u32)
+          HITS=$(grep -rn '\bf32\b\|\bf64\b' crates/simulation/src/ --include="*.rs" \
+            | grep -v "from_float\|to_float\|tick_duration\|gen_probability\|//.*f32\|//.*f64\|///\|deprecated\|doc" \
+            || true)
+          if [ -n "$HITS" ]; then
+            echo "::error::Non-whitelisted f32/f64 found in simulation crate:"
+            echo "$HITS"
+            exit 1
+          fi
+          echo "PASS: no float infiltration"
+
+      - name: Constitution — dependency topology
+        if: runner.os == 'Linux'
+        run: |
+          echo "Checking simulation crate dependencies..."
+          DEPS=$(grep -E "^\[dependencies" -A50 crates/simulation/Cargo.toml | grep -v "^\[" | grep -v "^$" | grep -v "^#")
+          FORBIDDEN_DEPS="bevy_adapter\|presentation\|render_view"
+          if echo "$DEPS" | grep -q "$FORBIDDEN_DEPS"; then
+            echo "::error::simulation crate depends on downstream crate"
+            exit 1
+          fi
+          echo "PASS: dependency topology correct"
