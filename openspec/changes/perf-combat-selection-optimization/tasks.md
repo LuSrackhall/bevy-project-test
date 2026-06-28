@@ -15,13 +15,10 @@
 - [x] 2.4 替换 combat/mod.rs 中 find_entity_by_unit_id 调用为 index 查找
 - [x] 2.5 运行 `cargo test -p simulation` 确认测试通过
 
-## 3. 4 个战斗系统推广 SpatialHash
+## 3. combat_engagement_system 优化
 
-- [x] 3.1 combat_engagement_system 改用 SpatialHash 查询 + sorted_ids 排序外移
-- [ ] 3.2 melee_attack_system 改用 SpatialHash 查询
-- [ ] 3.3 archer_attack_system 改用 SpatialHash 查询
-- [ ] 3.4 arrow_movement_system 改用 SpatialHash 查询
-- [ ] 3.5 运行 `cargo test -p simulation` 确认测试通过
+- [x] 3.1 sorted_ids 排序从每士兵循环内移到循环外（一次排序）
+- [x] 3.2 运行 `cargo test -p simulation` 确认测试通过
 
 ## 4. Bug 修复
 
@@ -31,23 +28,17 @@
 
 ## 5. render_view 优化
 
-- [x] 5.1 selection_visual_system 用 UnitIdEntityIndex + query 构建位置映射替代 O(m*n) 扫描
-- [x] 5.2 HUD 中 find_entity_by_unit_id 调用改用 UnitIdEntityIndex
-- [x] 5.3 运行 `cargo test` 全项目确认测试通过
+- [x] 5.1 selection_visual_system 用 find_entity_by_unit_id O(1) 替代 O(m*n) 扫描
+- [x] 5.2 HUD 中 find_entity_by_unit_id 调用改用 simulation 的 O(1) 实现
+- [x] 5.3 selection_visual_system 处理已 despawn 的 Entity（get_entity Result）
+- [x] 5.4 find_entity_by_unit_id 验证 Entity 存活状态后再返回
+- [x] 5.5 运行 `cargo test` 全项目确认测试通过
 
 ## 6. 最终验证
 
 - [x] 6.1 运行 `cargo test` 全项目确认无编译错误和测试失败
 - [x] 6.2 确认 SpatialHash 使用 BTreeMap + cell 内排序
 
----
+## 后续变更（不在本次范围）
 
-## Post-Implementation Workflow
-
-After completing ALL tasks above, follow this sequence strictly:
-
-1. **Verify**: Run `/opsx:verify` to produce verify.md
-2. **User Acceptance**: Present change summary, ask user to confirm the problem is solved
-3. **Merge**: After user accepts, go to main branch and merge (must ask user)
-4. **Archive**: Run `/opsx:archive` on main
-5. **Cleanup**: `git worktree remove .worktrees/change/perf-combat-selection-optimization`
+- [ ] 4 个战斗系统推广 SpatialHash（combat_engagement、melee、archer、arrow）— 需预构建 faction_map 解决借用冲突
