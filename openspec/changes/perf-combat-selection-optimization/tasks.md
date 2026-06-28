@@ -31,14 +31,14 @@
 
 ## 5. render_view 优化
 
-- [ ] 5.1 selection_visual_system 用 UnitIdEntityIndex + query 构建位置映射替代 O(m*n) 扫描
-- [ ] 5.2 HUD 中 find_entity_by_unit_id 调用改用 UnitIdEntityIndex
-- [ ] 5.3 运行 `cargo test` 全项目确认测试通过
+- [x] 5.1 selection_visual_system 用 UnitIdEntityIndex + query 构建位置映射替代 O(m*n) 扫描
+- [x] 5.2 HUD 中 find_entity_by_unit_id 调用改用 UnitIdEntityIndex
+- [x] 5.3 运行 `cargo test` 全项目确认测试通过
 
 ## 6. 最终验证
 
-- [ ] 6.1 运行 `cargo test` 全项目确认无编译错误和测试失败
-- [ ] 6.2 确认 SpatialHash 使用 BTreeMap + cell 内排序
+- [x] 6.1 运行 `cargo test` 全项目确认无编译错误和测试失败
+- [x] 6.2 确认 SpatialHash 使用 BTreeMap + cell 内排序
 
 ---
 

@@ -1019,11 +1019,10 @@ fn clear_compendium(tq: &mut Query<&mut Text>, ht: &HudTexts) {
 // ══════════ Button Systems ══════════
 
 fn find_entity_by_unit_id(
-    world: &mut bevy::prelude::World,
+    world: &mut simulation::World,
     uid: simulation::types::UnitId,
 ) -> Option<bevy::prelude::Entity> {
-    let mut q = world.query::<(bevy::prelude::Entity, &simulation::soldier::UnitIdComponent)>();
-    q.iter(world).find(|(_, id)| id.0 == uid).map(|(e, _)| e)
+    simulation::soldier::find_entity_by_unit_id(world, uid)
 }
 
 // ══════════ Scope Popup Close on Outside Click ══════════
