@@ -1,11 +1,11 @@
 ## 1. SpatialHash 改造
 
-- [ ] 1.1 将 `spatial_hash.rs` 中 HashMap 改为 BTreeMap
-- [ ] 1.2 SpatialHash 的 cell 数据扩展为包含 UnitId（当前只存 FixedVec2 + u32）
-- [ ] 1.3 构建时每个 cell 内 Vec 按 UnitId 排序
-- [ ] 1.4 更新 insert 和 query_nearby 签名
-- [ ] 1.5 更新 overlap_resolution_system 调用适配新签名
-- [ ] 1.6 运行 `cargo test -p simulation` 确认现有测试通过
+- [x] 1.1 将 `spatial_hash.rs` 中 HashMap 改为 BTreeMap
+- [x] 1.2 SpatialHash 的 cell 数据扩展为包含 UnitId（当前只存 FixedVec2 + u32）
+- [x] 1.3 构建时每个 cell 内 Vec 按 UnitId 排序
+- [x] 1.4 更新 insert 和 query_nearby 签名
+- [x] 1.5 更新 overlap_resolution_system 调用适配新签名
+- [x] 1.6 运行 `cargo test -p simulation` 确认现有测试通过
 
 ## 2. UnitIdEntityIndex
 
