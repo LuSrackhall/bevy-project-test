@@ -27,13 +27,13 @@
 
 ## 5. Verifier trait 与内置 Verifier
 
-- [ ] 5.1 创建 `crates/simulation/src/scenario/` 目录结构（mod.rs, verifier.rs, verifiers/）
-- [ ] 5.2 实现 `VerifyError` 枚举（HashMismatch, EventMismatch, InvariantViolation, Composite），包含 source 和 tick 字段
-- [ ] 5.3 实现 `trait Verifier { fn name(&self) -> &'static str; fn verify(...) -> Result<(), VerifyError> }`
-- [ ] 5.4 实现 `SnapshotVerifier`（调用 hash_world_state 比对）
-- [ ] 5.5 实现 `EventVerifier`（builder API: expect_spawned_at, expect_captured_at 等）
-- [ ] 5.6 实现 `InvariantVerifier`（接受闭包列表）
-- [ ] 5.7 实现 `CompositeVerifier`（组合多个 verifier，收集所有错误）
+- [x] 5.1 创建 `crates/simulation/src/scenario/` 目录结构（mod.rs, verifier.rs, verifiers/）
+- [x] 5.2 实现 `VerifyError` 枚举（HashMismatch, EventMismatch, InvariantViolation, Composite），包含 source 和 tick 字段
+- [x] 5.3 实现 `trait Verifier { fn name(&self) -> &'static str; fn verify(...) -> Result<(), VerifyError> }`
+- [x] 5.4 实现 `SnapshotVerifier`（调用 hash_world_state 比对）
+- [x] 5.5 实现 `EventVerifier`（builder API: expect_spawned_at, expect_captured_at 等）
+- [x] 5.6 实现 `InvariantVerifier`（接受闭包列表）
+- [x] 5.7 实现 `CompositeVerifier`（组合多个 verifier，收集所有错误）
 - [ ] 5.8 为每个 Verifier 编写单元测试
 
 ## 6. Scenario + ScenarioOutput + run()

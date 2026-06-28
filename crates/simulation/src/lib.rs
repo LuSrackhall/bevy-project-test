@@ -8,6 +8,7 @@ pub mod golden_test;
 pub mod map;
 pub mod replay;
 pub mod run_config;
+pub mod scenario;
 pub mod soldier;
 pub mod types;
 
