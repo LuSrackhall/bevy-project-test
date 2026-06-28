@@ -14,10 +14,10 @@
 
 ## 3. §3.1 Tick 时序：run_tick 六步流程
 
-- [ ] 3.1 在 `lib.rs` 中新增 `collect_command_players(world) -> Vec<u8>` 函数（显式 match，仅 Player/Enemy）
-- [ ] 3.2 在 `run_tick` 中实现六步流程：Step 1 take_for_tick → Step 2 NoOp 注入 → Step 3 排序 → Step 4 归档（可选 ReplayFile） → Step 5 清除事件 + consume_commands_system + 其余 Phase + ai_decide → Step 6 返回 SimulationEvents
-- [ ] 3.3 修改 `scenario/mod.rs` 中 `Scenario::run()`：删除自行排序（run_tick 已处理），命令直接 extend 进 CommandBuffer
-- [ ] 3.4 运行 `cargo test -p simulation` 确认所有测试通过
+- [x] 3.1 在 `lib.rs` 中新增 `collect_command_players(world) -> Vec<u8>` 函数（显式 match，仅 Player/Enemy）
+- [x] 3.2 在 `run_tick` 中实现六步流程：Step 1 take_for_tick → Step 2 NoOp 注入 → Step 3 排序 → Step 4 归档（可选 ReplayFile） → Step 5 清除事件 + consume_commands_system + 其余 Phase + ai_decide → Step 6 返回 SimulationEvents
+- [x] 3.3 修改 `scenario/mod.rs` 中 `Scenario::run()`：删除自行排序（run_tick 已处理），命令直接 extend 进 CommandBuffer
+- [x] 3.4 运行 `cargo test -p simulation` 确认所有测试通过
 
 ## 4. CI 自动化检查
 
