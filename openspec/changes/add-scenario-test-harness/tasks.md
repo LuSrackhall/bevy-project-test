@@ -5,9 +5,9 @@
 
 ## 2. DefaultHasher 修复
 
-- [ ] 2.1 将 `crates/simulation/src/golden_test.rs` 中的 `DefaultHasher` 替换为跨 Rust 版本稳定的确定性哈希函数（如 `twox-hash` 或手动实现的 FNV/SipHash）
-- [ ] 2.2 更新 golden_test.rs 中所有 4 个测试的预期哈希值
-- [ ] 2.3 运行 `cargo test -p simulation` 确认所有测试通过
+- [x] 2.1 将 `crates/simulation/src/golden_test.rs` 中的 `DefaultHasher` 替换为跨 Rust 版本稳定的确定性哈希函数（如 `twox-hash` 或手动实现的 FNV/SipHash）
+- [x] 2.2 更新 golden_test.rs 中所有 4 个测试的预期哈希值
+- [x] 2.3 运行 `cargo test -p simulation` 确认所有测试通过
 
 ## 3. hash_world_state 覆盖补齐
 

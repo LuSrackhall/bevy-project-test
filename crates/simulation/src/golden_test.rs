@@ -2,16 +2,41 @@
 //! results given the same seed and command sequence.
 
 use bevy_ecs::world::World;
-use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 use crate::soldier::*;
 use crate::types::*;
 
+/// FNV-1a 64-bit hasher — deterministic across Rust compiler versions.
+/// Replaces std::collections::hash_map::DefaultHasher (constitution §10.3).
+struct FnvHasher(u64);
+
+impl FnvHasher {
+    const OFFSET_BASIS: u64 = 0xcbf29ce484222325;
+    const PRIME: u64 = 0x00000100000001B3;
+
+    fn new() -> Self {
+        Self(Self::OFFSET_BASIS)
+    }
+}
+
+impl Hasher for FnvHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+
+    fn write(&mut self, bytes: &[u8]) {
+        for &b in bytes {
+            self.0 ^= b as u64;
+            self.0 = self.0.wrapping_mul(Self::PRIME);
+        }
+    }
+}
+
 /// Compute a deterministic hash of the entire simulation world state.
 /// Extracts fields from all entities (sorted by UnitId) and hashes them.
 pub fn hash_world_state(world: &mut World) -> u64 {
-    let mut hasher = DefaultHasher::new();
+    let mut hasher = FnvHasher::new();
 
     // Collect and sort entities by UnitId
     let mut entities: Vec<UnitId> = {
