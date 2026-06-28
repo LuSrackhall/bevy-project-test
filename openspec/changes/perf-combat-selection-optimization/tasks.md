@@ -9,11 +9,11 @@
 
 ## 2. UnitIdEntityIndex
 
-- [ ] 2.1 定义 `UnitIdEntityIndex(HashMap<UnitId, Entity>)` Resource
-- [ ] 2.2 在 run_tick Step 5 开头重建索引（全量扫描 UnitIdComponent）
-- [ ] 2.3 替换 soldier/mod.rs 中 find_entity_by_unit_id 调用为 index 查找
-- [ ] 2.4 替换 combat/mod.rs 中 find_entity_by_unit_id 调用为 index 查找
-- [ ] 2.5 运行 `cargo test -p simulation` 确认测试通过
+- [x] 2.1 定义 `UnitIdEntityIndex(HashMap<UnitId, Entity>)` Resource
+- [x] 2.2 在 run_tick Step 5 开头重建索引（全量扫描 UnitIdComponent）
+- [x] 2.3 替换 soldier/mod.rs 中 find_entity_by_unit_id 调用为 index 查找
+- [x] 2.4 替换 combat/mod.rs 中 find_entity_by_unit_id 调用为 index 查找
+- [x] 2.5 运行 `cargo test -p simulation` 确认测试通过
 
 ## 3. 4 个战斗系统推广 SpatialHash
 
