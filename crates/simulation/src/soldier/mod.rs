@@ -124,7 +124,13 @@ fn integer_sqrt(n: i64) -> i64 {
 pub fn find_entity_by_unit_id(world: &mut World, unit_id: UnitId) -> Option<Entity> {
     // O(1) fast path: use per-tick index if available
     if let Some(index) = world.get_resource::<crate::unit_index::UnitIdEntityIndex>() {
-        return index.get(unit_id);
+        if let Some(entity) = index.get(unit_id) {
+            // Verify entity is still alive (may have been despawned this tick)
+            if world.get_entity(entity).is_ok() {
+                return Some(entity);
+            }
+        }
+        return None;
     }
     // O(n) fallback: for tests and contexts without the index
     let mut query = world.query::<(Entity, &UnitIdComponent)>();
