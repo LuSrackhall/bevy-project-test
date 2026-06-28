@@ -47,9 +47,9 @@
 
 ## 7. 文档与 ADR
 
-- [ ] 7.1 创建 `docs/engineering/testing.md`，定义 scenario harness 使用约定、Verifier 编写规范、CI 集成方式
-- [ ] 7.2 创建 `docs/adr/0001-run-config-semantics.md`，记录 RunConfig 的语义定位（决策、放弃方案、代价、修改条件）
-- [ ] 7.3 提交所有文档
+- [x] 7.1 创建 `docs/engineering/testing.md`，定义 scenario harness 使用约定、Verifier 编写规范、CI 集成方式
+- [x] 7.2 创建 `docs/adr/0001-run-config-semantics.md`，记录 RunConfig 的语义定位（决策、放弃方案、代价、修改条件）
+- [x] 7.3 提交所有文档
 
 ---
 
