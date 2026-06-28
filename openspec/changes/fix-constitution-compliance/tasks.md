@@ -1,9 +1,9 @@
 ## 1. 组 A：小修复
 
-- [ ] 1.1 删除 `types.rs` 中 `gen_probability()` deprecated 方法，确认无调用方
-- [ ] 1.2 替换 `bevy_adapter/src/driver.rs` 中 `world_fingerprint` 的 DefaultHasher 为 FNV-1a
-- [ ] 1.3 补齐 `golden_test.rs` 中 hash_world_state 的字段覆盖：Movement（command_target, waypoint）、CityComponent（max_level, spawn_type, last_attacker_faction, arrow_damage_acc）、CityOrigin 组件、SoldierStateComponent 组件
-- [ ] 1.4 运行 `cargo test -p simulation` 确认所有测试通过
+- [x] 1.1 删除 `types.rs` 中 `gen_probability()` deprecated 方法，确认无调用方
+- [x] 1.2 替换 `bevy_adapter/src/driver.rs` 中 `world_fingerprint` 的 DefaultHasher 为 FNV-1a
+- [x] 1.3 补齐 `golden_test.rs` 中 hash_world_state 的字段覆盖：Movement（command_target, waypoint）、CityComponent（max_level, spawn_type, last_attacker_faction, arrow_damage_acc）、CityOrigin 组件、SoldierStateComponent 组件
+- [x] 1.4 运行 `cargo test -p simulation` 确认所有测试通过
 
 ## 2. §3.1 Tick 时序：ReplayFile + consume_commands_system
 

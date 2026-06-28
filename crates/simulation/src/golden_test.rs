@@ -76,6 +76,8 @@ pub fn hash_world_state(world: &mut World) -> u64 {
         if let Some(m) = em.get::<Movement>() {
             m.speed.hash(&mut hasher);
             m.target.map(|t| t.0).hash(&mut hasher);
+            m.command_target.map(|t| t.0).hash(&mut hasher);
+            m.waypoint.map(|w| (w.x.0, w.y.0)).hash(&mut hasher);
             m.force_move.hash(&mut hasher);
         }
         // Faction
@@ -94,11 +96,22 @@ pub fn hash_world_state(world: &mut World) -> u64 {
         // CityComponent
         if let Some(c) = em.get::<CityComponent>() {
             c.level.hash(&mut hasher);
+            c.max_level.hash(&mut hasher);
             c.health_current.hash(&mut hasher);
             c.health_max.hash(&mut hasher);
             c.population.hash(&mut hasher);
+            c.max_population.hash(&mut hasher);
+            let spawn_tag: u8 = match c.spawn_type {
+                SoldierType::Militia => 0,
+                SoldierType::Infantry => 1,
+                SoldierType::Archer => 2,
+                SoldierType::Cavalry => 3,
+            };
+            spawn_tag.hash(&mut hasher);
             c.spawn_cooldown.hash(&mut hasher);
             c.level_exp.hash(&mut hasher);
+            c.last_attacker_faction.map(|f| f as u8).hash(&mut hasher);
+            c.arrow_damage_acc.hash(&mut hasher);
         }
         // ShieldItem
         if let Some(s) = em.get::<ShieldItem>() {
@@ -162,6 +175,18 @@ pub fn hash_world_state(world: &mut World) -> u64 {
             ds.position.y.0.hash(&mut hasher);
             ds.drop_tick.hash(&mut hasher);
             ds.owner_faction.map(|f| f as u8).hash(&mut hasher);
+        }
+        // CityOrigin
+        if let Some(co) = em.get::<CityOrigin>() {
+            co.0 .0.hash(&mut hasher);
+        }
+        // SoldierStateComponent
+        if let Some(ss) = em.get::<SoldierStateComponent>() {
+            let state_tag: u8 = match ss.0 {
+                SoldierState::Moving => 0,
+                SoldierState::Fighting => 1,
+            };
+            state_tag.hash(&mut hasher);
         }
     }
 

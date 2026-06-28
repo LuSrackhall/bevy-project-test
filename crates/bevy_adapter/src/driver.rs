@@ -152,8 +152,21 @@ impl SimulationDriver {
 /// Used to detect replay divergence at each tick.
 fn world_fingerprint(sim_world: &mut SimulationWorld) -> u64 {
     use std::hash::{Hash, Hasher};
-    use std::collections::hash_map::DefaultHasher;
-    let mut h = DefaultHasher::new();
+
+    struct FnvHasher(u64);
+    impl FnvHasher {
+        const OFFSET_BASIS: u64 = 0xcbf29ce484222325;
+        const PRIME: u64 = 0x00000100000001B3;
+        fn new() -> Self { Self(Self::OFFSET_BASIS) }
+    }
+    impl Hasher for FnvHasher {
+        fn finish(&self) -> u64 { self.0 }
+        fn write(&mut self, bytes: &[u8]) {
+            for &b in bytes { self.0 ^= b as u64; self.0 = self.0.wrapping_mul(Self::PRIME); }
+        }
+    }
+
+    let mut h = FnvHasher::new();
     let world = &mut sim_world.0;
 
     let mut q = world.query::<&simulation::soldier::Health>();
