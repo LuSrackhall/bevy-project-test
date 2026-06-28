@@ -308,9 +308,12 @@ pub fn selection_visual_system(
     // O(1) per lookup using UnitIdEntityIndex (rebuilt each tick in run_tick)
     for &uid in &selection.selected_unit_ids {
         if let Some(entity) = simulation::soldier::find_entity_by_unit_id(world, uid) {
-            if let Some(pos) = world.entity(entity).get::<LogicalPosition>() {
-                let p = Vec2::new(pos.0.x.to_float(), pos.0.y.to_float());
-                gizmos.circle_2d(p, 10.0, Color::srgb(0.2, 1.0, 0.2));
+            // Safety: entity may have been despawned this tick; check validity
+            if let Ok(em) = world.get_entity(entity) {
+                if let Some(pos) = em.get::<LogicalPosition>() {
+                    let p = Vec2::new(pos.0.x.to_float(), pos.0.y.to_float());
+                    gizmos.circle_2d(p, 10.0, Color::srgb(0.2, 1.0, 0.2));
+                }
             }
         }
     }
