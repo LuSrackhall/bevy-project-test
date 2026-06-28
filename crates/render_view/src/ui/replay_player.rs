@@ -267,7 +267,7 @@ pub fn replay_seek_system(
                 sim_cmds.0.push(cmd);
             }
         }
-        simulation::run_tick(&mut sim_world.0, tick);
+        simulation::run_tick_default(&mut sim_world.0, tick);
     }
 
     driver.clock.current_tick = tick;

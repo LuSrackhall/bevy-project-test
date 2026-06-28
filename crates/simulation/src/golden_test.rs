@@ -174,7 +174,7 @@ mod tests {
     use crate::command::*;
     use crate::init_simulation_world;
     use crate::map;
-    use crate::run_tick;
+    use crate::run_tick_default;
 
     #[test]
     fn test_golden_empty_map_no_commands() {
@@ -184,8 +184,8 @@ mod tests {
         map::generate_map(&mut world2, map::MapSize::Small);
 
         for tick in 1..=1000 {
-            run_tick(&mut world1, tick);
-            run_tick(&mut world2, tick);
+            run_tick_default(&mut world1, tick);
+            run_tick_default(&mut world2, tick);
         }
 
         let hash1 = hash_world_state(&mut world1);
@@ -204,8 +204,8 @@ mod tests {
         map::generate_map(&mut world2, map::MapSize::Small);
 
         for tick in 1..=100 {
-            run_tick(&mut world1, tick);
-            run_tick(&mut world2, tick);
+            run_tick_default(&mut world1, tick);
+            run_tick_default(&mut world2, tick);
         }
 
         let hash1 = hash_world_state(&mut world1);
@@ -243,8 +243,8 @@ mod tests {
                     });
                 }
             }
-            run_tick(&mut world1, tick);
-            run_tick(&mut world2, tick);
+            run_tick_default(&mut world1, tick);
+            run_tick_default(&mut world2, tick);
         }
 
         let hash1 = hash_world_state(&mut world1);
@@ -261,7 +261,7 @@ mod tests {
             let mut world = init_simulation_world(12345);
             map::generate_map(&mut world, map::MapSize::Medium);
             for tick in 1..=2000 {
-                run_tick(&mut world, tick);
+                run_tick_default(&mut world, tick);
             }
             hash_world_state(&mut world)
         }

@@ -7,6 +7,7 @@ pub mod facing;
 pub mod golden_test;
 pub mod map;
 pub mod replay;
+pub mod run_config;
 pub mod soldier;
 pub mod types;
 
@@ -15,6 +16,7 @@ use crate::combat::config::CombatGlobalConfig;
 use crate::command::*;
 pub use crate::events::SimulationEvents;
 use crate::soldier::config::SoldierConfig;
+use crate::run_config::RunConfig;
 use crate::types::*;
 pub use bevy_ecs::world::World;
 
@@ -48,8 +50,8 @@ pub fn init_simulation_world(seed: u64) -> World {
     world
 }
 
-/// Run one complete simulation tick. Returns events for this tick.
-pub fn run_tick(world: &mut World, tick_number: u32) -> SimulationEvents {
+/// Run one complete simulation tick with explicit config. Returns events for this tick.
+pub fn run_tick(world: &mut World, tick_number: u32, config: &RunConfig) -> SimulationEvents {
     // Clear previous events
     {
         let mut events = world.resource_mut::<SimulationEvents>();
@@ -111,11 +113,19 @@ pub fn run_tick(world: &mut World, tick_number: u32) -> SimulationEvents {
     soldier::shield_decay_system(world, tick_number);
 
     // Phase 14: AI decision
-    ai::ai_decide(world, tick_number);
+    if config.enable_ai {
+        ai::ai_decide(world, tick_number);
+    }
 
     // Extract and return events
     let events = world.resource::<SimulationEvents>().clone();
     events
+}
+
+/// Run one complete simulation tick with default config (AI enabled).
+/// Convenience wrapper for backward compatibility.
+pub fn run_tick_default(world: &mut World, tick_number: u32) -> SimulationEvents {
+    run_tick(world, tick_number, &RunConfig::default())
 }
 
 #[cfg(test)]

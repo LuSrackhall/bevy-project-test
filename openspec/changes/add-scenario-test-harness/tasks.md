@@ -17,13 +17,13 @@
 
 ## 4. RunConfig + run_tick 签名变更
 
-- [ ] 4.1 创建 `crates/simulation/src/run_config.rs`，定义 `RunConfig { enable_ai: bool }` 和 `Default` 实现
-- [ ] 4.2 修改 `run_tick` 签名为 `(world: &mut World, tick_number: u32, config: &RunConfig) -> SimulationEvents`
-- [ ] 4.3 添加 `run_tick_default(world, tick)` 兼容包装
-- [ ] 4.4 在 `run_tick` 内部 ai_decide 阶段添加 `if config.enable_ai` 条件判断
-- [ ] 4.5 迁移 simulation crate 内部 11 处 `run_tick` 调用为 `run_tick_default`
-- [ ] 4.6 迁移 `crates/bevy_adapter/src/driver.rs` 中 9 处 `simulation::run_tick` 调用为 `simulation::run_tick_default`
-- [ ] 4.7 运行 `cargo test` 全项目确认无编译错误和测试失败
+- [x] 4.1 创建 `crates/simulation/src/run_config.rs`，定义 `RunConfig { enable_ai: bool }` 和 `Default` 实现
+- [x] 4.2 修改 `run_tick` 签名为 `(world: &mut World, tick_number: u32, config: &RunConfig) -> SimulationEvents`
+- [x] 4.3 添加 `run_tick_default(world, tick)` 兼容包装
+- [x] 4.4 在 `run_tick` 内部 ai_decide 阶段添加 `if config.enable_ai` 条件判断
+- [x] 4.5 迁移 simulation crate 内部 11 处 `run_tick` 调用为 `run_tick_default`
+- [x] 4.6 迁移 `crates/bevy_adapter/src/driver.rs` 中 9 处 `simulation::run_tick` 调用为 `simulation::run_tick_default`
+- [x] 4.7 运行 `cargo test` 全项目确认无编译错误和测试失败
 
 ## 5. Verifier trait 与内置 Verifier
 

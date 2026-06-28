@@ -236,7 +236,7 @@ pub fn simulation_driver_system(
         cmd_buf.0.retain(|c| c.tick > tick);
 
         // 5. Execute tick — the ONLY run_tick call point (I2, I7)
-        let events = simulation::run_tick(&mut sim_world.0, tick);
+        let events = simulation::run_tick_default(&mut sim_world.0, tick);
         pending.events.push(events);
 
         // Sync tick_clock for presentation layer
@@ -283,7 +283,7 @@ fn handle_seek(
         driver.clock.current_tick += 1;
         let cmds = driver.source.commands_for_tick(driver.clock.current_tick, ctx);
         inject_commands(sim_world, cmds);
-        simulation::run_tick(&mut sim_world.0, driver.clock.current_tick);
+        simulation::run_tick_default(&mut sim_world.0, driver.clock.current_tick);
     }
 
     // Seek complete
@@ -310,7 +310,7 @@ mod tests {
     use simulation::golden_test::hash_world_state;
 
     /// Test: same seed + same commands → same state regardless of speed.
-    /// This tests the DRIVER layer, not run_tick() directly.
+    /// This tests the DRIVER layer, not run_tick_default() directly.
     #[test]
     fn test_speed_determinism() {
         let seed = 42u64;
@@ -324,7 +324,7 @@ mod tests {
             let cmds: Vec<GameCommand> = vec![];
             let mut sim_cmds = world1.resource_mut::<simulation::command::CommandBuffer>();
             for cmd in cmds { sim_cmds.0.push(cmd); }
-            simulation::run_tick(&mut world1, tick);
+            simulation::run_tick_default(&mut world1, tick);
         }
         let hash1 = hash_world_state(&mut world1);
 
@@ -335,7 +335,7 @@ mod tests {
             let cmds: Vec<GameCommand> = vec![];
             let mut sim_cmds = world2.resource_mut::<simulation::command::CommandBuffer>();
             for cmd in cmds { sim_cmds.0.push(cmd); }
-            simulation::run_tick(&mut world2, tick);
+            simulation::run_tick_default(&mut world2, tick);
         }
         let hash2 = hash_world_state(&mut world2);
 
@@ -354,7 +354,7 @@ mod tests {
         let mut world_continuous = init_simulation_world(seed);
         map::generate_map(&mut world_continuous, map_size);
         for tick in 1..=total_ticks {
-            simulation::run_tick(&mut world_continuous, tick);
+            simulation::run_tick_default(&mut world_continuous, tick);
         }
         let hash_continuous = hash_world_state(&mut world_continuous);
 
@@ -363,11 +363,11 @@ mod tests {
         map::generate_map(&mut world_seek, map_size);
         // Phase 1: advance to 500
         for tick in 1..=500 {
-            simulation::run_tick(&mut world_seek, tick);
+            simulation::run_tick_default(&mut world_seek, tick);
         }
         // Phase 2: continue from 500 to 1000
         for tick in 501..=total_ticks {
-            simulation::run_tick(&mut world_seek, tick);
+            simulation::run_tick_default(&mut world_seek, tick);
         }
         let hash_seek = hash_world_state(&mut world_seek);
 
@@ -385,7 +385,7 @@ mod tests {
         let mut world1 = init_simulation_world(seed);
         map::generate_map(&mut world1, map_size);
         for tick in 1..=500 {
-            simulation::run_tick(&mut world1, tick);
+            simulation::run_tick_default(&mut world1, tick);
         }
         let hash_at_500 = hash_world_state(&mut world1);
 
@@ -393,7 +393,7 @@ mod tests {
         let mut world2 = init_simulation_world(seed);
         map::generate_map(&mut world2, map_size);
         for tick in 1..=500 {
-            simulation::run_tick(&mut world2, tick);
+            simulation::run_tick_default(&mut world2, tick);
         }
         let hash_at_500_again = hash_world_state(&mut world2);
 
