@@ -76,7 +76,7 @@ EventVerifier SHALL 提供 builder API（expect_spawned_at、expect_captured_at 
 
 ### Requirement: InvariantVerifier
 
-InvariantVerifier SHALL 接受 Vec<Box<dyn Fn(&World) -> Option<String>>> 闭包列表，逐个执行并在首个返回 Some 时失败。
+InvariantVerifier SHALL 接受 Vec<Box<dyn Fn(&mut World) -> Option<String>>> 闭包列表，逐个执行并在首个返回 Some 时失败。
 
 #### Scenario: 不变量全部满足
 

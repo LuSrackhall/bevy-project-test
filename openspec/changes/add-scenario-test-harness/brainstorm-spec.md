@@ -3,7 +3,7 @@
 项目当前面临的核心痛点：每次代码改动后需要人工手动测试验证，成本高。AI 写代码后，开发者充当测试人员，需求需要反复沟通，结果需要反复验证。
 
 现有测试基础设施：
-- `golden_test.rs`（4 个黄金测试）+ 各模块内联测试（~93 个）
+- `golden_test.rs`（4 个黄金测试）+ 各模块内联测试（~95 个）
 - `hash_world_state` 使用 `DefaultHasher`（违反宪法 §10.3）
 - `hash_world_state` 缺少 8 个组件覆盖（SeekStance、SlowDebuff、FearlessBuff、ShieldComponent、AttackWindup、FacingDirection、Arrow、DroppedShield）
 - `Action` 枚举无 `sort_tag()` 方法（宪法 §2.5 要求但代码未实现）
@@ -39,7 +39,7 @@
 - 运行时拦截（移除资源）：测试黑魔法，维护成本高
 - 将 enable_ai 放入 GameCommand：AI 开关不是 Tick 级决策
 
-**代价**：`run_tick` 签名变更，20 处调用需迁移（11 处 simulation 内部 + 9 处 bevy_adapter）。
+**代价**：`run_tick` 签名变更，21 处调用需迁移（simulation 内部 + bevy_adapter 9 处 + render_view 1 处）。
 
 **修改条件**：若需要 Tick 内动态切换 AI，则改回 GameCommand。
 
@@ -83,7 +83,7 @@
 ## Risks / Trade-offs
 
 **[Risk] hash_world_state 补齐后现有 golden_test 哈希值会变**
-→ 必须同步更新 golden_test.rs 中的预期哈希值。这是破坏性变更但不可避免。
+→ golden_test 使用"同种子两次运行 hash 相等"模式，不依赖硬编码预期值，实际无需更新。
 
 **[Risk] run_tick 签名变更影响 bevy_adapter 跨 crate 调用**
 → bevy_adapter/driver.rs 有 9 处调用需迁移。通过 run_tick_default 包装可零行为变更。
@@ -107,4 +107,4 @@
 6. **Scenario + ScenarioOutput + run()** — 测试框架核心
 7. **testing.md** — 工程规范文档
 8. **ADR（RunConfig 语义定位）** — 架构决策记录
-9. **首个示例场景** — 城市产出 + SeekStance 继承 + 移动
+9. **示例场景测试** — 8 个测试覆盖 SnapshotVerifier/EventVerifier/InvariantVerifier/CompositeVerifier + 命令注入 + AI 禁用

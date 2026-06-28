@@ -4,7 +4,7 @@
 
 ## What Changes
 
-- **BREAKING** `run_tick` 签名变更：新增 `&RunConfig` 参数，提供 `run_tick_default` 兼容包装。20 处调用需迁移。
+- **BREAKING** `run_tick` 签名变更：新增 `&RunConfig` 参数，提供 `run_tick_default` 兼容包装。21 处调用需迁移。
 - 新增 `RunConfig` 结构体（enable_ai 字段），作为仿真初始化参数控制 AI 子系统开关。
 - 新增 `Action::sort_tag()` 方法，返回显式排序标签，用于 §3.1 命令确定性排序。
 - 修复 `DefaultHasher` 违规，替换为跨 Rust 版本稳定的确定性哈希函数。
@@ -24,7 +24,7 @@
 
 ## Impact
 
-- **API 破坏**：`run_tick` 签名变更影响 simulation 内部（11 处）和 bevy_adapter（9 处）调用。
-- **哈希值变更**：hash_world_state 补齐后现有 golden_test 预期哈希值会变，需同步更新。
+- **API 破坏**：`run_tick` 签名变更影响 simulation 内部、bevy_adapter（9 处）和 render_view（1 处）调用。
+- **哈希算法变更**：DefaultHasher → FNV-1a。golden_test 使用比较模式（同种子两次运行 hash 相等），不依赖硬编码预期值，无需更新。
 - **无新增依赖**：不引入新 crate 依赖，Verifier trait 和 Scenario 使用现有 bevy_ecs 和 simulation 内部类型。
-- **测试覆盖提升**：新增场景测试覆盖多系统联动（城市产出 + SeekStance 继承 + 移动），补充现有单元测试的集成断言缺口。
+- **测试覆盖提升**：新增 8 个场景测试覆盖 SnapshotVerifier/EventVerifier/InvariantVerifier/CompositeVerifier + 命令注入 + AI 禁用，补充现有单元测试的集成断言缺口。
