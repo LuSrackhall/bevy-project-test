@@ -7,7 +7,7 @@ use crate::command::*;
 use crate::events::*;
 use crate::facing;
 use crate::soldier::config::SoldierConfig;
-use crate::soldier::spatial_hash::SpatialHash;
+use crate::soldier::spatial_hash::{SpatialHash, SpatialEntry};
 use crate::types::*;
 use bevy_ecs::component::Component;
 use bevy_ecs::entity::Entity;
@@ -122,6 +122,17 @@ fn integer_sqrt(n: i64) -> i64 {
 }
 
 pub fn find_entity_by_unit_id(world: &mut World, unit_id: UnitId) -> Option<Entity> {
+    // O(1) fast path: use per-tick index if available
+    if let Some(index) = world.get_resource::<crate::unit_index::UnitIdEntityIndex>() {
+        if let Some(entity) = index.get(unit_id) {
+            // Verify entity is still alive (may have been despawned this tick)
+            if world.get_entity(entity).is_ok() {
+                return Some(entity);
+            }
+        }
+        return None;
+    }
+    // O(n) fallback: for tests and contexts without the index
     let mut query = world.query::<(Entity, &UnitIdComponent)>();
     for (entity, id_comp) in query.iter(world) {
         if id_comp.0 == unit_id {
@@ -445,10 +456,15 @@ pub fn overlap_resolution_system(world: &mut World) {
                 &LogicalPosition,
                 &SoldierTypeComponent,
                 &SoldierMarker,
+                &UnitIdComponent,
             )>();
-            for (_, pos, st, _) in q.iter(world) {
+            for (_, pos, st, _, uid) in q.iter(world) {
                 let cfg = soldier_config.get(st.0);
-                hash.insert(pos.0, cfg.collision_radius);
+                hash.insert(SpatialEntry {
+                    pos: pos.0,
+                    radius: cfg.collision_radius,
+                    unit_id: uid.0,
+                });
             }
         }
 
@@ -465,17 +481,17 @@ pub fn overlap_resolution_system(world: &mut World) {
                 let my_radius = soldier_config.get(st.0).collision_radius;
                 let neighbors = hash.query_nearby(pos.0);
                 let mut total_push = FixedVec2::ZERO;
-                for (npos, nradius) in &neighbors {
-                    if *npos == pos.0 {
+                for entry in &neighbors {
+                    if entry.pos == pos.0 {
                         continue;
                     } // skip self
-                    let diff = pos.0 - *npos;
+                    let diff = pos.0 - entry.pos;
                     let dist_sq = diff.length_squared();
                     let dist = Fixed(integer_sqrt(dist_sq.0 * FIXED_ONE));
                     if dist.0 == 0 {
                         continue;
                     }
-                    let min_dist = (my_radius + nradius) as i64 * FIXED_ONE;
+                    let min_dist = (my_radius + entry.radius) as i64 * FIXED_ONE;
                     let overlap = min_dist - dist.0;
                     if overlap > 0 {
                         let push = Fixed(overlap / 2);
@@ -859,10 +875,12 @@ pub fn city_interaction_system(world: &mut World) {
             continue;
         }
         seen.insert(*se);
+        // Get UnitId before despawn (fix: was hardcoded UnitId(0))
+        let uid = world.entity(*se).get::<UnitIdComponent>().map(|c| c.0).unwrap_or(UnitId(0));
         world.despawn(*se);
         let mut events = world.resource_mut::<SimulationEvents>();
         events.destroyed.push(UnitDestroyed {
-            unit_id: UnitId(0),
+            unit_id: uid,
             killer_id: None,
         });
     }

@@ -4,6 +4,7 @@ use crate::combat::config::CombatGlobalConfig;
 use crate::events::*;
 use crate::facing;
 use crate::soldier::config::SoldierConfig;
+use crate::soldier::spatial_hash::{SpatialEntry, SpatialHash};
 use crate::soldier::*;
 use crate::types::*;
 use bevy_ecs::component::Component;
@@ -84,7 +85,8 @@ pub(crate) fn drop_shield_on_death(world: &mut World, dying_entity: Entity, curr
 pub fn combat_engagement_system(world: &mut World) {
     let _soldier_config = world.resource::<SoldierConfig>().clone();
 
-    // Collect all entity positions & factions
+    // Collect all entity positions & factions (kept as HashMap for correctness;
+    // SpatialHash promotion deferred to dedicated optimization pass)
     let all_units: HashMap<UnitId, (FixedVec2, Faction)> = {
         let mut q = world.query::<(
             Entity,
@@ -96,6 +98,10 @@ pub fn combat_engagement_system(world: &mut World) {
             .map(|(_, id, pos, fac)| (id.0, (pos.0, fac.0)))
             .collect()
     };
+
+    // Pre-sort unit IDs once (was inside per-soldier loop — major perf fix)
+    let mut sorted_ids: Vec<UnitId> = all_units.keys().copied().collect();
+    sorted_ids.sort();
 
     // Collect soldiers to process
     struct EngData {
@@ -166,8 +172,6 @@ pub fn combat_engagement_system(world: &mut World) {
 
         // Find nearest enemy (sorted iteration for determinism)
         let mut best: Option<(UnitId, i64)> = None;
-        let mut sorted_ids: Vec<UnitId> = all_units.keys().copied().collect();
-        sorted_ids.sort();
         for &eid in &sorted_ids {
             let (epos, efac) = &all_units[&eid];
             if *efac == sd.faction {
@@ -1273,9 +1277,14 @@ pub fn arrow_movement_system(world: &mut World, current_tick: u32) {
         }
     }
 
-    // Despawn arrows
+    // Despawn arrows with UnitDestroyed events
     for ae in to_despawn {
+        let uid = world.entity(ae).get::<UnitIdComponent>().map(|c| c.0).unwrap_or(UnitId(0));
         world.despawn(ae);
+        world.resource_mut::<SimulationEvents>().destroyed.push(UnitDestroyed {
+            unit_id: uid,
+            killer_id: None,
+        });
     }
 }
 
