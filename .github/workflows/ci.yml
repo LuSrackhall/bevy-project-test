@@ -95,3 +95,6 @@ jobs:
             exit 1
           fi
           echo "PASS: dependency topology correct"
+
+      # TODO: hash_world_state 覆盖率检查（宪法 §22.1）
+      # 需要比对仿真组件列表与 hash 函数覆盖列表，复杂度较高，后续单独实现。
