@@ -1919,7 +1919,7 @@ mod integration_tests {
         }
 
         // Run one tick of movement
-        crate::run_tick(&mut world, 1);
+        crate::run_tick_default(&mut world, 1);
 
         // Check position — with speed 15 and tick_duration 0.05:
         // movement per tick = 15 * 0.05 = 0.75 units
@@ -2060,7 +2060,7 @@ mod integration_tests {
 
         // Run enough ticks for windup to complete (3 ticks) + attack
         for tick in 1..=5 {
-            crate::run_tick(&mut world, tick);
+            crate::run_tick_default(&mut world, tick);
         }
 
         // Check cooldowns — frontal should have shorter cooldown than rear
@@ -2154,7 +2154,7 @@ mod integration_tests {
 
         // 运行多个 tick（等待前摇完成 + 攻击生效）
         for tick in 1..=10 {
-            crate::run_tick(&mut world, tick);
+            crate::run_tick_default(&mut world, tick);
         }
 
         let enemy_hp_after = world.get::<Health>(enemy).unwrap().current;
@@ -2205,7 +2205,7 @@ mod integration_tests {
 
         // 运行多个 tick
         for tick in 1..=20 {
-            crate::run_tick(&mut world, tick);
+            crate::run_tick_default(&mut world, tick);
         }
 
         let enemy_hp_after = world.get::<Health>(enemy).unwrap().current;
@@ -2265,7 +2265,7 @@ mod integration_tests {
 
         // 运行多个 tick
         for tick in 1..=20 {
-            crate::run_tick(&mut world, tick);
+            crate::run_tick_default(&mut world, tick);
         }
 
         let enemy_hp_after = world.get::<Health>(enemy).unwrap().current;
@@ -2314,7 +2314,7 @@ mod integration_tests {
 
         // 运行多个 tick
         for tick in 1..=20 {
-            crate::run_tick(&mut world, tick);
+            crate::run_tick_default(&mut world, tick);
         }
 
         let enemy_hp_after = world.get::<Health>(enemy).unwrap().current;
@@ -2363,7 +2363,7 @@ mod integration_tests {
 
         // 运行足够 tick（步兵速度 80，走 200 距离约需 25 tick，加上攻击停顿）
         for tick in 1..=50 {
-            crate::run_tick(&mut world, tick);
+            crate::run_tick_default(&mut world, tick);
         }
 
         let player_pos = world.get::<LogicalPosition>(player).unwrap().0.x;
@@ -2422,7 +2422,7 @@ mod integration_tests {
         let enemy_hp_before = world.get::<Health>(enemy).unwrap().current;
 
         for tick in 1..=30 {
-            crate::run_tick(&mut world, tick);
+            crate::run_tick_default(&mut world, tick);
         }
 
         let enemy_hp_after = world.get::<Health>(enemy).unwrap().current;

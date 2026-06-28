@@ -78,7 +78,7 @@ mod tests {
     use crate::golden_test::hash_world_state;
     use crate::init_simulation_world;
     use crate::map;
-    use crate::run_tick;
+    use crate::run_tick_default;
     use crate::soldier::*;
     use crate::types::*;
 
@@ -172,7 +172,7 @@ mod tests {
                     replay.record_tick(51, vec![cmd]);
                 }
             }
-            run_tick(&mut world1, tick);
+            run_tick_default(&mut world1, tick);
         }
         let hash1 = hash_world_state(&mut world1);
 
@@ -193,7 +193,7 @@ mod tests {
             for cmd in cmds {
                 world2.resource_mut::<CommandBuffer>().push(cmd.clone());
             }
-            run_tick(&mut world2, tick);
+            run_tick_default(&mut world2, tick);
         }
         let hash2 = hash_world_state(&mut world2);
 
@@ -216,7 +216,7 @@ mod tests {
         let replay = ReplayFile::new(seed, map_size, total_ticks);
 
         for tick in 1..=total_ticks {
-            run_tick(&mut world1, tick);
+            run_tick_default(&mut world1, tick);
         }
         let hash1 = hash_world_state(&mut world1);
 
@@ -227,7 +227,7 @@ mod tests {
         map::generate_map(&mut world2, loaded.map_size);
 
         for tick in 1..=total_ticks {
-            run_tick(&mut world2, tick);
+            run_tick_default(&mut world2, tick);
         }
         let hash2 = hash_world_state(&mut world2);
 
@@ -269,7 +269,7 @@ mod tests {
                     replay.record_tick(101, vec![cmd]);
                 }
             }
-            run_tick(&mut world_rec, tick);
+            run_tick_default(&mut world_rec, tick);
         }
         let hash_continuous = hash_world_state(&mut world_rec);
 
@@ -284,7 +284,7 @@ mod tests {
             for cmd in cmds {
                 world_seek.resource_mut::<CommandBuffer>().push(cmd);
             }
-            run_tick(&mut world_seek, tick);
+            run_tick_default(&mut world_seek, tick);
         }
 
         // Phase 2: continue playback from tick 500 to end
@@ -293,7 +293,7 @@ mod tests {
             for cmd in cmds {
                 world_seek.resource_mut::<CommandBuffer>().push(cmd);
             }
-            run_tick(&mut world_seek, tick);
+            run_tick_default(&mut world_seek, tick);
         }
 
         let hash_seek = hash_world_state(&mut world_seek);
