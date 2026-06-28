@@ -69,6 +69,24 @@ pub enum Action {
     NoOp,
 }
 
+impl Action {
+    /// 显式排序标签，用于同一 Tick 内命令的确定性排序。
+    /// 禁止依赖 Rust 枚举隐式判别值，防止跨编译环境导致执行顺序分歧。
+    /// 新增变体时必须分配新标签，不得复用已有值。
+    pub const fn sort_tag(&self) -> u8 {
+        match self {
+            Action::NoOp => 0,
+            Action::MoveTo { .. } => 1,
+            Action::ForceMove { .. } => 2,
+            Action::Attack { .. } => 3,
+            Action::ReturnToCity { .. } => 4,
+            Action::SetShield { .. } => 5,
+            Action::SetSpawnType { .. } => 6,
+            Action::SetSeekStance { .. } => 7,
+        }
+    }
+}
+
 // ═══════════════════════════════════════════════════════════════
 // GlobalSeekDirective
 // ═══════════════════════════════════════════════════════════════
@@ -164,5 +182,104 @@ mod tests {
         assert!(!buf.has_commands_for(3));
         buf.take_for_tick(5);
         assert!(!buf.has_commands_for(5));
+    }
+
+    #[test]
+    fn test_sort_tag_returns_fixed_values() {
+        assert_eq!(Action::NoOp.sort_tag(), 0);
+        assert_eq!(
+            Action::MoveTo {
+                unit: UnitId(1),
+                target: FixedVec2::ZERO
+            }
+            .sort_tag(),
+            1
+        );
+        assert_eq!(
+            Action::ForceMove {
+                unit: UnitId(1),
+                target: FixedVec2::ZERO
+            }
+            .sort_tag(),
+            2
+        );
+        assert_eq!(
+            Action::Attack {
+                unit: UnitId(1),
+                target: UnitId(2)
+            }
+            .sort_tag(),
+            3
+        );
+        assert_eq!(
+            Action::ReturnToCity {
+                unit: UnitId(1),
+                city: UnitId(2)
+            }
+            .sort_tag(),
+            4
+        );
+        assert_eq!(
+            Action::SetShield {
+                unit: UnitId(1),
+                state: crate::types::ShieldState::Normal
+            }
+            .sort_tag(),
+            5
+        );
+        assert_eq!(
+            Action::SetSpawnType {
+                city: UnitId(1),
+                soldier_type: crate::types::SoldierType::Militia
+            }
+            .sort_tag(),
+            6
+        );
+        assert_eq!(
+            Action::SetSeekStance {
+                scope: SeekScope::All,
+                seek_range: 100,
+                unit_ids: vec![]
+            }
+            .sort_tag(),
+            7
+        );
+    }
+
+    #[test]
+    fn test_sort_tag_deterministic_ordering() {
+        let mut commands = vec![
+            GameCommand {
+                tick: 1,
+                player_id: 1,
+                action: Action::Attack {
+                    unit: UnitId(1),
+                    target: UnitId(2),
+                },
+            },
+            GameCommand {
+                tick: 1,
+                player_id: 0,
+                action: Action::MoveTo {
+                    unit: UnitId(3),
+                    target: FixedVec2::ZERO,
+                },
+            },
+            GameCommand {
+                tick: 1,
+                player_id: 0,
+                action: Action::Attack {
+                    unit: UnitId(3),
+                    target: UnitId(4),
+                },
+            },
+        ];
+        commands.sort_by_key(|c| (c.player_id, c.action.sort_tag()));
+        assert_eq!(commands[0].player_id, 0);
+        assert_eq!(commands[0].action.sort_tag(), 1); // MoveTo
+        assert_eq!(commands[1].player_id, 0);
+        assert_eq!(commands[1].action.sort_tag(), 3); // Attack
+        assert_eq!(commands[2].player_id, 1);
+        assert_eq!(commands[2].action.sort_tag(), 3); // Attack
     }
 }

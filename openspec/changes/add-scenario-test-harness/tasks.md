@@ -1,7 +1,7 @@
 ## 1. Action::sort_tag() 实现
 
-- [ ] 1.1 在 `crates/simulation/src/command.rs` 中为 `Action` 枚举添加 `pub const fn sort_tag(&self) -> u8` 方法，为每个变体分配显式 u8 排序标签
-- [ ] 1.2 添加单元测试验证 sort_tag 返回值固定且不依赖枚举隐式判别值
+- [x] 1.1 在 `crates/simulation/src/command.rs` 中为 `Action` 枚举添加 `pub const fn sort_tag(&self) -> u8` 方法，为每个变体分配显式 u8 排序标签
+- [x] 1.2 添加单元测试验证 sort_tag 返回值固定且不依赖枚举隐式判别值
 
 ## 2. DefaultHasher 修复
 
