@@ -43,10 +43,7 @@ impl Scenario {
 
         for tick in 1..=self.max_tick {
             // Collect commands for this tick
-            let mut cmds = grouped.remove(&tick).unwrap_or_default();
-
-            // Sort by (player_id, action.sort_tag()) for determinism (§3.1)
-            cmds.sort_by_key(|c| (c.player_id, c.action.sort_tag()));
+            let cmds = grouped.remove(&tick).unwrap_or_default();
 
             // Inject into CommandBuffer
             world.resource_mut::<CommandBuffer>().0.extend(cmds);

@@ -137,12 +137,7 @@ pub fn find_unit_id(world: &World, entity: Entity) -> Option<UnitId> {
 
 // ══════════ System: consume_commands ══════════
 
-pub fn consume_commands_system(world: &mut World, tick: u32) {
-    let commands: Vec<GameCommand> = {
-        let mut buf = world.resource_mut::<CommandBuffer>();
-        buf.take_for_tick(tick)
-    };
-
+pub fn consume_commands_system(world: &mut World, commands: Vec<GameCommand>) {
     for cmd in commands {
         match cmd.action {
             Action::MoveTo { unit, target } => apply_movement(world, unit, target, false),
@@ -1346,7 +1341,7 @@ mod seek_stance_tests {
             },
         });
 
-        consume_commands_system(&mut world, 1);
+        { let cmds = world.resource_mut::<CommandBuffer>().take_for_tick(1); consume_commands_system(&mut world, cmds); }
 
         // Verify GlobalSeekDirective updated
         let gd = world.resource::<GlobalSeekDirective>();
@@ -1398,7 +1393,7 @@ mod seek_stance_tests {
             },
         });
 
-        consume_commands_system(&mut world, 1);
+        { let cmds = world.resource_mut::<CommandBuffer>().take_for_tick(1); consume_commands_system(&mut world, cmds); }
 
         // Infantry gets updated
         let e_inf = find_entity_by_unit_id(&mut world, p_inf).unwrap();
@@ -1446,7 +1441,7 @@ mod seek_stance_tests {
             },
         });
 
-        consume_commands_system(&mut world, 1);
+        { let cmds = world.resource_mut::<CommandBuffer>().take_for_tick(1); consume_commands_system(&mut world, cmds); }
 
         // p1 gets updated
         let e1 = find_entity_by_unit_id(&mut world, p1).unwrap();
@@ -1495,7 +1490,7 @@ mod seek_stance_tests {
                 unit_ids: vec![],
             },
         });
-        consume_commands_system(&mut world, 1);
+        { let cmds = world.resource_mut::<CommandBuffer>().take_for_tick(1); consume_commands_system(&mut world, cmds); }
 
         // Then disable with range=0
         world.resource_mut::<CommandBuffer>().push(GameCommand {
@@ -1507,7 +1502,7 @@ mod seek_stance_tests {
                 unit_ids: vec![],
             },
         });
-        consume_commands_system(&mut world, 2);
+        { let cmds = world.resource_mut::<CommandBuffer>().take_for_tick(2); consume_commands_system(&mut world, cmds); }
 
         let e1 = find_entity_by_unit_id(&mut world, p1).unwrap();
         let s1 = world.entity(e1).get::<SeekStance>().unwrap();

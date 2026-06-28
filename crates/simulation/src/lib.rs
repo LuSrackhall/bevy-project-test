@@ -16,8 +16,10 @@ use crate::city::config::CityGlobalConfig;
 use crate::combat::config::CombatGlobalConfig;
 use crate::command::*;
 pub use crate::events::SimulationEvents;
-use crate::soldier::config::SoldierConfig;
+use crate::replay::ReplayFile;
 use crate::run_config::RunConfig;
+use crate::soldier::config::SoldierConfig;
+use crate::soldier::FactionComponent;
 use crate::types::*;
 pub use bevy_ecs::world::World;
 
@@ -51,16 +53,61 @@ pub fn init_simulation_world(seed: u64) -> World {
     world
 }
 
-/// Run one complete simulation tick with explicit config. Returns events for this tick.
+/// Collect known command-producing players (Player=0, Enemy=1).
+/// Neutral is excluded — it does not participate in the command pipeline.
+fn collect_command_players(world: &mut World) -> Vec<u8> {
+    let mut q = world.query::<&FactionComponent>();
+    let mut players = Vec::new();
+    for f in q.iter(world) {
+        match f.0 {
+            Faction::Player => { if !players.contains(&0) { players.push(0); } }
+            Faction::Enemy => { if !players.contains(&1) { players.push(1); } }
+            Faction::Neutral => {} // does not participate in command pipeline
+        }
+    }
+    players
+}
+
+/// Run one complete simulation tick with explicit config.
+/// Implements constitution §3.1 six-step Tick timing:
+///   1. Command collection
+///   2. No-Op injection for missing players
+///   3. Command sorting by (player_id, sort_tag)
+///   4. Command archiving (optional ReplayFile)
+///   5. Deterministic simulation
+///   6. State output
 pub fn run_tick(world: &mut World, tick_number: u32, config: &RunConfig) -> SimulationEvents {
-    // Clear previous events
-    {
-        let mut events = world.resource_mut::<SimulationEvents>();
-        *events = SimulationEvents::new();
+    // ── Step 1: Command collection ──
+    let mut commands = world.resource_mut::<CommandBuffer>().take_for_tick(tick_number);
+
+    // ── Step 2: No-Op injection for missing players ──
+    let known_players = collect_command_players(world);
+    let present_players: std::collections::HashSet<u8> =
+        commands.iter().map(|c| c.player_id).collect();
+    for player_id in known_players {
+        if !present_players.contains(&player_id) {
+            commands.push(GameCommand {
+                tick: tick_number,
+                player_id,
+                action: Action::NoOp,
+            });
+        }
     }
 
-    // Phase 1: Consume commands
-    soldier::consume_commands_system(world, tick_number);
+    // ── Step 3: Command sorting ──
+    commands.sort_by_key(|c| (c.player_id, c.action.sort_tag()));
+
+    // ── Step 4: Command archiving (optional) ──
+    if let Some(mut recorder) = world.get_resource_mut::<ReplayFile>() {
+        recorder.record_tick(tick_number, commands.clone());
+    }
+
+    // ── Step 5: Deterministic simulation ──
+    // Clear previous events
+    { *world.resource_mut::<SimulationEvents>() = SimulationEvents::new(); }
+
+    // Phase 1: Consume pre-sorted commands
+    soldier::consume_commands_system(world, commands);
 
     // Phase 2: Combat engagement (auto-targeting)
     combat::combat_engagement_system(world);
@@ -118,9 +165,8 @@ pub fn run_tick(world: &mut World, tick_number: u32, config: &RunConfig) -> Simu
         ai::ai_decide(world, tick_number);
     }
 
-    // Extract and return events
-    let events = world.resource::<SimulationEvents>().clone();
-    events
+    // ── Step 6: State output ──
+    world.resource::<SimulationEvents>().clone()
 }
 
 /// Run one complete simulation tick with default config (AI enabled).

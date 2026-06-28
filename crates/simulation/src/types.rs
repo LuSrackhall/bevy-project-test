@@ -347,13 +347,6 @@ impl DeterministicRng {
         self.0.next_u64()
     }
 
-    /// Generate a random f32 in [0.0, 1.0) — deprecated for simulation logic.
-    /// Only for presentation-layer use.
-    #[deprecated(note = "Use gen_probability_permyriad() for simulation logic")]
-    pub fn gen_probability(&mut self) -> f32 {
-        (self.0.next_u64() as f32) / (u64::MAX as f32)
-    }
-
     /// Generate a deterministic probability as permyriad (万分比).
     /// Returns u32 in [0, 10000] representing 0.00% to 100.00%.
     pub fn gen_probability_permyriad(&mut self) -> u32 {
