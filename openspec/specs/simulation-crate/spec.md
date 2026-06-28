@@ -306,3 +306,17 @@ CI SHALL 包含以下检查步骤：simulation 禁用类型扫描、浮点渗入
 - **WHEN** simulation crate 中出现非白名单的 f32/f64 使用
 - **THEN** CI 立即失败
 
+### Requirement: UnitIdEntityIndex
+
+simulation crate SHALL 在每 tick 开头重建 `UnitIdEntityIndex(HashMap<UnitId, Entity>)` Resource，从全量实体推导。SHALL 用于替代所有 `find_entity_by_unit_id` 线性扫描。
+
+#### Scenario: O(1) 查找
+
+- **WHEN** 调用 UnitIdEntityIndex 查找 UnitId 对应的 Entity
+- **THEN** 复杂度 O(1)，不遍历全部实体
+
+#### Scenario: 每 tick 重建
+
+- **WHEN** run_tick 执行时
+- **THEN** 在 Step 5 确定性仿真之前重建 UnitIdEntityIndex
+

@@ -1,6 +1,6 @@
 ## MODIFIED Requirements
 
-### Requirement: 战斗系统
+# PLACEHOLDER
 
 simulation crate 的战斗系统 SHALL 使用空间索引（SpatialHash）进行邻近查询，SHALL NOT 对全部实体做全量扫描。SpatialHash SHALL 使用 BTreeMap 保证遍历顺序确定，cell 内 Vec SHALL 按 UnitId 排序。
 
