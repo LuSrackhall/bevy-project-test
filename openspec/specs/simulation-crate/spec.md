@@ -63,17 +63,27 @@ simulation crate SHALL 定义基于 `GameCommand { tick, player_id, action }` �
 
 ### Requirement: 固定 Tick 仿真调度
 
-simulation crate SHALL 在 `run_tick(world, tick_number)` 函数中按固定顺序执行仿真阶段。阶段顺序 SHALL 为：consume_commands → combat_evaluate → soldier_movement → city_spawn → city_capture_check → city_interaction → aura_heal → soldier_level_up → ai_decide → archive_commands。SHALL NOT 依赖帧率或系统时钟。
+run_tick SHALL 实现完整的六步 Tick 时序：(1) 指令收集（take_for_tick）；(2) 指令补齐（缺失玩家注入 NoOp）；(3) 指令排序（player_id, action.sort_tag()）；(4) 指令归档（可选 ReplayFile Resource）；(5) 确定性仿真；(6) 状态输出。
 
-#### Scenario: Tick 顺序确定性
+#### Scenario: 空命令 tick 注入 NoOp
 
-- **WHEN** 以相同世界状态和相同命令输入执行 Tick N 两次
-- **THEN** 两次执行后的世界状态完全相同（逐组件逐字段一致）
+- **WHEN** 某 tick 的 CommandBuffer 中无 Player(0) 的命令
+- **THEN** run_tick 自动为 Player 注入 Action::NoOp
 
-#### Scenario: 无帧率依赖
+#### Scenario: 命令按 sort_tag 排序
 
-- **WHEN** 两次 `run_tick` 调用之间有任意时间间隔
-- **THEN** 仿真结果仅取决于传入的 `tick_number` 参数和当前世界状态，不受实际间隔时间影响
+- **WHEN** 同一 tick 有多条不同 player_id 的命令
+- **THEN** 命令在执行前按 (player_id, action.sort_tag()) 排序
+
+#### Scenario: Neutral 不注入 NoOp
+
+- **WHEN** World 中存在 Neutral 阵营的实体
+- **THEN** 不为 Neutral 注入 NoOp（仅 Player 和 Enemy）
+
+#### Scenario: 归档可选
+
+- **WHEN** World 中无 ReplayFile Resource
+- **THEN** run_tick 跳过归档步骤，正常执行
 
 ### Requirement: 确定性随机数
 
@@ -229,17 +239,17 @@ simulation crate 的 hash_world_state SHALL NOT 使用 `std::collections::hash_m
 
 ### Requirement: hash_world_state 组件覆盖
 
-hash_world_state SHALL 覆盖所有影响仿真结果的组件，包括但不限于：UnitIdComponent、LogicalPosition、Health、Attack、Movement、FactionComponent、SoldierTypeComponent、Level、CityComponent、ShieldItem、SeekStance、SlowDebuff、FearlessBuff、ShieldComponent、AttackWindup、FacingDirection、Arrow、DroppedShield。
+hash_world_state SHALL 覆盖所有影响仿真结果的组件和字段。本次新增覆盖：Movement 的 command_target 和 waypoint 字段，CityComponent 的 max_level、spawn_type、last_attacker_faction、arrow_damage_acc 字段，以及 CityOrigin 和 SoldierStateComponent 组件。
 
-#### Scenario: 新增组件被哈希覆盖
+#### Scenario: Movement 字段完整覆盖
 
-- **WHEN** 对包含 SeekStance、SlowDebuff、FearlessBuff 等组件的 World 计算 hash
-- **THEN** 这些组件的字段值影响最终 hash 结果
+- **WHEN** 对包含 command_target 和 waypoint 的 Movement 组件计算 hash
+- **THEN** 这些字段影响最终 hash 结果
 
-#### Scenario: hash 覆盖完整性
+#### Scenario: CityComponent 字段完整覆盖
 
-- **WHEN** 新增仿真组件时
-- **THEN** hash_world_state MUST 同步更新覆盖（宪法 §10.2 要求）
+- **WHEN** 对包含 spawn_type 和 arrow_damage_acc 的 CityComponent 计算 hash
+- **THEN** 这些字段影响最终 hash 结果
 
 ### Requirement: run_tick 三参数签名
 
@@ -254,4 +264,45 @@ run_tick SHALL 接受 `(world: &mut World, tick_number: u32, config: &RunConfig)
 
 - **WHEN** 调用 run_tick_default(world, tick)
 - **THEN** 行为等价于原 run_tick(world, tick)
+
+### Requirement: consume_commands_system 签名变更
+
+consume_commands_system SHALL 接收外部 `Vec<GameCommand>` 参数，SHALL NOT 内部调用 take_for_tick。
+
+#### Scenario: 接收预排序命令
+
+- **WHEN** 调用 consume_commands_system(world, sorted_commands)
+- **THEN** 直接遍历 sorted_commands 执行，不再从 CommandBuffer 取命令
+
+### Requirement: gen_probability 移除
+
+DeterministicRng SHALL NOT 包含返回 f32 的 gen_probability() 方法。
+
+#### Scenario: 无 f32 概率方法
+
+- **WHEN** 审查 DeterministicRng 的公开 API
+- **THEN** 不存在返回 f32 的方法，仅有 gen_probability_permyriad() 返回 u32
+
+### Requirement: bevy_adapter DefaultHasher 替换
+
+bevy_adapter 中的 world_fingerprint 函数 SHALL NOT 使用 DefaultHasher，SHALL 使用 FNV-1a 或等价的确定性哈希。
+
+#### Scenario: 跨版本稳定
+
+- **WHEN** world_fingerprint 在不同 Rust 编译器版本下运行
+- **THEN** 相同输入产生相同哈希值
+
+### Requirement: CI 自动化检查
+
+CI SHALL 包含以下检查步骤：simulation 禁用类型扫描、浮点渗入检测、依赖拓扑检查。
+
+#### Scenario: 禁用类型扫描
+
+- **WHEN** simulation crate 引入 bevy_render 或 bevy_window
+- **THEN** CI 立即失败
+
+#### Scenario: 浮点渗入检测
+
+- **WHEN** simulation crate 中出现非白名单的 f32/f64 使用
+- **THEN** CI 立即失败
 
