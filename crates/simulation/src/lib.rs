@@ -60,7 +60,8 @@ pub fn run_tick(world: &mut World, tick_number: u32, config: &RunConfig) -> Simu
     }
 
     // Phase 1: Consume commands
-    soldier::consume_commands_system(world, tick_number);
+    let commands = world.resource_mut::<CommandBuffer>().take_for_tick(tick_number);
+    soldier::consume_commands_system(world, commands);
 
     // Phase 2: Combat engagement (auto-targeting)
     combat::combat_engagement_system(world);

@@ -2,11 +2,12 @@
 
 use crate::command::GameCommand;
 use crate::map::MapSize;
+use bevy_ecs::prelude::Resource;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 /// A recorded replay file. Contains everything needed to reconstruct a simulation.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Resource, Serialize, Deserialize)]
 pub struct ReplayFile {
     /// File format version. Starts at 1.
     pub format_version: u32,

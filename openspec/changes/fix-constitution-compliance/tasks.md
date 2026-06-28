@@ -7,10 +7,10 @@
 
 ## 2. §3.1 Tick 时序：ReplayFile + consume_commands_system
 
-- [ ] 2.1 给 `replay.rs` 中 ReplayFile 加 `derive(bevy_ecs::prelude::Resource)`
-- [ ] 2.2 修改 `soldier/mod.rs` 中 `consume_commands_system` 签名：从 `fn(world, tick)` 改为 `fn(world, commands: Vec<GameCommand>)`，删除内部 take_for_tick 调用
-- [ ] 2.3 适配 soldier/mod.rs 中 4 个 seek_stance 测试（改为直接构造 Vec 传入）
-- [ ] 2.4 运行 `cargo test -p simulation` 确认编译通过
+- [x] 2.1 给 `replay.rs` 中 ReplayFile 加 `derive(bevy_ecs::prelude::Resource)`
+- [x] 2.2 修改 `soldier/mod.rs` 中 `consume_commands_system` 签名：从 `fn(world, tick)` 改为 `fn(world, commands: Vec<GameCommand>)`，删除内部 take_for_tick 调用
+- [x] 2.3 适配 soldier/mod.rs 中 4 个 seek_stance 测试（改为直接构造 Vec 传入）
+- [x] 2.4 运行 `cargo test -p simulation` 确认编译通过
 
 ## 3. §3.1 Tick 时序：run_tick 六步流程
 
