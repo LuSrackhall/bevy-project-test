@@ -11,9 +11,9 @@
 
 ## 3. hash_world_state 覆盖补齐
 
-- [ ] 3.1 在 `hash_world_state` 中添加以下组件的哈希覆盖：SeekStance、SlowDebuff、FearlessBuff、ShieldComponent、AttackWindup、FacingDirection、Arrow、DroppedShield
-- [ ] 3.2 更新 golden_test.rs 中所有预期哈希值（覆盖变更后哈希值会变）
-- [ ] 3.3 运行 `cargo test -p simulation` 确认所有测试通过
+- [x] 3.1 在 `hash_world_state` 中添加以下组件的哈希覆盖：SeekStance、SlowDebuff、FearlessBuff、ShieldComponent、AttackWindup、FacingDirection、Arrow、DroppedShield
+- [x] 3.2 更新 golden_test.rs 中所有预期哈希值（覆盖变更后哈希值会变）
+- [x] 3.3 运行 `cargo test -p simulation` 确认所有测试通过
 
 ## 4. RunConfig + run_tick 签名变更
 

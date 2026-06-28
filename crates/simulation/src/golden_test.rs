@@ -4,6 +4,7 @@
 use bevy_ecs::world::World;
 use std::hash::{Hash, Hasher};
 
+use crate::combat::Arrow;
 use crate::soldier::*;
 use crate::types::*;
 
@@ -103,6 +104,64 @@ pub fn hash_world_state(world: &mut World) -> u64 {
         if let Some(s) = em.get::<ShieldItem>() {
             s.hp.hash(&mut hasher);
             s.max_hp.hash(&mut hasher);
+        }
+        // SeekStance
+        if let Some(ss) = em.get::<SeekStance>() {
+            ss.active.hash(&mut hasher);
+            ss.seek_range.hash(&mut hasher);
+        }
+        // SlowDebuff
+        if let Some(sd) = em.get::<SlowDebuff>() {
+            sd.stacks.hash(&mut hasher);
+            sd.remaining_ticks.hash(&mut hasher);
+        }
+        // FearlessBuff
+        if let Some(fb) = em.get::<FearlessBuff>() {
+            fb.remaining_ticks.hash(&mut hasher);
+        }
+        // ShieldComponent
+        if let Some(sc) = em.get::<ShieldComponent>() {
+            let tag: u8 = match sc.state {
+                ShieldState::Normal => 0,
+                ShieldState::Blocking => 1,
+            };
+            tag.hash(&mut hasher);
+        }
+        // AttackWindup
+        if let Some(aw) = em.get::<AttackWindup>() {
+            aw.remaining_ticks.hash(&mut hasher);
+            aw.target.map(|t| t.0).hash(&mut hasher);
+        }
+        // FacingDirection
+        if let Some(fd) = em.get::<FacingDirection>() {
+            fd.angle.0.hash(&mut hasher);
+        }
+        // Arrow
+        if let Some(a) = em.get::<Arrow>() {
+            a.direction.x.0.hash(&mut hasher);
+            a.direction.y.0.hash(&mut hasher);
+            a.damage.hash(&mut hasher);
+            (a.from_faction as u8).hash(&mut hasher);
+            a.shooter.map(|s| s.0).hash(&mut hasher);
+            a.flight_remaining.hash(&mut hasher);
+            a.decay_remaining.hash(&mut hasher);
+            a.pierce_chance.hash(&mut hasher);
+            a.stuck_to.map(|s| s.0).hash(&mut hasher);
+            a.hit_units.len().hash(&mut hasher);
+            for hu in &a.hit_units {
+                hu.0.hash(&mut hasher);
+            }
+            a.start_pos.x.0.hash(&mut hasher);
+            a.start_pos.y.0.hash(&mut hasher);
+        }
+        // DroppedShield
+        if let Some(ds) = em.get::<DroppedShield>() {
+            ds.shield.hp.hash(&mut hasher);
+            ds.shield.max_hp.hash(&mut hasher);
+            ds.position.x.0.hash(&mut hasher);
+            ds.position.y.0.hash(&mut hasher);
+            ds.drop_tick.hash(&mut hasher);
+            ds.owner_faction.map(|f| f as u8).hash(&mut hasher);
         }
     }
 
