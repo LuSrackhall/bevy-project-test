@@ -25,9 +25,9 @@
 
 ## 4. Bug 修复
 
-- [ ] 4.1 修复 city_interaction_system：UnitDestroyed 事件中 unit_id 从 UnitId(0) 改为实际值
-- [ ] 4.2 修复 arrow_movement_system：箭矢衰减销毁时补发 UnitDestroyed 事件
-- [ ] 4.3 运行 `cargo test -p simulation` 确认测试通过
+- [x] 4.1 修复 city_interaction_system：UnitDestroyed 事件中 unit_id 从 UnitId(0) 改为实际值
+- [x] 4.2 修复 arrow_movement_system：箭矢衰减销毁时补发 UnitDestroyed 事件
+- [x] 4.3 运行 `cargo test -p simulation` 确认测试通过
 
 ## 5. render_view 优化
 

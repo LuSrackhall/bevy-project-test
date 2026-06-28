@@ -1290,9 +1290,14 @@ pub fn arrow_movement_system(world: &mut World, current_tick: u32) {
         }
     }
 
-    // Despawn arrows
+    // Despawn arrows with UnitDestroyed events
     for ae in to_despawn {
+        let uid = world.entity(ae).get::<UnitIdComponent>().map(|c| c.0).unwrap_or(UnitId(0));
         world.despawn(ae);
+        world.resource_mut::<SimulationEvents>().destroyed.push(UnitDestroyed {
+            unit_id: uid,
+            killer_id: None,
+        });
     }
 }
 

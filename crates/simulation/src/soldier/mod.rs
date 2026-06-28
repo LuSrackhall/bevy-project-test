@@ -869,10 +869,12 @@ pub fn city_interaction_system(world: &mut World) {
             continue;
         }
         seen.insert(*se);
+        // Get UnitId before despawn (fix: was hardcoded UnitId(0))
+        let uid = world.entity(*se).get::<UnitIdComponent>().map(|c| c.0).unwrap_or(UnitId(0));
         world.despawn(*se);
         let mut events = world.resource_mut::<SimulationEvents>();
         events.destroyed.push(UnitDestroyed {
-            unit_id: UnitId(0),
+            unit_id: uid,
             killer_id: None,
         });
     }
