@@ -1,6 +1,9 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use bevy_ecs::entity::Entity;
+use bevy_ecs::world::World;
 use simulation::types::*;
 use simulation::soldier::*;
+use simulation::soldier::config::SoldierConfig;
 use simulation::combat::config::CombatGlobalConfig;
 
 fn create_world_with_soldiers(count: usize, seed: u64) -> bevy_ecs::world::World {
@@ -15,7 +18,7 @@ fn create_world_with_soldiers(count: usize, seed: u64) -> bevy_ecs::world::World
         let faction = if i % 2 == 0 { Faction::Player } else { Faction::Enemy };
         let cfg = soldier_config.get(SoldierType::Infantry);
         let shield_hp = combat_config.shield.initial_hp;
-        world.spawn((
+        let e = world.spawn((
             UnitIdComponent(uid),
             SoldierMarker,
             LogicalPosition(FixedVec2::new(Fixed::from_int(x), Fixed::from_int(y))),
@@ -41,9 +44,9 @@ fn create_world_with_soldiers(count: usize, seed: u64) -> bevy_ecs::world::World
             ShieldItem { hp: shield_hp, max_hp: shield_hp },
             CityOrigin(UnitId(0)),
             SoldierStateComponent(SoldierState::Moving),
-            FacingDirection { angle: Fixed::ZERO },
-            AttackWindup { remaining_ticks: 0, target: None },
-        ));
+        )).id();
+        world.entity_mut(e).insert(FacingDirection { angle: Fixed::ZERO });
+        world.entity_mut(e).insert(AttackWindup { remaining_ticks: 0, target: None });
     }
     world
 }

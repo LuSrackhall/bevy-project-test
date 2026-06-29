@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 simulation = { path = "../simulation" }
+bevy_ecs = "0.19"
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
