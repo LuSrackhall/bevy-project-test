@@ -2,13 +2,9 @@
 
 ## Context
 
-当前项目在 1000 单位规模下出现持续帧率下降。两个已知卡顿点：
-- 选中 1000+ 单位时肉眼可见卡顿
-- 对 1000+ 单位下发索敌命令时肉眼可见卡顿
+当前项目在 1000 单位规模下出现持续帧率下降。经过代码审查发现三个结构性性能缺陷：combat_engagement_system 的 O(S²) 线性扫描、overlap_resolution_system 每 tick 3 次 SpatialHash 重建、每 tick 12+ 次冗余 HashMap 全表构建。同时缺少 profiling 基础设施。
 
-目标规模：10 万 ~ 100 万单位。
-
-前两轮性能优化已完成（UnitIdEntityIndex + SpatialHash for combat），但用户反馈"性能有改善但感觉不到提升"。经过 4 轮架构评审（含宪法合规、正确性、性能工程三个维度），确定了真正的瓶颈不在 SpatialHash 构建，而在三个结构性缺陷。
+**实施结果**：107 测试通过。性能从 1000 单位提升到 ~1300 单位，但仍远未达到 10 万~100 万目标。瓶颈大概率在渲染层（draw_debug_shapes_system 每帧画千级 Gizmos、unit_info_bar_system 每帧更新 7N 子实体），而非 simulation 层。
 
 ## Goals / Non-Goals
 

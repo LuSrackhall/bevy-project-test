@@ -1,8 +1,8 @@
 ## Context
 
-当前 simulation crate 在 1000 单位下持续卡顿。代码审查发现三个结构性瓶颈而非 SpatialHash 构建成本。前两轮优化（UnitIdEntityIndex + SpatialHash for combat）已合并但效果不明显，因为真正的 O(n²) 在 combat_engagement_system 和 overlap_resolution_system 中。
+当前 simulation crate 在 1000 单位下持续卡顿。代码审查发现三个结构性瓶颈。前两轮优化（UnitIdEntityIndex + SpatialHash for combat）已合并但效果不明显。
 
-项目无任何 profiling 基础设施（无 tracy、无 criterion、无 per-phase 计时）。宪法 §4.3 要求每个 hot system 声明 Complexity/Memory/Hot-Path，但目前无一系统合规。
+**实施结果**：性能从 1000 提升到 ~1300 单位。所有 Phase 1-6 完成，107 测试通过。瓶颈大概率在渲染层。
 
 ## Goals / Non-Goals
 

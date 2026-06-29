@@ -1,6 +1,8 @@
 ## Why
 
-当前项目在 1000 单位规模下出现持续帧率下降，目标是支撑 10 万 ~ 100 万单位。经过代码审查发现三个结构性性能缺陷：combat_engagement_system 的 O(S²) 线性扫描、overlap_resolution_system 每 tick 3 次 SpatialHash 重建、每 tick 12+ 次冗余 HashMap 全表构建。同时缺少 profiling 基础设施，无法量化优化效果和防止性能回归。
+当前项目在 1000 单位规模下出现持续帧率下降。经过代码审查发现三个结构性性能缺陷：combat_engagement_system 的 O(S²) 线性扫描、overlap_resolution_system 每 tick 3 次 SpatialHash 重建、每 tick 12+ 次冗余 HashMap 全表构建。同时缺少 profiling 基础设施，无法量化优化效果和防止性能回归。
+
+**实施结果**：性能从 1000 单位提升到 ~1300 单位。107 测试通过。瓶颈大概率在渲染层，下一轮需用 benchmark/tracy 定位。
 
 ## What Changes
 
