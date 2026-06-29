@@ -1,10 +1,10 @@
 ## 1. InfoBar 脏标记
 
-- [ ] 1.1 定义 CachedState 结构体（hp_cur, hp_max, level, exp, shield_hp, shield_max）
-- [ ] 1.2 在 unit_info_bar_system 中添加 Local<HashMap<UnitId, CachedState>> 缓存
-- [ ] 1.3 在 update_bar 入口添加脏检查：比较缓存 vs 当前值，不变则跳过
-- [ ] 1.4 在 dead_ids 清理循环中同步清理缓存条目
-- [ ] 1.5 删除 debug_shape.rs 中未使用的 _positions HashMap
+- [x] 1.1 定义 CachedState 结构体（hp_cur, hp_max, level, exp, shield_hp, shield_max）
+- [x] 1.2 在 unit_info_bar_system 中添加 Local<HashMap<UnitId, CachedState>> 缓存
+- [x] 1.3 在 update_bar 入口添加脏检查：比较缓存 vs 当前值，不变则跳过
+- [x] 1.4 在 dead_ids 清理循环中同步清理缓存条目
+- [x] 1.5 删除 debug_shape.rs 中未使用的 _positions HashMap
 
 ## 2. 视口裁剪
 

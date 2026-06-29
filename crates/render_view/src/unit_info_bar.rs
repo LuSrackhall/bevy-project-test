@@ -70,6 +70,31 @@ impl Default for UnitInfoBarSettings {
     }
 }
 
+// ══════════ Dirty Tracking Cache ══════════
+
+#[derive(Clone, PartialEq)]
+pub(crate) struct CachedBarState {
+    hp_cur: u32,
+    hp_max: u32,
+    level: u32,
+    exp: u32,
+    shield_hp: u32,
+    shield_max: u32,
+}
+
+impl CachedBarState {
+    fn from_info(info: &UnitBarInfo) -> Self {
+        Self {
+            hp_cur: info.hp_cur,
+            hp_max: info.hp_max,
+            level: info.level,
+            exp: info.exp,
+            shield_hp: info.shield_hp,
+            shield_max: info.shield_max,
+        }
+    }
+}
+
 // ══════════ Layout Constants ══════════
 
 const BAR_OFFSET_Y: f32 = 22.0;
@@ -159,6 +184,7 @@ pub(crate) fn unit_info_bar_system(
     selection: Res<SelectionState>,
     mut sim_world: bevy::ecs::system::NonSendMut<SimulationWorld>,
     mut bar_parts: Local<HashMap<simulation::types::UnitId, BarParts>>,
+    mut bar_cache: Local<HashMap<simulation::types::UnitId, CachedBarState>>,
     mut root_xform_vis: BarVisQuery,
     mut text_q: Query<&mut Text2d>,
     mut shield_fill_q: ShieldFillQuery,
@@ -263,6 +289,7 @@ pub(crate) fn unit_info_bar_system(
         if let Some(parts) = bar_parts.remove(&uid) {
             commands.entity(parts.root).despawn();
         }
+        bar_cache.remove(&uid);
     }
 
     // ── Process each unit ──
@@ -286,23 +313,35 @@ pub(crate) fn unit_info_bar_system(
             if info.shield_max > 0 && parts.shield_fill == Entity::PLACEHOLDER {
                 commands.entity(parts.root).despawn();
                 bar_parts.remove(&info.unit_id);
+                bar_cache.remove(&info.unit_id);
                 let parts = create_bar(&mut commands, info, should_show, &font);
                 bar_parts.insert(info.unit_id, parts);
+                bar_cache.insert(info.unit_id, CachedBarState::from_info(info));
             } else {
+                // Dirty check: only update text+fills when values changed
+                let cached = bar_cache.get(&info.unit_id);
+                let is_dirty = cached.map_or(true, |c| *c != CachedBarState::from_info(info));
+
                 update_bar(
                     parts,
                     info,
                     should_show,
+                    is_dirty,
                     &mut root_xform_vis,
                     &mut text_q,
                     &mut shield_fill_q,
                     &mut hp_fill_q,
                     &mut exp_fill_q,
                 );
+
+                if is_dirty {
+                    bar_cache.insert(info.unit_id, CachedBarState::from_info(info));
+                }
             }
         } else {
             let parts = create_bar(&mut commands, info, should_show, &font);
             bar_parts.insert(info.unit_id, parts);
+            bar_cache.insert(info.unit_id, CachedBarState::from_info(info));
         }
     }
 }
@@ -508,6 +547,7 @@ fn update_bar(
     parts: &mut BarParts,
     info: &UnitBarInfo,
     should_show: bool,
+    is_dirty: bool,
     root_xform_vis: &mut BarVisQuery,
     text_q: &mut Query<&mut Text2d>,
     shield_fill_q: &mut ShieldFillQuery,
@@ -527,6 +567,11 @@ fn update_bar(
     }
 
     if !should_show {
+        return;
+    }
+
+    // Skip text+fill updates when values haven't changed
+    if !is_dirty {
         return;
     }
 

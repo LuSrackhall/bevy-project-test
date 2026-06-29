@@ -11,14 +11,6 @@ pub fn draw_debug_shapes_system(
 ) {
     let world = &mut sim_world.0;
 
-    // Build UnitId → position map for arrow target lookup
-    let _positions: std::collections::HashMap<simulation::types::UnitId, Vec2> = {
-        let mut q = world.query::<(&UnitIdComponent, &LogicalPosition)>();
-        q.iter(world)
-            .map(|(id, pos)| (id.0, Vec2::new(pos.0.x.to_float(), pos.0.y.to_float())))
-            .collect()
-    };
-
     // Draw cities
     {
         let mut query = world.query::<(
