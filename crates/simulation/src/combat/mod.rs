@@ -82,6 +82,7 @@ pub(crate) fn drop_shield_on_death(world: &mut World, dying_entity: Entity, curr
 
 // ══════════ combat_engagement ══════════
 
+/// Complexity: O(s*k), Memory: O(s), Hot Path: Yes
 pub fn combat_engagement_system(world: &mut World) {
     let _soldier_config = world.resource::<SoldierConfig>().clone();
 
@@ -306,6 +307,7 @@ fn try_passive_block(
 
 // ══════════ melee_attack ══════════
 
+/// Complexity: O(a*k), Memory: O(s), Hot Path: Yes
 pub fn melee_attack_system(world: &mut World, current_tick: u32) {
     let combat_config = world.resource::<CombatGlobalConfig>().clone();
 
@@ -794,6 +796,7 @@ pub fn attack_windup_system(world: &mut World, current_tick: u32) {
 
 // ══════════ archer_attack (direction-based) ══════════
 
+/// Complexity: O(archers*k), Memory: O(s+c), Hot Path: Yes
 pub fn archer_attack_system(world: &mut World) {
     let soldier_config = world.resource::<SoldierConfig>().clone();
     let combat_config = world.resource::<CombatGlobalConfig>().clone();
@@ -1050,6 +1053,7 @@ pub fn archer_attack_system(world: &mut World) {
 
 // ══════════ arrow_movement (flight + collision + decay) ══════════
 
+/// Complexity: O(arrows*k), Memory: O(s+c), Hot Path: Yes
 pub fn arrow_movement_system(world: &mut World, current_tick: u32) {
     let combat_config = world.resource::<CombatGlobalConfig>().clone();
 

@@ -361,6 +361,7 @@ fn apply_seek_stance(
 
 // ══════════ System: soldier_movement (pure movement, single-pass) ══════════
 
+/// Complexity: O(n), Memory: O(n), Hot Path: Yes
 pub fn soldier_movement_system(world: &mut World) {
     let combat_config = world.resource::<CombatGlobalConfig>().clone();
     let soldier_config = world.resource::<SoldierConfig>().clone();
@@ -512,6 +513,7 @@ pub fn soldier_movement_system(world: &mut World) {
 
 // ══════════ System: overlap_resolution (post-tick collision resolve) ══════════
 
+/// Complexity: O(n*k*iter), Memory: O(n), Hot Path: Yes
 pub fn overlap_resolution_system(world: &mut World) {
     let config = world.resource::<CombatGlobalConfig>().clone();
     let soldier_config = world.resource::<SoldierConfig>().clone();
@@ -613,6 +615,7 @@ pub fn overlap_resolution_system(world: &mut World) {
 
 // ══════════ System: city_spawn ══════════
 
+/// Complexity: O(cities), Memory: O(1), Hot Path: No
 pub fn city_spawn_system(world: &mut World) {
     let soldier_config = world.resource::<SoldierConfig>().clone();
     let combat_config = world.resource::<CombatGlobalConfig>().clone();

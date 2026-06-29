@@ -42,10 +42,10 @@
 
 ## 7. 合规补齐
 
-- [ ] 7.1 为所有 hot system 添加 §4.3 Complexity/Memory/Hot-Path doc-comments
-- [ ] 7.2 创建 docs/performance.md（基线数据、优化历史、scaling 阈值）
-- [ ] 7.3 创建 docs/adr/0004-spatial-hash-lifecycle.md（持久化 vs 每 tick 重建）
-- [ ] 7.4 创建 docs/adr/0005-phase-dependency-graph.md（阶段依赖与并行策略）
+- [x] 7.1 为所有 hot system 添加 §4.3 Complexity/Memory/Hot-Path doc-comments
+- [x] 7.2 创建 docs/performance.md（基线数据、优化历史、scaling 阈值）
+- [x] 7.3 创建 docs/adr/0004-spatial-hash-lifecycle.md（持久化 vs 每 tick 重建）
+- [x] 7.4 创建 docs/adr/0005-phase-dependency-graph.md（阶段依赖与并行策略）
 
 ---
 
