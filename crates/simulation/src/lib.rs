@@ -104,9 +104,11 @@ pub fn run_tick(world: &mut World, tick_number: u32, config: &RunConfig) -> Simu
     }
 
     // ── Step 5: Deterministic simulation ──
-    // Rebuild UnitId→Entity index for O(1) lookups this tick
-    let unit_index = unit_index::UnitIdEntityIndex::rebuild(world);
-    world.insert_resource(unit_index);
+    // Ensure UnitId→Entity index exists (incremental updates happen during tick)
+    if !world.contains_resource::<unit_index::UnitIdEntityIndex>() {
+        let unit_index = unit_index::UnitIdEntityIndex::rebuild(world);
+        world.insert_resource(unit_index);
+    }
 
     // Clear previous events
     { *world.resource_mut::<SimulationEvents>() = SimulationEvents::new(); }

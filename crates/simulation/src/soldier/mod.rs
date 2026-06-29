@@ -40,12 +40,12 @@ pub struct SeekStance {
     pub active: bool,
     pub seek_range: u32,
 }
-#[derive(Component, Clone, Debug)]
+#[derive(Component, Clone, Copy, Debug)]
 pub struct Health {
     pub current: u32,
     pub max: u32,
 }
-#[derive(Component, Clone, Debug)]
+#[derive(Component, Clone, Copy, Debug)]
 pub struct Attack {
     pub damage: u32,
     pub range: u32,
@@ -119,6 +119,80 @@ fn integer_sqrt(n: i64) -> i64 {
         y = (x + n / x) / 2;
     }
     x
+}
+
+// ══════════ Shared Soldier/City Index ══════════
+
+/// Snapshot of soldier data for combat systems. Each system calls
+/// `build_soldier_index` independently (no shared Resource) because
+/// entity lifetimes change between phases (melee kills → arrow reads).
+pub(crate) struct SoldierSnapshot {
+    pub entity: Entity,
+    pub pos: FixedVec2,
+    pub faction: Faction,
+    pub soldier_type: SoldierType,
+    pub state: SoldierState,
+    pub health: Health,
+    pub attack: Attack,
+    pub level: u32,
+    pub force_move: bool,
+    pub has_fearless: bool,
+    pub facing: Fixed,
+}
+
+/// Build a HashMap<UnitId, SoldierSnapshot> from all soldier entities.
+/// Each system calls this independently to avoid stale cross-phase data.
+pub(crate) fn build_soldier_index(world: &mut World) -> HashMap<UnitId, SoldierSnapshot> {
+    let mut q = world.query::<(
+        Entity,
+        &UnitIdComponent,
+        &LogicalPosition,
+        &FactionComponent,
+        &SoldierTypeComponent,
+        &SoldierStateComponent,
+        &Health,
+        &Attack,
+        &Level,
+        &Movement,
+        Option<&FearlessBuff>,
+        Option<&FacingDirection>,
+    )>();
+    q.iter(world)
+        .map(|(e, id, pos, fac, st, sst, hp, atk, lvl, mov, fb, facing)| {
+            (
+                id.0,
+                SoldierSnapshot {
+                    entity: e,
+                    pos: pos.0,
+                    faction: fac.0,
+                    soldier_type: st.0,
+                    state: sst.0,
+                    health: *hp,
+                    attack: *atk,
+                    level: lvl.level,
+                    force_move: mov.force_move,
+                    has_fearless: fb.is_some(),
+                    facing: facing.map(|f| f.angle).unwrap_or(Fixed::ZERO),
+                },
+            )
+        })
+        .collect()
+}
+
+/// Build a HashMap<UnitId, (FixedVec2, Faction)> from all soldier entities.
+/// Lighter-weight version for systems that only need position + faction.
+pub(crate) fn build_soldier_pos_faction_map(
+    world: &mut World,
+) -> HashMap<UnitId, (FixedVec2, Faction)> {
+    let mut q = world.query::<(
+        &UnitIdComponent,
+        &LogicalPosition,
+        &FactionComponent,
+        &SoldierMarker,
+    )>();
+    q.iter(world)
+        .map(|(id, pos, fac, _)| (id.0, (pos.0, fac.0)))
+        .collect()
 }
 
 pub fn find_entity_by_unit_id(world: &mut World, unit_id: UnitId) -> Option<Entity> {
@@ -287,6 +361,7 @@ fn apply_seek_stance(
 
 // ══════════ System: soldier_movement (pure movement, single-pass) ══════════
 
+/// Complexity: O(n), Memory: O(n), Hot Path: Yes
 pub fn soldier_movement_system(world: &mut World) {
     let combat_config = world.resource::<CombatGlobalConfig>().clone();
     let soldier_config = world.resource::<SoldierConfig>().clone();
@@ -438,6 +513,7 @@ pub fn soldier_movement_system(world: &mut World) {
 
 // ══════════ System: overlap_resolution (post-tick collision resolve) ══════════
 
+/// Complexity: O(n*k*iter), Memory: O(n), Hot Path: Yes
 pub fn overlap_resolution_system(world: &mut World) {
     let config = world.resource::<CombatGlobalConfig>().clone();
     let soldier_config = world.resource::<SoldierConfig>().clone();
@@ -447,27 +523,27 @@ pub fn overlap_resolution_system(world: &mut World) {
     let max_radius = 10u32;
     let cell_size = Fixed::from_int(max_radius as i32 * 4);
 
-    for _iter in 0..max_iter {
-        // Build spatial hash from current positions + per-unit collision radii
-        let mut hash = SpatialHash::new(cell_size);
-        {
-            let mut q = world.query::<(
-                Entity,
-                &LogicalPosition,
-                &SoldierTypeComponent,
-                &SoldierMarker,
-                &UnitIdComponent,
-            )>();
-            for (_, pos, st, _, uid) in q.iter(world) {
-                let cfg = soldier_config.get(st.0);
-                hash.insert(SpatialEntry {
-                    pos: pos.0,
-                    radius: cfg.collision_radius,
-                    unit_id: uid.0,
-                });
-            }
+    // Build SpatialHash once before the loop; rebuild only when positions change
+    let mut hash = SpatialHash::new(cell_size);
+    {
+        let mut q = world.query::<(
+            Entity,
+            &LogicalPosition,
+            &SoldierTypeComponent,
+            &SoldierMarker,
+            &UnitIdComponent,
+        )>();
+        for (_, pos, st, _, uid) in q.iter(world) {
+            let cfg = soldier_config.get(st.0);
+            hash.insert(SpatialEntry {
+                pos: pos.0,
+                radius: cfg.collision_radius,
+                unit_id: uid.0,
+            });
         }
+    }
 
+    for _iter in 0..max_iter {
         // Collect displacements using per-unit radii
         let mut displacements: Vec<(Entity, FixedVec2)> = Vec::new();
         {
@@ -510,14 +586,36 @@ pub fn overlap_resolution_system(world: &mut World) {
             break;
         }
 
-        for (e, new_pos) in displacements {
-            world.entity_mut(e).insert(LogicalPosition(new_pos));
+        // Apply displacements
+        for (e, new_pos) in &displacements {
+            world.entity_mut(*e).insert(LogicalPosition(*new_pos));
+        }
+
+        // Rebuild SpatialHash with updated positions for next iteration
+        hash = SpatialHash::new(cell_size);
+        {
+            let mut q = world.query::<(
+                Entity,
+                &LogicalPosition,
+                &SoldierTypeComponent,
+                &SoldierMarker,
+                &UnitIdComponent,
+            )>();
+            for (_, pos, st, _, uid) in q.iter(world) {
+                let cfg = soldier_config.get(st.0);
+                hash.insert(SpatialEntry {
+                    pos: pos.0,
+                    radius: cfg.collision_radius,
+                    unit_id: uid.0,
+                });
+            }
         }
     }
 }
 
 // ══════════ System: city_spawn ══════════
 
+/// Complexity: O(cities), Memory: O(1), Hot Path: No
 pub fn city_spawn_system(world: &mut World) {
     let soldier_config = world.resource::<SoldierConfig>().clone();
     let combat_config = world.resource::<CombatGlobalConfig>().clone();
@@ -609,6 +707,10 @@ pub fn city_spawn_system(world: &mut World) {
                     crate::types::FacingDirection { angle: Fixed::ZERO },
                 ))
                 .id();
+            // Update incremental index
+            if let Some(mut index) = world.get_resource_mut::<crate::unit_index::UnitIdEntityIndex>() {
+                index.insert(new_id, soldier_entity);
+            }
             // Only Infantry spawns with a shield
             if spawn_type == SoldierType::Infantry {
                 world.entity_mut(soldier_entity).insert(ShieldComponent {
@@ -878,6 +980,10 @@ pub fn city_interaction_system(world: &mut World) {
         // Get UnitId before despawn (fix: was hardcoded UnitId(0))
         let uid = world.entity(*se).get::<UnitIdComponent>().map(|c| c.0).unwrap_or(UnitId(0));
         world.despawn(*se);
+        // Update incremental index
+        if let Some(mut index) = world.get_resource_mut::<crate::unit_index::UnitIdEntityIndex>() {
+            index.remove(uid);
+        }
         let mut events = world.resource_mut::<SimulationEvents>();
         events.destroyed.push(UnitDestroyed {
             unit_id: uid,
@@ -1014,7 +1120,11 @@ pub fn shield_pickup_system(world: &mut World) {
         world.entity_mut(soldier_e).insert(ShieldComponent {
             state: ShieldState::Normal,
         });
+        let dropped_uid = world.entity(dropped_e).get::<UnitIdComponent>().map(|c| c.0).unwrap_or(UnitId(0));
         world.despawn(dropped_e);
+        if let Some(mut index) = world.get_resource_mut::<crate::unit_index::UnitIdEntityIndex>() {
+            index.remove(dropped_uid);
+        }
     }
 }
 

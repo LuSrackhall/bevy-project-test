@@ -3,6 +3,13 @@ name = "bevy_adapter"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = []
+tracing = ["dep:tracing", "dep:tracing-tracy", "dep:tracing-subscriber"]
+
 [dependencies]
 simulation = { path = "../simulation" }
 bevy = "0.19"
+tracing = { version = "0.1", optional = true }
+tracing-tracy = { version = "0.11", optional = true }
+tracing-subscriber = { version = "0.3", optional = true, features = ["registry"] }
