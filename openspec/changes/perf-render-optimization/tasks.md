@@ -15,8 +15,8 @@
 
 ## 3. 默认 InfoBarMode=Selected
 
-- [ ] 3.1 将 InfoBarMode 默认值从 Classic 改为 Selected
-- [ ] 3.2 运行完整测试套件
+- [x] 3.1 将 InfoBarMode 默认值从 Classic 改为 Selected
+- [x] 3.2 运行完整测试套件
 
 ---
 

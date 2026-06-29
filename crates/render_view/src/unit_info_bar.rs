@@ -65,7 +65,7 @@ pub struct UnitInfoBarSettings {
 impl Default for UnitInfoBarSettings {
     fn default() -> Self {
         Self {
-            mode: InfoBarMode::Classic,
+            mode: InfoBarMode::Selected,
         }
     }
 }
