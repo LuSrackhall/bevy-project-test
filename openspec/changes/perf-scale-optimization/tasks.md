@@ -13,10 +13,10 @@
 
 ## 3. SpatialHash query_range 接口
 
-- [ ] 3.1 在 SpatialHash 中实现 `query_range(pos: FixedVec2, radius: i64)` 方法，泛化 cell sweep
-- [ ] 3.2 保留 query_nearby 作为向后兼容接口
-- [ ] 3.3 为 archer_attack_system 添加使用 query_range 的路径（cell_size=200 时仍用 query_nearby 足够，但接口统一）
-- [ ] 3.4 添加 query_range 的单元测试：小半径（9 cells）和大半径（49 cells）
+- [x] 3.1 在 SpatialHash 中实现 `query_range(pos: FixedVec2, radius: i64)` 方法，泛化 cell sweep
+- [x] 3.2 保留 query_nearby 作为向后兼容接口
+- [x] 3.3 为 archer_attack_system 添加使用 query_range 的路径（cell_size=200 时仍用 query_nearby 足够，但接口统一）
+- [x] 3.4 添加 query_range 的单元测试：小半径（9 cells）和大半径（49 cells）
 
 ## 4. UnitIdEntityIndex 增量化
 
