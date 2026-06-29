@@ -47,6 +47,21 @@ fn get_ortho_scale(q: &Query<&Projection, With<MainCamera>>) -> f32 {
         .unwrap_or(1.0)
 }
 
+/// Compute the camera viewport AABB in world space.
+/// Returns (min_x, min_y, max_x, max_y).
+pub(crate) fn viewport_aabb(
+    cam_transform: &GlobalTransform,
+    window: &Window,
+    scale: f32,
+) -> (f32, f32, f32, f32) {
+    let half_w = window.width() * 0.5 * scale;
+    let half_h = window.height() * 0.5 * scale;
+    let pos = cam_transform.translation();
+    let cx = pos.x;
+    let cy = pos.y;
+    (cx - half_w, cy - half_h, cx + half_w, cy + half_h)
+}
+
 /// Middle-mouse drag with speed scaling by zoom level.
 pub fn camera_drag_system(
     mouse: Res<ButtonInput<MouseButton>>,

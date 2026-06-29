@@ -8,8 +8,27 @@ use simulation::soldier::*;
 pub fn draw_debug_shapes_system(
     mut gizmos: Gizmos,
     mut sim_world: bevy::ecs::system::NonSendMut<SimulationWorld>,
+    q_windows: Query<&Window>,
+    q_camera: Query<(&Camera, &GlobalTransform), With<crate::camera::MainCamera>>,
+    q_proj: Query<&Projection, With<crate::camera::MainCamera>>,
 ) {
     let world = &mut sim_world.0;
+
+    // Compute viewport AABB for culling
+    let scale = q_proj.iter().next().and_then(|p| {
+        if let Projection::Orthographic(ref o) = p { Some(o.scale) } else { None }
+    }).unwrap_or(1.0);
+    let aabb = q_windows.single().ok().zip(q_camera.single().ok()).map(|(w, (_, t))| {
+        crate::camera::viewport_aabb(t, w, scale)
+    });
+
+    let in_view = |x: f32, y: f32| -> bool {
+        if let Some((min_x, min_y, max_x, max_y)) = aabb {
+            x >= min_x && x <= max_x && y >= min_y && y <= max_y
+        } else {
+            true
+        }
+    };
 
     // Draw cities
     {
@@ -20,13 +39,16 @@ pub fn draw_debug_shapes_system(
             &CityComponent,
         )>();
         for (pos, radius, faction, _city) in query.iter(world) {
+            let px = pos.0.x.to_float();
+            let py = pos.0.y.to_float();
+            if !in_view(px, py) { continue; }
             let color = match faction.0 {
                 simulation::types::Faction::Player => Color::srgb(0.2, 0.6, 1.0),
                 simulation::types::Faction::Enemy => Color::srgb(1.0, 0.2, 0.2),
                 simulation::types::Faction::Neutral => Color::srgb(0.6, 0.6, 0.6),
             };
             let r = radius.0 as f32;
-            gizmos.circle_2d(Vec2::new(pos.0.x.to_float(), pos.0.y.to_float()), r, color);
+            gizmos.circle_2d(Vec2::new(px, py), r, color);
         }
     }
 
@@ -41,13 +63,14 @@ pub fn draw_debug_shapes_system(
             Option<&simulation::types::FacingDirection>,
         )>();
         for (entity, pos, faction, stype, facing) in query.iter(world) {
+            let p = Vec2::new(pos.0.x.to_float(), pos.0.y.to_float());
+            if !in_view(p.x, p.y) { continue; }
             let color = match faction.0 {
                 simulation::types::Faction::Player => Color::srgb(0.3, 0.5, 0.9),
                 simulation::types::Faction::Enemy => Color::srgb(0.9, 0.3, 0.3),
                 simulation::types::Faction::Neutral => Color::srgb(0.5, 0.5, 0.5),
             };
             let r = soldier_config.get(stype.0).collision_radius as f32;
-            let p = Vec2::new(pos.0.x.to_float(), pos.0.y.to_float());
             gizmos.circle_2d(p, r, color);
 
             // Facing direction line

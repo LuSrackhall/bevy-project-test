@@ -192,6 +192,7 @@ pub(crate) fn unit_info_bar_system(
     mut exp_fill_q: ExpFillQuery,
     q_windows: Query<&Window>,
     q_camera: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
+    q_proj: Query<&Projection, With<MainCamera>>,
 ) {
     if font_cache.is_none() {
         *font_cache = Some(asset_server.load("fonts/Arial Unicode.ttf"));
@@ -292,8 +293,23 @@ pub(crate) fn unit_info_bar_system(
         bar_cache.remove(&uid);
     }
 
+    // ── Viewport culling ──
+    let scale = q_proj.iter().next().and_then(|p| {
+        if let Projection::Orthographic(ref o) = p { Some(o.scale) } else { None }
+    }).unwrap_or(1.0);
+    let aabb = q_windows.single().ok().zip(q_camera.single().ok()).map(|(w, (_, t))| {
+        crate::camera::viewport_aabb(t, w, scale)
+    });
+
     // ── Process each unit ──
     for info in &units {
+        // Skip off-screen units
+        if let Some((min_x, min_y, max_x, max_y)) = aabb {
+            if info.world_pos.x < min_x || info.world_pos.x > max_x ||
+               info.world_pos.y < min_y || info.world_pos.y > max_y {
+                continue;
+            }
+        }
         let is_selected = selected.contains(&info.unit_id) || sel_city == Some(info.unit_id);
         let is_hovered = hovered_ids.contains(&info.unit_id);
         let should_show = match settings.mode {

@@ -8,10 +8,10 @@
 
 ## 2. 视口裁剪
 
-- [ ] 2.1 计算 Camera viewport AABB（center ± window_size * scale / 2）
-- [ ] 2.2 在 unit_info_bar_system 的 per-unit 循环前添加 AABB 过滤
-- [ ] 2.3 在 draw_debug_shapes_system 的 per-unit 循环前添加 AABB 过滤
-- [ ] 2.4 添加全部可见时的短路优化
+- [x] 2.1 计算 Camera viewport AABB（center ± window_size * scale / 2）
+- [x] 2.2 在 unit_info_bar_system 的 per-unit 循环前添加 AABB 过滤
+- [x] 2.3 在 draw_debug_shapes_system 的 per-unit 循环前添加 AABB 过滤
+- [x] 2.4 添加全部可见时的短路优化
 
 ## 3. 默认 InfoBarMode=Selected
 
