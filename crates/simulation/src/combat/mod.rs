@@ -373,7 +373,7 @@ pub fn melee_attack_system(world: &mut World, current_tick: u32) {
             .collect()
     };
 
-    // Collect enemy soldier positions for target scanning (BTreeMap for deterministic iteration)
+    // Collect enemy soldier positions for target scanning
     let enemy_positions: BTreeMap<UnitId, (FixedVec2, Faction)> = {
         let mut q = world.query::<(
             &UnitIdComponent,
@@ -385,6 +385,14 @@ pub fn melee_attack_system(world: &mut World, current_tick: u32) {
             .map(|(id, pos, fac, _)| (id.0, (pos.0, fac.0)))
             .collect()
     };
+
+    // Pre-build faction map and SpatialHash for melee range queries
+    let faction_map: HashMap<UnitId, Faction> =
+        enemy_positions.iter().map(|(&id, (_, fac))| (id, *fac)).collect();
+    let mut spatial = SpatialHash::new(Fixed::from_int(32));
+    for (&uid, &(pos, _)) in &enemy_positions {
+        spatial.insert(SpatialEntry { pos, radius: 0, unit_id: uid });
+    }
 
     let mut pending_deaths: Vec<(Entity, Option<UnitId>, Option<UnitId>)> = Vec::new(); // (target, killer, city_origin)
     let mut xp_grants: Vec<(Entity, u32)> = Vec::new();
@@ -414,25 +422,28 @@ pub fn melee_attack_system(world: &mut World, current_tick: u32) {
         let range_f = Fixed::from_int(ad.range as i32);
         let range_sq = range_f * range_f;
         let mut best_target: Option<(UnitId, FixedVec2, i64)> = None;
-        for (&eid, &(epos, efaction)) in &enemy_positions {
-            if efaction == ad.faction {
-                continue;
-            }
-            let dist_sq = (ad.pos - epos).length_squared();
-            if dist_sq <= range_sq {
-                // Blocking: check frontal angle
-                if is_blocking {
-                    let attack_angle = facing::compute_angle_between(ad.pos, epos);
-                    let deviation = facing::angle_distance(ad.facing, attack_angle);
-                    if deviation > frontal_half {
-                        continue;
+        // Use SpatialHash for O(k) neighbor query (melee range is small, cell_size=32)
+        let neighbors = spatial.query_nearby(ad.pos);
+        for entry in &neighbors {
+            if entry.unit_id == ad.uid { continue; }
+            if let Some(&efac) = faction_map.get(&entry.unit_id) {
+                if efac == ad.faction { continue; }
+                let dist_sq = (ad.pos - entry.pos).length_squared();
+                if dist_sq <= range_sq {
+                    // Blocking: check frontal angle
+                    if is_blocking {
+                        let attack_angle = facing::compute_angle_between(ad.pos, entry.pos);
+                        let deviation = facing::angle_distance(ad.facing, attack_angle);
+                        if deviation > frontal_half {
+                            continue;
+                        }
                     }
-                }
-                if best_target
-                    .as_ref()
-                    .is_none_or(|(_, _, bd)| dist_sq.0 < *bd)
-                {
-                    best_target = Some((eid, epos, dist_sq.0));
+                    if best_target
+                        .as_ref()
+                        .is_none_or(|(_, _, bd)| dist_sq.0 < *bd)
+                    {
+                        best_target = Some((entry.unit_id, entry.pos, dist_sq.0));
+                    }
                 }
             }
         }

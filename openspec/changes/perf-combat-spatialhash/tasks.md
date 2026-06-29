@@ -8,10 +8,10 @@
 
 ## 2. melee_attack_system
 
-- [ ] 2.1 预构建 faction_map
-- [ ] 2.2 构建 SpatialHash（cell_size=32）
-- [ ] 2.3 内层循环改用 spatial.query_nearby + faction_map
-- [ ] 2.4 运行 `cargo test -p simulation` 确认测试通过
+- [x] 2.1 预构建 faction_map
+- [x] 2.2 构建 SpatialHash（cell_size=32）
+- [x] 2.3 内层循环改用 spatial.query_nearby + faction_map
+- [x] 2.4 运行 `cargo test -p simulation` 确认测试通过
 
 ## 3. archer_attack_system
 
