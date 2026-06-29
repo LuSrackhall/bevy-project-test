@@ -6,15 +6,15 @@
 
 ## 2. Phase 2 — SpatialHash 增量更新
 
-- [ ] 2.1 在 SpatialHash 中添加 `remove(pos, unit_id)` 方法
-- [ ] 2.2 重写 overlap_resolution_system 迭代间逻辑：记录 displacement，增量更新 SpatialHash
-- [ ] 2.3 运行测试验证碰撞行为不变
+- [x] 2.1 在 SpatialHash 中添加 `remove(pos, unit_id)` 方法
+- [x] 2.2 重写 overlap_resolution_system 迭代间逻辑：记录 displacement，增量更新 SpatialHash
+- [x] 2.3 运行测试验证碰撞行为不变
 
 ## 3. Phase 3 — 自适应迭代退出
 
-- [ ] 3.1 在迭代循环中跟踪 overlap_count
-- [ ] 3.2 添加纯整数退出条件 `overlap_count * 100 < total_count`
-- [ ] 3.3 运行完整测试套件
+- [x] 3.1 在迭代循环中跟踪 overlap_count
+- [x] 3.2 添加纯整数退出条件 `overlap_count * 100 < total_count`
+- [x] 3.3 运行完整测试套件
 
 ---
 

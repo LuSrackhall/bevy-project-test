@@ -543,17 +543,24 @@ pub fn overlap_resolution_system(world: &mut World) {
         }
     }
 
+    // Count total units for adaptive exit threshold
+    let total_count = {
+        let mut q = world.query::<(&SoldierMarker,)>();
+        q.iter(world).count()
+    };
+
     for _iter in 0..max_iter {
         // Collect displacements using per-unit radii
-        let mut displacements: Vec<(Entity, FixedVec2)> = Vec::new();
+        let mut displacements: Vec<(Entity, UnitId, FixedVec2, FixedVec2, u32)> = Vec::new();
         {
             let mut q = world.query::<(
                 Entity,
                 &LogicalPosition,
                 &SoldierTypeComponent,
                 &SoldierMarker,
+                &UnitIdComponent,
             )>();
-            for (e, pos, st, _) in q.iter(world) {
+            for (e, pos, st, _, uid) in q.iter(world) {
                 let my_radius = soldier_config.get(st.0).collision_radius;
                 let neighbors = hash.query_nearby(pos.0);
                 let mut total_push = FixedVec2::ZERO;
@@ -583,7 +590,7 @@ pub fn overlap_resolution_system(world: &mut World) {
                 }
                 if total_push.x.0 != 0 || total_push.y.0 != 0 {
                     let new_pos = FixedVec2::new(pos.0.x + total_push.x, pos.0.y + total_push.y);
-                    displacements.push((e, new_pos));
+                    displacements.push((e, uid.0, pos.0, new_pos, my_radius));
                 }
             }
         }
@@ -592,29 +599,30 @@ pub fn overlap_resolution_system(world: &mut World) {
             break;
         }
 
-        // Apply displacements
-        for (e, new_pos) in &displacements {
-            world.entity_mut(*e).insert(LogicalPosition(*new_pos));
-        }
-
-        // Rebuild SpatialHash with updated positions for next iteration
-        hash = SpatialHash::new(cell_size);
-        {
-            let mut q = world.query::<(
-                Entity,
-                &LogicalPosition,
-                &SoldierTypeComponent,
-                &SoldierMarker,
-                &UnitIdComponent,
-            )>();
-            for (_, pos, st, _, uid) in q.iter(world) {
-                let cfg = soldier_config.get(st.0);
+        // Adaptive exit: if overlap count is below 1% of total units, converged
+        if (displacements.len() as u64) * 100 < total_count as u64 {
+            // Apply remaining displacements but don't iterate further
+            for (e, uid, old_pos, new_pos, radius) in &displacements {
+                world.entity_mut(*e).insert(LogicalPosition(*new_pos));
+                hash.remove(*old_pos, *uid);
                 hash.insert(SpatialEntry {
-                    pos: pos.0,
-                    radius: cfg.collision_radius,
-                    unit_id: uid.0,
+                    pos: *new_pos,
+                    radius: *radius,
+                    unit_id: *uid,
                 });
             }
+            break;
+        }
+
+        // Apply displacements and incrementally update SpatialHash
+        for (e, uid, old_pos, new_pos, radius) in &displacements {
+            world.entity_mut(*e).insert(LogicalPosition(*new_pos));
+            hash.remove(*old_pos, *uid);
+            hash.insert(SpatialEntry {
+                pos: *new_pos,
+                radius: *radius,
+                unit_id: *uid,
+            });
         }
     }
 }

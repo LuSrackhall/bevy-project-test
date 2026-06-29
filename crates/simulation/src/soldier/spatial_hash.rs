@@ -37,6 +37,19 @@ impl SpatialHash {
         cell.insert(pos, entry);
     }
 
+    /// Remove an entry by position and UnitId. Used for incremental updates.
+    pub fn remove(&mut self, pos: FixedVec2, unit_id: UnitId) {
+        let key = self.cell_key(pos);
+        if let Some(cell) = self.cells.get_mut(&key) {
+            if let Some(idx) = cell.iter().position(|e| e.unit_id == unit_id) {
+                cell.remove(idx);
+            }
+            if cell.is_empty() {
+                self.cells.remove(&key);
+            }
+        }
+    }
+
     /// Return all entries in the 9 cells around center.
     /// Traversal order: BTreeMap cell key order (deterministic), then UnitId-sorted within cell.
     pub fn query_nearby(&self, center: FixedVec2) -> Vec<SpatialEntry> {
