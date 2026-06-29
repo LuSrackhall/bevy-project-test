@@ -58,6 +58,9 @@ jobs:
       - name: Build
         run: cargo build --workspace
 
+      - name: Benchmark compilation check
+        run: cargo bench -p bench --no-run
+
       - name: Constitution — forbidden types in simulation
         if: runner.os == 'Linux'
         run: |

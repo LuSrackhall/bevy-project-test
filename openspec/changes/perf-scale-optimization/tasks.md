@@ -35,10 +35,10 @@
 
 ## 6. Benchmark Crate + CI
 
-- [ ] 6.1 创建 crates/bench/ 独立 binary crate，添加 criterion 依赖
-- [ ] 6.2 实现完整 tick benchmark（empty world、1k idle、1k combat、10k idle）
-- [ ] 6.3 实现 per-phase benchmarks（combat_engagement、melee_attack、soldier_movement、overlap_resolution）
-- [ ] 6.4 在 CI 中添加 cargo bench + baseline 比较步骤（5% 回归 = 失败）
+- [x] 6.1 创建 crates/bench/ 独立 binary crate，添加 criterion 依赖
+- [x] 6.2 实现完整 tick benchmark（empty world、1k idle、1k combat、10k idle）
+- [x] 6.3 实现 per-phase benchmarks（combat_engagement、melee_attack、soldier_movement、overlap_resolution）
+- [x] 6.4 在 CI 中添加 cargo bench + baseline 比较步骤（5% 回归 = 失败）
 
 ## 7. 合规补齐
 
