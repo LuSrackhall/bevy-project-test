@@ -1,10 +1,10 @@
 ## 1. combat_engagement_system
 
-- [ ] 1.1 预构建 faction_map（从 all_units 拆出）
-- [ ] 1.2 构建 SpatialHash（cell_size=64）
-- [ ] 1.3 内层循环改用 spatial.query_nearby + faction_map
-- [ ] 1.4 seek_range > 3*cell_size 时 fallback 全量扫描
-- [ ] 1.5 运行 `cargo test -p simulation` 确认测试通过
+- [x] 1.1 预构建 faction_map（从 all_units 拆出）
+- [x] 1.2 构建 SpatialHash（cell_size=64）
+- [x] 1.3 内层循环改用 spatial.query_nearby + faction_map
+- [x] 1.4 seek_range > 3*cell_size 时 fallback 全量扫描
+- [x] 1.5 运行 `cargo test -p simulation` 确认测试通过
 
 ## 2. melee_attack_system
 

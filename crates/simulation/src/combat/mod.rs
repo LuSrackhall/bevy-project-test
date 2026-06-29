@@ -85,8 +85,7 @@ pub(crate) fn drop_shield_on_death(world: &mut World, dying_entity: Entity, curr
 pub fn combat_engagement_system(world: &mut World) {
     let _soldier_config = world.resource::<SoldierConfig>().clone();
 
-    // Collect all entity positions & factions (kept as HashMap for correctness;
-    // SpatialHash promotion deferred to dedicated optimization pass)
+    // Collect all entity positions & factions
     let all_units: HashMap<UnitId, (FixedVec2, Faction)> = {
         let mut q = world.query::<(
             Entity,
@@ -99,25 +98,25 @@ pub fn combat_engagement_system(world: &mut World) {
             .collect()
     };
 
-    // Pre-sort unit IDs once (was inside per-soldier loop — major perf fix)
-    let mut sorted_ids: Vec<UnitId> = all_units.keys().copied().collect();
-    sorted_ids.sort();
+    // Pre-build faction map for O(1) lookup in SpatialHash loop (avoids World borrow)
+    let faction_map: HashMap<UnitId, Faction> =
+        all_units.iter().map(|(&id, (_, fac))| (id, *fac)).collect();
 
-    // Collect soldiers to process
-    struct EngData {
-        entity: Entity,
-        pos: FixedVec2,
-        faction: Faction,
-        stype: SoldierType,
-        state: SoldierState,
-        force_move: bool,
-        cmd_target: Option<UnitId>,
-        target: Option<UnitId>,
-        speed: u32,
-        seek_active: bool,
-        seek_range: u32,
+    // Build spatial hash for O(k) neighbor queries
+    let cell_size = Fixed::from_int(64);
+    let spatial_coverage_sq = Fixed::from_int(192 * 192); // (3 * cell_size)^2
+    let mut spatial = SpatialHash::new(cell_size);
+    for (&uid, &(pos, _)) in &all_units {
+        spatial.insert(SpatialEntry {
+            pos,
+            radius: 0,
+            unit_id: uid,
+        });
     }
-    let soldiers: Vec<EngData> = {
+
+    // Pre-sort soldier UnitIds for deterministic iteration
+    let mut sorted_soldier_uids: Vec<UnitId> = Vec::new();
+    let soldiers: Vec<(UnitId, Entity, FixedVec2, Faction, SoldierType, SoldierState, bool, Option<UnitId>, Option<UnitId>, u32, bool, u32)> = {
         let mut q = world.query::<(
             Entity,
             &UnitIdComponent,
@@ -129,35 +128,29 @@ pub fn combat_engagement_system(world: &mut World) {
             Option<&SeekStance>,
         )>();
         q.iter(world)
-            .map(|(e, _id, pos, fac, st, sst, mov, seek)| EngData {
-                entity: e,
-                pos: pos.0,
-                faction: fac.0,
-                stype: st.0,
-                state: sst.0,
-                force_move: mov.force_move,
-                cmd_target: mov.command_target,
-                target: mov.target,
-                speed: mov.speed,
-                seek_active: seek.is_some_and(|s| s.active),
-                seek_range: seek.map_or(0, |s| s.seek_range),
+            .map(|(e, id, pos, fac, st, sst, mov, seek)| {
+                let uid = id.0;
+                sorted_soldier_uids.push(uid);
+                (uid, e, pos.0, fac.0, st.0, sst.0, mov.force_move, mov.command_target, mov.target, mov.speed, seek.is_some_and(|s| s.active), seek.map_or(0, |s| s.seek_range))
             })
             .collect()
     };
+    sorted_soldier_uids.sort();
 
-    for sd in soldiers {
-        if sd.force_move {
+    for &suid in &sorted_soldier_uids {
+        let (uid, entity, pos, faction, stype, state, force_move, cmd_target, target, speed, seek_active, seek_range) =
+            soldiers.iter().find(|(id, ..)| *id == suid).unwrap();
+
+        if *force_move {
             continue;
         }
 
-        // Only auto-seek if SeekStance is active and seek_range > 0
-        if !sd.seek_active || sd.seek_range == 0 {
-            // No active seek stance: transition from Fighting back to Moving if not commanded
-            if sd.state == SoldierState::Fighting && sd.cmd_target.is_none() {
-                let mut em = world.entity_mut(sd.entity);
+        if !*seek_active || *seek_range == 0 {
+            if *state == SoldierState::Fighting && cmd_target.is_none() {
+                let mut em = world.entity_mut(*entity);
                 em.insert(Movement {
-                    speed: sd.speed,
-                    target: sd.cmd_target,
+                    speed: *speed,
+                    target: *cmd_target,
                     command_target: None,
                     waypoint: None,
                     force_move: false,
@@ -167,33 +160,46 @@ pub fn combat_engagement_system(world: &mut World) {
             continue;
         }
 
-        let aggro = Fixed::from_int(sd.seek_range as i32);
+        let aggro = Fixed::from_int(*seek_range as i32);
         let aggro_sq = aggro * aggro;
 
-        // Find nearest enemy (sorted iteration for determinism)
+        // Find nearest enemy: use SpatialHash when coverage is sufficient, else fallback
+        let use_spatial = aggro_sq.0 <= spatial_coverage_sq.0;
         let mut best: Option<(UnitId, i64)> = None;
-        for &eid in &sorted_ids {
-            let (epos, efac) = &all_units[&eid];
-            if *efac == sd.faction {
-                continue;
+
+        if use_spatial {
+            let neighbors = spatial.query_nearby(*pos);
+            for entry in &neighbors {
+                if entry.unit_id == *uid { continue; }
+                if let Some(&efac) = faction_map.get(&entry.unit_id) {
+                    if efac == *faction { continue; }
+                    let ds = (*pos - entry.pos).length_squared();
+                    if ds <= aggro_sq && best.as_ref().is_none_or(|(_, d)| ds.0 < *d) {
+                        best = Some((entry.unit_id, ds.0));
+                    }
+                }
             }
-            let ds = (sd.pos - *epos).length_squared();
-            if ds <= aggro_sq && best.as_ref().is_none_or(|(_, d)| ds.0 < *d) {
-                best = Some((eid, ds.0));
+        } else {
+            // Fallback: full scan for seek_range > coverage
+            let mut sorted_ids: Vec<UnitId> = all_units.keys().copied().collect();
+            sorted_ids.sort();
+            for &eid in &sorted_ids {
+                let (epos, efac) = &all_units[&eid];
+                if *efac == *faction { continue; }
+                let ds = (*pos - *epos).length_squared();
+                if ds <= aggro_sq && best.as_ref().is_none_or(|(_, d)| ds.0 < *d) {
+                    best = Some((eid, ds.0));
+                }
             }
         }
 
-        let mut em = world.entity_mut(sd.entity);
+        let mut em = world.entity_mut(*entity);
         if let Some((enemy_id, _)) = best {
-            let is_cav = sd.stype == SoldierType::Cavalry;
+            let is_cav = *stype == SoldierType::Cavalry;
             if !is_cav {
-                let ct = if sd.cmd_target.is_none() {
-                    sd.target
-                } else {
-                    sd.cmd_target
-                };
+                let ct = if cmd_target.is_none() { *target } else { *cmd_target };
                 em.insert(Movement {
-                    speed: sd.speed,
+                    speed: *speed,
                     target: Some(enemy_id),
                     command_target: ct,
                     waypoint: None,
@@ -201,12 +207,12 @@ pub fn combat_engagement_system(world: &mut World) {
                 });
             }
             em.insert(SoldierStateComponent(SoldierState::Fighting));
-        } else if sd.state == SoldierState::Fighting {
-            let ct = sd.cmd_target;
+        } else if *state == SoldierState::Fighting {
+            let ct = *cmd_target;
             em.insert(Movement {
-                speed: sd.speed,
+                speed: *speed,
                 target: ct,
-                command_target: sd.cmd_target,
+                command_target: *cmd_target,
                 waypoint: None,
                 force_move: false,
             });
