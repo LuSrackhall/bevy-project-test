@@ -521,27 +521,27 @@ pub fn overlap_resolution_system(world: &mut World) {
     let max_radius = 10u32;
     let cell_size = Fixed::from_int(max_radius as i32 * 4);
 
-    for _iter in 0..max_iter {
-        // Build spatial hash from current positions + per-unit collision radii
-        let mut hash = SpatialHash::new(cell_size);
-        {
-            let mut q = world.query::<(
-                Entity,
-                &LogicalPosition,
-                &SoldierTypeComponent,
-                &SoldierMarker,
-                &UnitIdComponent,
-            )>();
-            for (_, pos, st, _, uid) in q.iter(world) {
-                let cfg = soldier_config.get(st.0);
-                hash.insert(SpatialEntry {
-                    pos: pos.0,
-                    radius: cfg.collision_radius,
-                    unit_id: uid.0,
-                });
-            }
+    // Build SpatialHash once before the loop; rebuild only when positions change
+    let mut hash = SpatialHash::new(cell_size);
+    {
+        let mut q = world.query::<(
+            Entity,
+            &LogicalPosition,
+            &SoldierTypeComponent,
+            &SoldierMarker,
+            &UnitIdComponent,
+        )>();
+        for (_, pos, st, _, uid) in q.iter(world) {
+            let cfg = soldier_config.get(st.0);
+            hash.insert(SpatialEntry {
+                pos: pos.0,
+                radius: cfg.collision_radius,
+                unit_id: uid.0,
+            });
         }
+    }
 
+    for _iter in 0..max_iter {
         // Collect displacements using per-unit radii
         let mut displacements: Vec<(Entity, FixedVec2)> = Vec::new();
         {
@@ -584,8 +584,29 @@ pub fn overlap_resolution_system(world: &mut World) {
             break;
         }
 
-        for (e, new_pos) in displacements {
-            world.entity_mut(e).insert(LogicalPosition(new_pos));
+        // Apply displacements
+        for (e, new_pos) in &displacements {
+            world.entity_mut(*e).insert(LogicalPosition(*new_pos));
+        }
+
+        // Rebuild SpatialHash with updated positions for next iteration
+        hash = SpatialHash::new(cell_size);
+        {
+            let mut q = world.query::<(
+                Entity,
+                &LogicalPosition,
+                &SoldierTypeComponent,
+                &SoldierMarker,
+                &UnitIdComponent,
+            )>();
+            for (_, pos, st, _, uid) in q.iter(world) {
+                let cfg = soldier_config.get(st.0);
+                hash.insert(SpatialEntry {
+                    pos: pos.0,
+                    radius: cfg.collision_radius,
+                    unit_id: uid.0,
+                });
+            }
         }
     }
 }

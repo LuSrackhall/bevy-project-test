@@ -7,9 +7,9 @@
 
 ## 2. 结构性 Bug 修复 — overlap_resolution SpatialHash 复用
 
-- [ ] 2.1 将 overlap_resolution_system 的 SpatialHash 构建移至迭代循环外，首次构建后复用
-- [ ] 2.2 添加位置变化检测：仅在迭代确实移动了单位时才重建 SpatialHash
-- [ ] 2.3 运行现有测试验证 overlap_resolution 行为不变
+- [x] 2.1 将 overlap_resolution_system 的 SpatialHash 构建移至迭代循环外，首次构建后复用
+- [x] 2.2 添加位置变化检测：仅在迭代确实移动了单位时才重建 SpatialHash
+- [x] 2.3 运行现有测试验证 overlap_resolution 行为不变
 
 ## 3. SpatialHash query_range 接口
 
