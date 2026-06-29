@@ -2,14 +2,15 @@
 
 ## Context
 
-`overlap_resolution_system` 是当前最大的性能瓶颈。Benchmark 数据：
+`overlap_resolution_system` 是之前最大的性能瓶颈。Benchmark 数据：
 
-| 场景 | 单 tick 耗时 | overlap 占比 |
-|------|------------|-------------|
-| tick/1000_idle | 2.66 ms | — |
-| tick/1000_combat | 35.4 ms | **80%** (28.2ms) |
+| 场景 | 优化前 | 优化后 |
+|------|--------|--------|
+| tick/1000_idle | 2.66 ms | 1.30 ms |
+| tick/1000_combat | 35.4 ms | **10.6 ms** |
+| overlap_resolution/1000 | 28.2 ms | **2.5 ms** |
 
-1000 个单位密集排列时，每个单位邻域 ~40 个单位，3 次迭代 = 120,000 次 `integer_sqrt` 调用。Newton 法每次 ~25 次迭代，这是主要成本。
+**实施结果**：Simulation tick 3.4x 加速（35.4ms → 10.6ms）。但用户反馈 1500 单位仍卡顿——瓶颈已从 simulation 转移到渲染层（draw_debug_shapes_system + unit_info_bar_system 每帧遍历所有单位）。下一步需优化 render_view。
 
 ## Goals / Non-Goals
 
