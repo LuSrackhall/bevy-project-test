@@ -1,8 +1,8 @@
 ## 1. Phase 1 — length_squared 早期筛除
 
-- [ ] 1.1 在 overlap_resolution_system 碰撞检测循环中，`integer_sqrt` 前添加 `min_dist_sq` 早期筛除
-- [ ] 1.2 运行 golden_test 验证确定性不变
-- [ ] 1.3 运行 `cargo bench -p bench --bench phase_bench` 验证 overlap 耗时下降
+- [x] 1.1 在 overlap_resolution_system 碰撞检测循环中，`integer_sqrt` 前添加 `min_dist_sq` 早期筛除
+- [x] 1.2 运行 golden_test 验证确定性不变
+- [x] 1.3 运行 `cargo bench -p bench --bench phase_bench` 验证 overlap 耗时下降
 
 ## 2. Phase 2 — SpatialHash 增量更新
 

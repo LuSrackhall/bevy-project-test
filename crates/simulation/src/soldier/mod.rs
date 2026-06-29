@@ -563,6 +563,12 @@ pub fn overlap_resolution_system(world: &mut World) {
                     } // skip self
                     let diff = pos.0 - entry.pos;
                     let dist_sq = diff.length_squared();
+                    // Early-out: skip integer_sqrt for non-overlapping pairs
+                    let min_dist_raw = (my_radius + entry.radius) as i64;
+                    let min_dist_sq = min_dist_raw * min_dist_raw * FIXED_ONE;
+                    if dist_sq.0 >= min_dist_sq {
+                        continue;
+                    }
                     let dist = Fixed(integer_sqrt(dist_sq.0 * FIXED_ONE));
                     if dist.0 == 0 {
                         continue;
