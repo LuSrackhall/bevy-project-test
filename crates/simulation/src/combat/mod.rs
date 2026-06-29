@@ -862,7 +862,7 @@ pub fn archer_attack_system(world: &mut World) {
         }
     }
 
-    // Collect enemy soldier positions (filter by SoldierMarker + faction)
+    // Collect enemy soldier positions + build SpatialHash
     let all_units: Vec<(UnitId, FixedVec2, Faction)> = {
         let mut q = world.query::<(
             Entity,
@@ -875,8 +875,14 @@ pub fn archer_attack_system(world: &mut World) {
             .map(|(_, id, pos, fac, _)| (id.0, pos.0, fac.0))
             .collect()
     };
+    let soldier_faction_map: HashMap<UnitId, Faction> =
+        all_units.iter().map(|(id, _, fac)| (*id, *fac)).collect();
+    let mut soldier_spatial = SpatialHash::new(Fixed::from_int(200));
+    for &(uid, pos, _) in &all_units {
+        soldier_spatial.insert(SpatialEntry { pos, radius: 0, unit_id: uid });
+    }
 
-    // Collect enemy city positions (filter by CityMarker + faction)
+    // Collect enemy city positions + build SpatialHash
     let all_cities: Vec<(UnitId, FixedVec2, Faction)> = {
         let mut q = world.query::<(
             Entity,
@@ -889,10 +895,17 @@ pub fn archer_attack_system(world: &mut World) {
             .map(|(_, id, pos, fac, _)| (id.0, pos.0, fac.0))
             .collect()
     };
+    let city_faction_map: HashMap<UnitId, Faction> =
+        all_cities.iter().map(|(id, _, fac)| (*id, *fac)).collect();
+    let mut city_spatial = SpatialHash::new(Fixed::from_int(200));
+    for &(uid, pos, _) in &all_cities {
+        city_spatial.insert(SpatialEntry { pos, radius: 0, unit_id: uid });
+    }
 
     // Collect archers ready to fire
     struct ArcData {
         entity: Entity,
+        uid: UnitId,
         pos: FixedVec2,
         faction: Faction,
         dmg: u32,
@@ -915,11 +928,12 @@ pub fn archer_attack_system(world: &mut World) {
             .filter(|(_, _, _, _, atk, _, st)| {
                 atk.cooldown_remaining == 0 && st.0 == SoldierType::Archer
             })
-            .map(|(e, _id, pos, fac, atk, lvl, _st)| {
+            .map(|(e, id, pos, fac, atk, lvl, _st)| {
                 let cfg = soldier_config.get(SoldierType::Archer).clone();
                 let range = cfg.compute_attack_range(lvl.level);
                 ArcData {
                     entity: e,
+                    uid: id.0,
                     pos: pos.0,
                     faction: fac.0,
                     dmg: atk.damage,
@@ -933,38 +947,39 @@ pub fn archer_attack_system(world: &mut World) {
     };
 
     for ad in archers {
-        // Find all enemy soldiers in range and track nearest
+        // Find all enemy soldiers in range using SpatialHash
         let range_fixed = Fixed::from_int(ad.range as i32);
         let range_sq = range_fixed * range_fixed;
         let mut enemy_soldiers_in_range: Vec<(UnitId, FixedVec2)> = Vec::new();
         let mut nearest: Option<(UnitId, FixedVec2)> = None;
         let mut nearest_d = i64::MAX;
-        for (eid, epos, efac) in &all_units {
-            if *efac == ad.faction {
-                continue;
-            } // only target enemies
-            let ds = (ad.pos - *epos).length_squared();
-            if ds <= range_sq {
-                enemy_soldiers_in_range.push((*eid, *epos));
-                if ds.0 < nearest_d {
-                    nearest = Some((*eid, *epos));
-                    nearest_d = ds.0;
+        for entry in &soldier_spatial.query_nearby(ad.pos) {
+            if entry.unit_id == ad.uid { continue; }
+            if let Some(&efac) = soldier_faction_map.get(&entry.unit_id) {
+                if efac == ad.faction { continue; }
+                let ds = (ad.pos - entry.pos).length_squared();
+                if ds <= range_sq {
+                    enemy_soldiers_in_range.push((entry.unit_id, entry.pos));
+                    if ds.0 < nearest_d {
+                        nearest = Some((entry.unit_id, entry.pos));
+                        nearest_d = ds.0;
+                    }
                 }
             }
         }
 
-        // Fallback: if no soldiers in range, search nearest enemy city
+        // Fallback: if no soldiers in range, search nearest enemy city using SpatialHash
         let Some((target_id, target_pos)) = nearest.or_else(|| {
             let mut best: Option<(UnitId, FixedVec2)> = None;
             let mut best_d = i64::MAX;
-            for (cid, cpos, cfac) in &all_cities {
-                if *cfac == ad.faction {
-                    continue;
-                }
-                let ds = (ad.pos - *cpos).length_squared();
-                if ds <= range_sq && ds.0 < best_d {
-                    best = Some((*cid, *cpos));
-                    best_d = ds.0;
+            for entry in &city_spatial.query_nearby(ad.pos) {
+                if let Some(&cfac) = city_faction_map.get(&entry.unit_id) {
+                    if cfac == ad.faction { continue; }
+                    let ds = (ad.pos - entry.pos).length_squared();
+                    if ds <= range_sq && ds.0 < best_d {
+                        best = Some((entry.unit_id, entry.pos));
+                        best_d = ds.0;
+                    }
                 }
             }
             best

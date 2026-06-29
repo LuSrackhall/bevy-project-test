@@ -15,10 +15,10 @@
 
 ## 3. archer_attack_system
 
-- [ ] 3.1 预构建 faction_map
-- [ ] 3.2 构建 SpatialHash（cell_size=200）
-- [ ] 3.3 内层循环改用 spatial.query_nearby + faction_map
-- [ ] 3.4 运行 `cargo test -p simulation` 确认测试通过
+- [x] 3.1 预构建 faction_map
+- [x] 3.2 构建 SpatialHash（cell_size=200）
+- [x] 3.3 内层循环改用 spatial.query_nearby + faction_map
+- [x] 3.4 运行 `cargo test -p simulation` 确认测试通过
 
 ## 4. arrow_movement_system
 
