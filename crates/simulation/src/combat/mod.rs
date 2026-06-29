@@ -85,8 +85,7 @@ pub(crate) fn drop_shield_on_death(world: &mut World, dying_entity: Entity, curr
 pub fn combat_engagement_system(world: &mut World) {
     let _soldier_config = world.resource::<SoldierConfig>().clone();
 
-    // Collect all entity positions & factions (kept as HashMap for correctness;
-    // SpatialHash promotion deferred to dedicated optimization pass)
+    // Collect all entity positions & factions
     let all_units: HashMap<UnitId, (FixedVec2, Faction)> = {
         let mut q = world.query::<(
             Entity,
@@ -99,25 +98,25 @@ pub fn combat_engagement_system(world: &mut World) {
             .collect()
     };
 
-    // Pre-sort unit IDs once (was inside per-soldier loop — major perf fix)
-    let mut sorted_ids: Vec<UnitId> = all_units.keys().copied().collect();
-    sorted_ids.sort();
+    // Pre-build faction map for O(1) lookup in SpatialHash loop (avoids World borrow)
+    let faction_map: HashMap<UnitId, Faction> =
+        all_units.iter().map(|(&id, (_, fac))| (id, *fac)).collect();
 
-    // Collect soldiers to process
-    struct EngData {
-        entity: Entity,
-        pos: FixedVec2,
-        faction: Faction,
-        stype: SoldierType,
-        state: SoldierState,
-        force_move: bool,
-        cmd_target: Option<UnitId>,
-        target: Option<UnitId>,
-        speed: u32,
-        seek_active: bool,
-        seek_range: u32,
+    // Build spatial hash for O(k) neighbor queries
+    let cell_size = Fixed::from_int(64);
+    let spatial_coverage_sq = Fixed::from_int(192 * 192); // (3 * cell_size)^2
+    let mut spatial = SpatialHash::new(cell_size);
+    for (&uid, &(pos, _)) in &all_units {
+        spatial.insert(SpatialEntry {
+            pos,
+            radius: 0,
+            unit_id: uid,
+        });
     }
-    let soldiers: Vec<EngData> = {
+
+    // Pre-sort soldier UnitIds for deterministic iteration
+    let mut sorted_soldier_uids: Vec<UnitId> = Vec::new();
+    let soldiers: Vec<(UnitId, Entity, FixedVec2, Faction, SoldierType, SoldierState, bool, Option<UnitId>, Option<UnitId>, u32, bool, u32)> = {
         let mut q = world.query::<(
             Entity,
             &UnitIdComponent,
@@ -129,35 +128,29 @@ pub fn combat_engagement_system(world: &mut World) {
             Option<&SeekStance>,
         )>();
         q.iter(world)
-            .map(|(e, _id, pos, fac, st, sst, mov, seek)| EngData {
-                entity: e,
-                pos: pos.0,
-                faction: fac.0,
-                stype: st.0,
-                state: sst.0,
-                force_move: mov.force_move,
-                cmd_target: mov.command_target,
-                target: mov.target,
-                speed: mov.speed,
-                seek_active: seek.is_some_and(|s| s.active),
-                seek_range: seek.map_or(0, |s| s.seek_range),
+            .map(|(e, id, pos, fac, st, sst, mov, seek)| {
+                let uid = id.0;
+                sorted_soldier_uids.push(uid);
+                (uid, e, pos.0, fac.0, st.0, sst.0, mov.force_move, mov.command_target, mov.target, mov.speed, seek.is_some_and(|s| s.active), seek.map_or(0, |s| s.seek_range))
             })
             .collect()
     };
+    sorted_soldier_uids.sort();
 
-    for sd in soldiers {
-        if sd.force_move {
+    for &suid in &sorted_soldier_uids {
+        let (uid, entity, pos, faction, stype, state, force_move, cmd_target, target, speed, seek_active, seek_range) =
+            soldiers.iter().find(|(id, ..)| *id == suid).unwrap();
+
+        if *force_move {
             continue;
         }
 
-        // Only auto-seek if SeekStance is active and seek_range > 0
-        if !sd.seek_active || sd.seek_range == 0 {
-            // No active seek stance: transition from Fighting back to Moving if not commanded
-            if sd.state == SoldierState::Fighting && sd.cmd_target.is_none() {
-                let mut em = world.entity_mut(sd.entity);
+        if !*seek_active || *seek_range == 0 {
+            if *state == SoldierState::Fighting && cmd_target.is_none() {
+                let mut em = world.entity_mut(*entity);
                 em.insert(Movement {
-                    speed: sd.speed,
-                    target: sd.cmd_target,
+                    speed: *speed,
+                    target: *cmd_target,
                     command_target: None,
                     waypoint: None,
                     force_move: false,
@@ -167,33 +160,46 @@ pub fn combat_engagement_system(world: &mut World) {
             continue;
         }
 
-        let aggro = Fixed::from_int(sd.seek_range as i32);
+        let aggro = Fixed::from_int(*seek_range as i32);
         let aggro_sq = aggro * aggro;
 
-        // Find nearest enemy (sorted iteration for determinism)
+        // Find nearest enemy: use SpatialHash when coverage is sufficient, else fallback
+        let use_spatial = aggro_sq.0 <= spatial_coverage_sq.0;
         let mut best: Option<(UnitId, i64)> = None;
-        for &eid in &sorted_ids {
-            let (epos, efac) = &all_units[&eid];
-            if *efac == sd.faction {
-                continue;
+
+        if use_spatial {
+            let neighbors = spatial.query_nearby(*pos);
+            for entry in &neighbors {
+                if entry.unit_id == *uid { continue; }
+                if let Some(&efac) = faction_map.get(&entry.unit_id) {
+                    if efac == *faction { continue; }
+                    let ds = (*pos - entry.pos).length_squared();
+                    if ds <= aggro_sq && best.as_ref().is_none_or(|(_, d)| ds.0 < *d) {
+                        best = Some((entry.unit_id, ds.0));
+                    }
+                }
             }
-            let ds = (sd.pos - *epos).length_squared();
-            if ds <= aggro_sq && best.as_ref().is_none_or(|(_, d)| ds.0 < *d) {
-                best = Some((eid, ds.0));
+        } else {
+            // Fallback: full scan for seek_range > coverage
+            let mut sorted_ids: Vec<UnitId> = all_units.keys().copied().collect();
+            sorted_ids.sort();
+            for &eid in &sorted_ids {
+                let (epos, efac) = &all_units[&eid];
+                if *efac == *faction { continue; }
+                let ds = (*pos - *epos).length_squared();
+                if ds <= aggro_sq && best.as_ref().is_none_or(|(_, d)| ds.0 < *d) {
+                    best = Some((eid, ds.0));
+                }
             }
         }
 
-        let mut em = world.entity_mut(sd.entity);
+        let mut em = world.entity_mut(*entity);
         if let Some((enemy_id, _)) = best {
-            let is_cav = sd.stype == SoldierType::Cavalry;
+            let is_cav = *stype == SoldierType::Cavalry;
             if !is_cav {
-                let ct = if sd.cmd_target.is_none() {
-                    sd.target
-                } else {
-                    sd.cmd_target
-                };
+                let ct = if cmd_target.is_none() { *target } else { *cmd_target };
                 em.insert(Movement {
-                    speed: sd.speed,
+                    speed: *speed,
                     target: Some(enemy_id),
                     command_target: ct,
                     waypoint: None,
@@ -201,12 +207,12 @@ pub fn combat_engagement_system(world: &mut World) {
                 });
             }
             em.insert(SoldierStateComponent(SoldierState::Fighting));
-        } else if sd.state == SoldierState::Fighting {
-            let ct = sd.cmd_target;
+        } else if *state == SoldierState::Fighting {
+            let ct = *cmd_target;
             em.insert(Movement {
-                speed: sd.speed,
+                speed: *speed,
                 target: ct,
-                command_target: sd.cmd_target,
+                command_target: *cmd_target,
                 waypoint: None,
                 force_move: false,
             });
@@ -367,7 +373,7 @@ pub fn melee_attack_system(world: &mut World, current_tick: u32) {
             .collect()
     };
 
-    // Collect enemy soldier positions for target scanning (BTreeMap for deterministic iteration)
+    // Collect enemy soldier positions for target scanning
     let enemy_positions: BTreeMap<UnitId, (FixedVec2, Faction)> = {
         let mut q = world.query::<(
             &UnitIdComponent,
@@ -379,6 +385,14 @@ pub fn melee_attack_system(world: &mut World, current_tick: u32) {
             .map(|(id, pos, fac, _)| (id.0, (pos.0, fac.0)))
             .collect()
     };
+
+    // Pre-build faction map and SpatialHash for melee range queries
+    let faction_map: HashMap<UnitId, Faction> =
+        enemy_positions.iter().map(|(&id, (_, fac))| (id, *fac)).collect();
+    let mut spatial = SpatialHash::new(Fixed::from_int(32));
+    for (&uid, &(pos, _)) in &enemy_positions {
+        spatial.insert(SpatialEntry { pos, radius: 0, unit_id: uid });
+    }
 
     let mut pending_deaths: Vec<(Entity, Option<UnitId>, Option<UnitId>)> = Vec::new(); // (target, killer, city_origin)
     let mut xp_grants: Vec<(Entity, u32)> = Vec::new();
@@ -408,25 +422,28 @@ pub fn melee_attack_system(world: &mut World, current_tick: u32) {
         let range_f = Fixed::from_int(ad.range as i32);
         let range_sq = range_f * range_f;
         let mut best_target: Option<(UnitId, FixedVec2, i64)> = None;
-        for (&eid, &(epos, efaction)) in &enemy_positions {
-            if efaction == ad.faction {
-                continue;
-            }
-            let dist_sq = (ad.pos - epos).length_squared();
-            if dist_sq <= range_sq {
-                // Blocking: check frontal angle
-                if is_blocking {
-                    let attack_angle = facing::compute_angle_between(ad.pos, epos);
-                    let deviation = facing::angle_distance(ad.facing, attack_angle);
-                    if deviation > frontal_half {
-                        continue;
+        // Use SpatialHash for O(k) neighbor query (melee range is small, cell_size=32)
+        let neighbors = spatial.query_nearby(ad.pos);
+        for entry in &neighbors {
+            if entry.unit_id == ad.uid { continue; }
+            if let Some(&efac) = faction_map.get(&entry.unit_id) {
+                if efac == ad.faction { continue; }
+                let dist_sq = (ad.pos - entry.pos).length_squared();
+                if dist_sq <= range_sq {
+                    // Blocking: check frontal angle
+                    if is_blocking {
+                        let attack_angle = facing::compute_angle_between(ad.pos, entry.pos);
+                        let deviation = facing::angle_distance(ad.facing, attack_angle);
+                        if deviation > frontal_half {
+                            continue;
+                        }
                     }
-                }
-                if best_target
-                    .as_ref()
-                    .is_none_or(|(_, _, bd)| dist_sq.0 < *bd)
-                {
-                    best_target = Some((eid, epos, dist_sq.0));
+                    if best_target
+                        .as_ref()
+                        .is_none_or(|(_, _, bd)| dist_sq.0 < *bd)
+                    {
+                        best_target = Some((entry.unit_id, entry.pos, dist_sq.0));
+                    }
                 }
             }
         }
@@ -845,7 +862,7 @@ pub fn archer_attack_system(world: &mut World) {
         }
     }
 
-    // Collect enemy soldier positions (filter by SoldierMarker + faction)
+    // Collect enemy soldier positions + build SpatialHash
     let all_units: Vec<(UnitId, FixedVec2, Faction)> = {
         let mut q = world.query::<(
             Entity,
@@ -858,8 +875,14 @@ pub fn archer_attack_system(world: &mut World) {
             .map(|(_, id, pos, fac, _)| (id.0, pos.0, fac.0))
             .collect()
     };
+    let soldier_faction_map: HashMap<UnitId, Faction> =
+        all_units.iter().map(|(id, _, fac)| (*id, *fac)).collect();
+    let mut soldier_spatial = SpatialHash::new(Fixed::from_int(200));
+    for &(uid, pos, _) in &all_units {
+        soldier_spatial.insert(SpatialEntry { pos, radius: 0, unit_id: uid });
+    }
 
-    // Collect enemy city positions (filter by CityMarker + faction)
+    // Collect enemy city positions + build SpatialHash
     let all_cities: Vec<(UnitId, FixedVec2, Faction)> = {
         let mut q = world.query::<(
             Entity,
@@ -872,10 +895,17 @@ pub fn archer_attack_system(world: &mut World) {
             .map(|(_, id, pos, fac, _)| (id.0, pos.0, fac.0))
             .collect()
     };
+    let city_faction_map: HashMap<UnitId, Faction> =
+        all_cities.iter().map(|(id, _, fac)| (*id, *fac)).collect();
+    let mut city_spatial = SpatialHash::new(Fixed::from_int(200));
+    for &(uid, pos, _) in &all_cities {
+        city_spatial.insert(SpatialEntry { pos, radius: 0, unit_id: uid });
+    }
 
     // Collect archers ready to fire
     struct ArcData {
         entity: Entity,
+        uid: UnitId,
         pos: FixedVec2,
         faction: Faction,
         dmg: u32,
@@ -898,11 +928,12 @@ pub fn archer_attack_system(world: &mut World) {
             .filter(|(_, _, _, _, atk, _, st)| {
                 atk.cooldown_remaining == 0 && st.0 == SoldierType::Archer
             })
-            .map(|(e, _id, pos, fac, atk, lvl, _st)| {
+            .map(|(e, id, pos, fac, atk, lvl, _st)| {
                 let cfg = soldier_config.get(SoldierType::Archer).clone();
                 let range = cfg.compute_attack_range(lvl.level);
                 ArcData {
                     entity: e,
+                    uid: id.0,
                     pos: pos.0,
                     faction: fac.0,
                     dmg: atk.damage,
@@ -916,38 +947,39 @@ pub fn archer_attack_system(world: &mut World) {
     };
 
     for ad in archers {
-        // Find all enemy soldiers in range and track nearest
+        // Find all enemy soldiers in range using SpatialHash
         let range_fixed = Fixed::from_int(ad.range as i32);
         let range_sq = range_fixed * range_fixed;
         let mut enemy_soldiers_in_range: Vec<(UnitId, FixedVec2)> = Vec::new();
         let mut nearest: Option<(UnitId, FixedVec2)> = None;
         let mut nearest_d = i64::MAX;
-        for (eid, epos, efac) in &all_units {
-            if *efac == ad.faction {
-                continue;
-            } // only target enemies
-            let ds = (ad.pos - *epos).length_squared();
-            if ds <= range_sq {
-                enemy_soldiers_in_range.push((*eid, *epos));
-                if ds.0 < nearest_d {
-                    nearest = Some((*eid, *epos));
-                    nearest_d = ds.0;
+        for entry in &soldier_spatial.query_nearby(ad.pos) {
+            if entry.unit_id == ad.uid { continue; }
+            if let Some(&efac) = soldier_faction_map.get(&entry.unit_id) {
+                if efac == ad.faction { continue; }
+                let ds = (ad.pos - entry.pos).length_squared();
+                if ds <= range_sq {
+                    enemy_soldiers_in_range.push((entry.unit_id, entry.pos));
+                    if ds.0 < nearest_d {
+                        nearest = Some((entry.unit_id, entry.pos));
+                        nearest_d = ds.0;
+                    }
                 }
             }
         }
 
-        // Fallback: if no soldiers in range, search nearest enemy city
+        // Fallback: if no soldiers in range, search nearest enemy city using SpatialHash
         let Some((target_id, target_pos)) = nearest.or_else(|| {
             let mut best: Option<(UnitId, FixedVec2)> = None;
             let mut best_d = i64::MAX;
-            for (cid, cpos, cfac) in &all_cities {
-                if *cfac == ad.faction {
-                    continue;
-                }
-                let ds = (ad.pos - *cpos).length_squared();
-                if ds <= range_sq && ds.0 < best_d {
-                    best = Some((*cid, *cpos));
-                    best_d = ds.0;
+            for entry in &city_spatial.query_nearby(ad.pos) {
+                if let Some(&cfac) = city_faction_map.get(&entry.unit_id) {
+                    if cfac == ad.faction { continue; }
+                    let ds = (ad.pos - entry.pos).length_squared();
+                    if ds <= range_sq && ds.0 < best_d {
+                        best = Some((entry.unit_id, entry.pos));
+                        best_d = ds.0;
+                    }
                 }
             }
             best
@@ -1086,7 +1118,7 @@ pub fn archer_attack_system(world: &mut World) {
 pub fn arrow_movement_system(world: &mut World, current_tick: u32) {
     let combat_config = world.resource::<CombatGlobalConfig>().clone();
 
-    // Collect soldier positions for collision (filter by SoldierMarker)
+    // Collect soldier positions + SpatialHash for collision
     let all_soldiers: Vec<(UnitId, FixedVec2, Entity, Faction)> = {
         let mut q = world.query::<(
             Entity,
@@ -1099,8 +1131,18 @@ pub fn arrow_movement_system(world: &mut World, current_tick: u32) {
             .map(|(e, id, pos, fac, _)| (id.0, pos.0, e, fac.0))
             .collect()
     };
+    let soldier_faction_map: HashMap<UnitId, Faction> =
+        all_soldiers.iter().map(|(id, _, _, fac)| (*id, *fac)).collect();
+    let soldier_entity_map: HashMap<UnitId, Entity> =
+        all_soldiers.iter().map(|(id, _, e, _)| (*id, *e)).collect();
+    let soldier_pos_map: HashMap<UnitId, FixedVec2> =
+        all_soldiers.iter().map(|(id, pos, _, _)| (*id, *pos)).collect();
+    let mut soldier_spatial = SpatialHash::new(Fixed::from_int(32));
+    for &(uid, pos, _, _) in &all_soldiers {
+        soldier_spatial.insert(SpatialEntry { pos, radius: 0, unit_id: uid });
+    }
 
-    // Collect city positions for collision (filter by CityMarker)
+    // Collect city positions + SpatialHash for collision
     let all_cities: Vec<(UnitId, FixedVec2, Entity, Faction, u32)> = {
         let mut q = world.query::<(
             Entity,
@@ -1114,6 +1156,14 @@ pub fn arrow_movement_system(world: &mut World, current_tick: u32) {
             .map(|(e, id, pos, fac, _, r)| (id.0, pos.0, e, fac.0, r.0))
             .collect()
     };
+    let city_faction_map: HashMap<UnitId, Faction> =
+        all_cities.iter().map(|(id, _, _, fac, _)| (*id, *fac)).collect();
+    let city_entity_map: HashMap<UnitId, (Entity, u32)> =
+        all_cities.iter().map(|(id, _, e, _, r)| (*id, (*e, *r))).collect();
+    let mut city_spatial = SpatialHash::new(Fixed::from_int(200));
+    for &(uid, pos, _, _, _) in &all_cities {
+        city_spatial.insert(SpatialEntry { pos, radius: 0, unit_id: uid });
+    }
 
     // arrow_building_damage_ratio is permyriad (e.g. 50 = 0.5%). Denom = 10000 / ratio.
     let arrow_building_damage_denom = 10000u32
@@ -1162,27 +1212,27 @@ pub fn arrow_movement_system(world: &mut World, current_tick: u32) {
                     arrow_pos.0.y + arrow.direction.y,
                 );
 
+                // Soldier collision using SpatialHash
                 let mut stopped_by_soldier = false;
-                for (eid, epos, _ee, efac) in &all_soldiers {
-                    if *efac == arrow.from_faction {
-                        continue;
-                    } // don't hit friendlies
-                    if arrow.hit_units.contains(eid) {
-                        continue;
-                    }
-                    if (arrow_pos.0 - *epos).length_squared() <= threshold_sq {
-                        arrow.hit_units.push(*eid);
+                let neighbors = soldier_spatial.query_nearby(arrow_pos.0);
+                for entry in &neighbors {
+                    if let Some(&efac) = soldier_faction_map.get(&entry.unit_id) {
+                        if efac == arrow.from_faction { continue; }
+                    } else { continue; }
+                    if arrow.hit_units.contains(&entry.unit_id) { continue; }
+                    if (arrow_pos.0 - entry.pos).length_squared() <= threshold_sq {
+                        arrow.hit_units.push(entry.unit_id);
                         let rolled = pierce_rolls[pierce_idx.min(pierce_rolls.len() - 1)];
                         pierce_idx += 1;
                         if rolled < arrow.pierce_chance {
                             hits.push((ae, arrow.damage, None, true, arrow.shooter, arrow_pos.0));
                         } else {
-                            arrow.stuck_to = Some(*eid);
+                            arrow.stuck_to = Some(entry.unit_id);
                             arrow.decay_remaining = ARROW_DECAY_TICKS;
                             hits.push((
                                 ae,
                                 arrow.damage,
-                                Some(*eid),
+                                Some(entry.unit_id),
                                 false,
                                 arrow.shooter,
                                 arrow_pos.0,
@@ -1193,19 +1243,21 @@ pub fn arrow_movement_system(world: &mut World, current_tick: u32) {
                     }
                 }
 
-                // City collision — only if not stopped by soldier hit
+                // City collision using SpatialHash
                 if !stopped_by_soldier {
-                    for (_cid, cpos, ce, cfac, cradius) in &all_cities {
-                        if *cfac == arrow.from_faction {
-                            continue;
-                        } // friendly city: pass through
-                        let radius = Fixed::from_int(*cradius as i32);
-                        let radius_sq = radius * radius;
-                        if (arrow_pos.0 - *cpos).length_squared() <= radius_sq {
-                            // Hit city: accumulate damage, force decay (no pierce)
-                            city_hits.push((*ce, arrow.damage));
-                            arrow.decay_remaining = ARROW_DECAY_TICKS;
-                            break;
+                    let city_neighbors = city_spatial.query_nearby(arrow_pos.0);
+                    for entry in &city_neighbors {
+                        if let Some(&cfac) = city_faction_map.get(&entry.unit_id) {
+                            if cfac == arrow.from_faction { continue; }
+                        } else { continue; }
+                        if let Some(&(ce, cradius)) = city_entity_map.get(&entry.unit_id) {
+                            let radius = Fixed::from_int(cradius as i32);
+                            let radius_sq = radius * radius;
+                            if (arrow_pos.0 - entry.pos).length_squared() <= radius_sq {
+                                city_hits.push((ce, arrow.damage));
+                                arrow.decay_remaining = ARROW_DECAY_TICKS;
+                                break;
+                            }
                         }
                     }
                 }
