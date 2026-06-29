@@ -22,11 +22,11 @@
 
 ## 4. arrow_movement_system
 
-- [ ] 4.1 预构建 soldier_faction_map 和 city_faction_map
-- [ ] 4.2 构建 SpatialHash（cell_size=32）
-- [ ] 4.3 碰撞检测改用 spatial.query_nearby + faction_map
-- [ ] 4.4 保持穿透（hit_units）和城市碰撞原有语义
-- [ ] 4.5 运行 `cargo test -p simulation` 确认测试通过
+- [x] 4.1 预构建 soldier_faction_map 和 city_faction_map
+- [x] 4.2 构建 SpatialHash（cell_size=32）
+- [x] 4.3 碰撞检测改用 spatial.query_nearby + faction_map
+- [x] 4.4 保持穿透（hit_units）和城市碰撞原有语义
+- [x] 4.5 运行 `cargo test -p simulation` 确认测试通过
 
 ## 5. 最终验证
 

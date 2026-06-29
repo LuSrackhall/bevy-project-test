@@ -1118,7 +1118,7 @@ pub fn archer_attack_system(world: &mut World) {
 pub fn arrow_movement_system(world: &mut World, current_tick: u32) {
     let combat_config = world.resource::<CombatGlobalConfig>().clone();
 
-    // Collect soldier positions for collision (filter by SoldierMarker)
+    // Collect soldier positions + SpatialHash for collision
     let all_soldiers: Vec<(UnitId, FixedVec2, Entity, Faction)> = {
         let mut q = world.query::<(
             Entity,
@@ -1131,8 +1131,18 @@ pub fn arrow_movement_system(world: &mut World, current_tick: u32) {
             .map(|(e, id, pos, fac, _)| (id.0, pos.0, e, fac.0))
             .collect()
     };
+    let soldier_faction_map: HashMap<UnitId, Faction> =
+        all_soldiers.iter().map(|(id, _, _, fac)| (*id, *fac)).collect();
+    let soldier_entity_map: HashMap<UnitId, Entity> =
+        all_soldiers.iter().map(|(id, _, e, _)| (*id, *e)).collect();
+    let soldier_pos_map: HashMap<UnitId, FixedVec2> =
+        all_soldiers.iter().map(|(id, pos, _, _)| (*id, *pos)).collect();
+    let mut soldier_spatial = SpatialHash::new(Fixed::from_int(32));
+    for &(uid, pos, _, _) in &all_soldiers {
+        soldier_spatial.insert(SpatialEntry { pos, radius: 0, unit_id: uid });
+    }
 
-    // Collect city positions for collision (filter by CityMarker)
+    // Collect city positions + SpatialHash for collision
     let all_cities: Vec<(UnitId, FixedVec2, Entity, Faction, u32)> = {
         let mut q = world.query::<(
             Entity,
@@ -1146,6 +1156,14 @@ pub fn arrow_movement_system(world: &mut World, current_tick: u32) {
             .map(|(e, id, pos, fac, _, r)| (id.0, pos.0, e, fac.0, r.0))
             .collect()
     };
+    let city_faction_map: HashMap<UnitId, Faction> =
+        all_cities.iter().map(|(id, _, _, fac, _)| (*id, *fac)).collect();
+    let city_entity_map: HashMap<UnitId, (Entity, u32)> =
+        all_cities.iter().map(|(id, _, e, _, r)| (*id, (*e, *r))).collect();
+    let mut city_spatial = SpatialHash::new(Fixed::from_int(200));
+    for &(uid, pos, _, _, _) in &all_cities {
+        city_spatial.insert(SpatialEntry { pos, radius: 0, unit_id: uid });
+    }
 
     // arrow_building_damage_ratio is permyriad (e.g. 50 = 0.5%). Denom = 10000 / ratio.
     let arrow_building_damage_denom = 10000u32
@@ -1194,27 +1212,27 @@ pub fn arrow_movement_system(world: &mut World, current_tick: u32) {
                     arrow_pos.0.y + arrow.direction.y,
                 );
 
+                // Soldier collision using SpatialHash
                 let mut stopped_by_soldier = false;
-                for (eid, epos, _ee, efac) in &all_soldiers {
-                    if *efac == arrow.from_faction {
-                        continue;
-                    } // don't hit friendlies
-                    if arrow.hit_units.contains(eid) {
-                        continue;
-                    }
-                    if (arrow_pos.0 - *epos).length_squared() <= threshold_sq {
-                        arrow.hit_units.push(*eid);
+                let neighbors = soldier_spatial.query_nearby(arrow_pos.0);
+                for entry in &neighbors {
+                    if let Some(&efac) = soldier_faction_map.get(&entry.unit_id) {
+                        if efac == arrow.from_faction { continue; }
+                    } else { continue; }
+                    if arrow.hit_units.contains(&entry.unit_id) { continue; }
+                    if (arrow_pos.0 - entry.pos).length_squared() <= threshold_sq {
+                        arrow.hit_units.push(entry.unit_id);
                         let rolled = pierce_rolls[pierce_idx.min(pierce_rolls.len() - 1)];
                         pierce_idx += 1;
                         if rolled < arrow.pierce_chance {
                             hits.push((ae, arrow.damage, None, true, arrow.shooter, arrow_pos.0));
                         } else {
-                            arrow.stuck_to = Some(*eid);
+                            arrow.stuck_to = Some(entry.unit_id);
                             arrow.decay_remaining = ARROW_DECAY_TICKS;
                             hits.push((
                                 ae,
                                 arrow.damage,
-                                Some(*eid),
+                                Some(entry.unit_id),
                                 false,
                                 arrow.shooter,
                                 arrow_pos.0,
@@ -1225,19 +1243,21 @@ pub fn arrow_movement_system(world: &mut World, current_tick: u32) {
                     }
                 }
 
-                // City collision — only if not stopped by soldier hit
+                // City collision using SpatialHash
                 if !stopped_by_soldier {
-                    for (_cid, cpos, ce, cfac, cradius) in &all_cities {
-                        if *cfac == arrow.from_faction {
-                            continue;
-                        } // friendly city: pass through
-                        let radius = Fixed::from_int(*cradius as i32);
-                        let radius_sq = radius * radius;
-                        if (arrow_pos.0 - *cpos).length_squared() <= radius_sq {
-                            // Hit city: accumulate damage, force decay (no pierce)
-                            city_hits.push((*ce, arrow.damage));
-                            arrow.decay_remaining = ARROW_DECAY_TICKS;
-                            break;
+                    let city_neighbors = city_spatial.query_nearby(arrow_pos.0);
+                    for entry in &city_neighbors {
+                        if let Some(&cfac) = city_faction_map.get(&entry.unit_id) {
+                            if cfac == arrow.from_faction { continue; }
+                        } else { continue; }
+                        if let Some(&(ce, cradius)) = city_entity_map.get(&entry.unit_id) {
+                            let radius = Fixed::from_int(cradius as i32);
+                            let radius_sq = radius * radius;
+                            if (arrow_pos.0 - entry.pos).length_squared() <= radius_sq {
+                                city_hits.push((ce, arrow.damage));
+                                arrow.decay_remaining = ARROW_DECAY_TICKS;
+                                break;
+                            }
                         }
                     }
                 }
