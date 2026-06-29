@@ -1,9 +1,9 @@
 ## 1. 结构性 Bug 修复 — engagement O(S²) + HashMap 去重
 
-- [ ] 1.1 将 combat_engagement_system 中 soldiers Vec 替换为 HashMap<UnitId, SoldierData>，消除 Vec::find O(S²) 线性扫描
-- [ ] 1.2 提取 `build_soldier_index(world) -> HashMap<UnitId, SoldierSnapshot>` 辅助函数，定义 SoldierSnapshot 结构体
-- [ ] 1.3 将 melee_attack_system、archer_attack_system、arrow_movement_system、combat_engagement_system 中的独立 HashMap 构建替换为 build_soldier_index 调用
-- [ ] 1.4 验证所有系统仍独立调用 build_soldier_index（不共享 Resource）
+- [x] 1.1 将 combat_engagement_system 中 soldiers Vec 替换为 HashMap<UnitId, SoldierData>，消除 Vec::find O(S²) 线性扫描
+- [x] 1.2 提取 `build_soldier_index(world) -> HashMap<UnitId, SoldierSnapshot>` 辅助函数，定义 SoldierSnapshot 结构体
+- [x] 1.3 将 melee_attack_system、archer_attack_system、arrow_movement_system、combat_engagement_system 中的独立 HashMap 构建替换为 build_soldier_index 调用
+- [x] 1.4 验证所有系统仍独立调用 build_soldier_index（不共享 Resource）
 
 ## 2. 结构性 Bug 修复 — overlap_resolution SpatialHash 复用
 

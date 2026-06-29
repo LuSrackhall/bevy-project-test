@@ -116,7 +116,8 @@ pub fn combat_engagement_system(world: &mut World) {
 
     // Pre-sort soldier UnitIds for deterministic iteration
     let mut sorted_soldier_uids: Vec<UnitId> = Vec::new();
-    let soldiers: Vec<(UnitId, Entity, FixedVec2, Faction, SoldierType, SoldierState, bool, Option<UnitId>, Option<UnitId>, u32, bool, u32)> = {
+    // Use HashMap for O(1) lookup instead of Vec::find O(S²)
+    let soldier_map: HashMap<UnitId, (Entity, FixedVec2, Faction, SoldierType, SoldierState, bool, Option<UnitId>, Option<UnitId>, u32, bool, u32)> = {
         let mut q = world.query::<(
             Entity,
             &UnitIdComponent,
@@ -131,26 +132,27 @@ pub fn combat_engagement_system(world: &mut World) {
             .map(|(e, id, pos, fac, st, sst, mov, seek)| {
                 let uid = id.0;
                 sorted_soldier_uids.push(uid);
-                (uid, e, pos.0, fac.0, st.0, sst.0, mov.force_move, mov.command_target, mov.target, mov.speed, seek.is_some_and(|s| s.active), seek.map_or(0, |s| s.seek_range))
+                (uid, (e, pos.0, fac.0, st.0, sst.0, mov.force_move, mov.command_target, mov.target, mov.speed, seek.is_some_and(|s| s.active), seek.map_or(0, |s| s.seek_range)))
             })
             .collect()
     };
     sorted_soldier_uids.sort();
 
     for &suid in &sorted_soldier_uids {
-        let (uid, entity, pos, faction, stype, state, force_move, cmd_target, target, speed, seek_active, seek_range) =
-            soldiers.iter().find(|(id, ..)| *id == suid).unwrap();
+        let &(entity, pos, faction, stype, state, force_move, cmd_target, target, speed, seek_active, seek_range) =
+            soldier_map.get(&suid).unwrap();
+        let uid = suid;
 
-        if *force_move {
+        if force_move {
             continue;
         }
 
-        if !*seek_active || *seek_range == 0 {
-            if *state == SoldierState::Fighting && cmd_target.is_none() {
-                let mut em = world.entity_mut(*entity);
+        if !seek_active || seek_range == 0 {
+            if state == SoldierState::Fighting && cmd_target.is_none() {
+                let mut em = world.entity_mut(entity);
                 em.insert(Movement {
-                    speed: *speed,
-                    target: *cmd_target,
+                    speed,
+                    target: cmd_target,
                     command_target: None,
                     waypoint: None,
                     force_move: false,
@@ -160,7 +162,7 @@ pub fn combat_engagement_system(world: &mut World) {
             continue;
         }
 
-        let aggro = Fixed::from_int(*seek_range as i32);
+        let aggro = Fixed::from_int(seek_range as i32);
         let aggro_sq = aggro * aggro;
 
         // Find nearest enemy: use SpatialHash when coverage is sufficient, else fallback
@@ -168,12 +170,12 @@ pub fn combat_engagement_system(world: &mut World) {
         let mut best: Option<(UnitId, i64)> = None;
 
         if use_spatial {
-            let neighbors = spatial.query_nearby(*pos);
+            let neighbors = spatial.query_nearby(pos);
             for entry in &neighbors {
-                if entry.unit_id == *uid { continue; }
+                if entry.unit_id == uid { continue; }
                 if let Some(&efac) = faction_map.get(&entry.unit_id) {
-                    if efac == *faction { continue; }
-                    let ds = (*pos - entry.pos).length_squared();
+                    if efac == faction { continue; }
+                    let ds = (pos - entry.pos).length_squared();
                     if ds <= aggro_sq && best.as_ref().is_none_or(|(_, d)| ds.0 < *d) {
                         best = Some((entry.unit_id, ds.0));
                     }
@@ -185,21 +187,21 @@ pub fn combat_engagement_system(world: &mut World) {
             sorted_ids.sort();
             for &eid in &sorted_ids {
                 let (epos, efac) = &all_units[&eid];
-                if *efac == *faction { continue; }
-                let ds = (*pos - *epos).length_squared();
+                if *efac == faction { continue; }
+                let ds = (pos - *epos).length_squared();
                 if ds <= aggro_sq && best.as_ref().is_none_or(|(_, d)| ds.0 < *d) {
                     best = Some((eid, ds.0));
                 }
             }
         }
 
-        let mut em = world.entity_mut(*entity);
+        let mut em = world.entity_mut(entity);
         if let Some((enemy_id, _)) = best {
-            let is_cav = *stype == SoldierType::Cavalry;
+            let is_cav = stype == SoldierType::Cavalry;
             if !is_cav {
-                let ct = if cmd_target.is_none() { *target } else { *cmd_target };
+                let ct = if cmd_target.is_none() { target } else { cmd_target };
                 em.insert(Movement {
-                    speed: *speed,
+                    speed,
                     target: Some(enemy_id),
                     command_target: ct,
                     waypoint: None,
@@ -207,12 +209,12 @@ pub fn combat_engagement_system(world: &mut World) {
                 });
             }
             em.insert(SoldierStateComponent(SoldierState::Fighting));
-        } else if *state == SoldierState::Fighting {
-            let ct = *cmd_target;
+        } else if state == SoldierState::Fighting {
+            let ct = cmd_target;
             em.insert(Movement {
-                speed: *speed,
+                speed,
                 target: ct,
-                command_target: *cmd_target,
+                command_target: cmd_target,
                 waypoint: None,
                 force_move: false,
             });
@@ -305,7 +307,6 @@ fn try_passive_block(
 // ══════════ melee_attack ══════════
 
 pub fn melee_attack_system(world: &mut World, current_tick: u32) {
-    let _soldier_config = world.resource::<SoldierConfig>().clone();
     let combat_config = world.resource::<CombatGlobalConfig>().clone();
 
     // Tick cooldowns
@@ -318,81 +319,22 @@ pub fn melee_attack_system(world: &mut World, current_tick: u32) {
         }
     }
 
-    // Position lookup
-    let _positions: HashMap<UnitId, FixedVec2> = {
-        let mut q = world.query::<(Entity, &UnitIdComponent, &LogicalPosition)>();
-        q.iter(world).map(|(_, id, pos)| (id.0, pos.0)).collect()
-    };
+    // Build shared soldier index (replaces 3 separate HashMap constructions)
+    let soldier_index = crate::soldier::build_soldier_index(world);
 
-    // Ready attackers — scan for nearest enemy in range (no dependency on Movement.target)
-    struct AtkData {
-        entity: Entity,
-        uid: UnitId,
-        pos: FixedVec2,
-        faction: Faction,
-        dmg: u32,
-        range: u32,
-        stype: SoldierType,
-        level: u32,
-        interval: u32,
-        has_fearless: bool,
-        force_move: bool,
-        facing: Fixed,
-    }
-    let attackers: Vec<AtkData> = {
-        let mut q = world.query::<(
-            Entity,
-            &UnitIdComponent,
-            &LogicalPosition,
-            &FactionComponent,
-            &Attack,
-            &SoldierTypeComponent,
-            &Level,
-            &Movement,
-            Option<&FearlessBuff>,
-            Option<&FacingDirection>,
-        )>();
-        q.iter(world)
-            .filter(|(_, _, _, _, atk, st, _, _, _, _)| {
-                atk.cooldown_remaining == 0 && st.0 != SoldierType::Archer
-            })
-            .map(|(e, id, pos, fac, atk, st, lvl, mov, fb, facing)| AtkData {
-                entity: e,
-                uid: id.0,
-                pos: pos.0,
-                faction: fac.0,
-                dmg: atk.damage,
-                range: atk.range,
-                stype: st.0,
-                level: lvl.level,
-                interval: atk.interval_ticks,
-                has_fearless: fb.is_some(),
-                force_move: mov.force_move,
-                facing: facing.map(|f| f.angle).unwrap_or(Fixed::ZERO),
-            })
-            .collect()
-    };
-
-    // Collect enemy soldier positions for target scanning
-    let enemy_positions: BTreeMap<UnitId, (FixedVec2, Faction)> = {
-        let mut q = world.query::<(
-            &UnitIdComponent,
-            &LogicalPosition,
-            &FactionComponent,
-            &SoldierMarker,
-        )>();
-        q.iter(world)
-            .map(|(id, pos, fac, _)| (id.0, (pos.0, fac.0)))
-            .collect()
-    };
-
-    // Pre-build faction map and SpatialHash for melee range queries
+    // Derive faction map and SpatialHash from soldier index
     let faction_map: HashMap<UnitId, Faction> =
-        enemy_positions.iter().map(|(&id, (_, fac))| (id, *fac)).collect();
+        soldier_index.iter().map(|(&id, s)| (id, s.faction)).collect();
     let mut spatial = SpatialHash::new(Fixed::from_int(32));
-    for (&uid, &(pos, _)) in &enemy_positions {
-        spatial.insert(SpatialEntry { pos, radius: 0, unit_id: uid });
+    for (&uid, s) in &soldier_index {
+        spatial.insert(SpatialEntry { pos: s.pos, radius: 0, unit_id: uid });
     }
+
+    // Ready attackers — filter from soldier_index
+    let attackers: Vec<(&UnitId, &crate::soldier::SoldierSnapshot)> = soldier_index
+        .iter()
+        .filter(|(_, s)| s.attack.cooldown_remaining == 0 && s.soldier_type != SoldierType::Archer)
+        .collect();
 
     let mut pending_deaths: Vec<(Entity, Option<UnitId>, Option<UnitId>)> = Vec::new(); // (target, killer, city_origin)
     let mut xp_grants: Vec<(Entity, u32)> = Vec::new();
@@ -401,16 +343,16 @@ pub fn melee_attack_system(world: &mut World, current_tick: u32) {
 
     let windup_config = combat_config.attack_windup.clone();
 
-    for ad in attackers {
+    for (&uid, s) in &attackers {
         // ForceMove suppression: non-cavalry units skip attack during force_move
-        if ad.force_move && ad.stype != SoldierType::Cavalry {
+        if s.force_move && s.soldier_type != SoldierType::Cavalry {
             continue;
         }
 
         // Scan for nearest enemy in attack range
         // Blocking units only attack enemies in frontal 120° arc
         let is_blocking = world
-            .get::<ShieldComponent>(ad.entity)
+            .get::<ShieldComponent>(s.entity)
             .is_some_and(|sc| sc.state == ShieldState::Blocking);
         let frontal_half = if is_blocking {
             let cfg = world.resource::<CombatGlobalConfig>();
@@ -419,21 +361,21 @@ pub fn melee_attack_system(world: &mut World, current_tick: u32) {
             Fixed::from_int(180) // no restriction
         };
 
-        let range_f = Fixed::from_int(ad.range as i32);
+        let range_f = Fixed::from_int(s.attack.range as i32);
         let range_sq = range_f * range_f;
         let mut best_target: Option<(UnitId, FixedVec2, i64)> = None;
         // Use SpatialHash for O(k) neighbor query (melee range is small, cell_size=32)
-        let neighbors = spatial.query_nearby(ad.pos);
+        let neighbors = spatial.query_nearby(s.pos);
         for entry in &neighbors {
-            if entry.unit_id == ad.uid { continue; }
+            if entry.unit_id == uid { continue; }
             if let Some(&efac) = faction_map.get(&entry.unit_id) {
-                if efac == ad.faction { continue; }
-                let dist_sq = (ad.pos - entry.pos).length_squared();
+                if efac == s.faction { continue; }
+                let dist_sq = (s.pos - entry.pos).length_squared();
                 if dist_sq <= range_sq {
                     // Blocking: check frontal angle
                     if is_blocking {
-                        let attack_angle = facing::compute_angle_between(ad.pos, entry.pos);
-                        let deviation = facing::angle_distance(ad.facing, attack_angle);
+                        let attack_angle = facing::compute_angle_between(s.pos, entry.pos);
+                        let deviation = facing::angle_distance(s.facing, attack_angle);
                         if deviation > frontal_half {
                             continue;
                         }
@@ -452,13 +394,13 @@ pub fn melee_attack_system(world: &mut World, current_tick: u32) {
         };
 
         // Non-cavalry: start windup instead of attacking immediately
-        if ad.stype != SoldierType::Cavalry || !windup_config.cavalry_no_windup {
+        if s.soldier_type != SoldierType::Cavalry || !windup_config.cavalry_no_windup {
             let already_winding = world
-                .entity(ad.entity)
+                .entity(s.entity)
                 .get::<AttackWindup>()
                 .is_some_and(|w| w.remaining_ticks > 0);
             if !already_winding {
-                world.entity_mut(ad.entity).insert(AttackWindup {
+                world.entity_mut(s.entity).insert(AttackWindup {
                     remaining_ticks: windup_config.windup_ticks,
                     target: Some(tid),
                 });
@@ -485,8 +427,8 @@ pub fn melee_attack_system(world: &mut World, current_tick: u32) {
         let Some(hp_cur) = thp else { continue };
         let Some(hp_max) = tmax else { continue };
 
-        let mut damage = ad.dmg + ad.level * combat_config.level_up.attack_gain;
-        if ad.has_fearless {
+        let mut damage = s.attack.damage + s.level * combat_config.level_up.attack_gain;
+        if s.has_fearless {
             damage += combat_config.fearless.attack_bonus;
         }
 
@@ -509,7 +451,7 @@ pub fn melee_attack_system(world: &mut World, current_tick: u32) {
         }
 
         // Shield block check (after dodge, before damage application)
-        damage = try_passive_block(world, te, damage, Some(ad.pos));
+        damage = try_passive_block(world, te, damage, Some(s.pos));
 
         if damage > 0 {
             let died = {
@@ -523,29 +465,29 @@ pub fn melee_attack_system(world: &mut World, current_tick: u32) {
             };
 
             if died {
-                pending_deaths.push((te, Some(ad.uid), city_origin));
-                xp_grants.push((ad.entity, combat_config.level_up.exp_per_kill));
-                ls_kills.push((ad.entity, damage, ad.level, ad.has_fearless));
+                pending_deaths.push((te, Some(uid), city_origin));
+                xp_grants.push((s.entity, combat_config.level_up.exp_per_kill));
+                ls_kills.push((s.entity, damage, s.level, s.has_fearless));
             } else {
-                ls_hits.push((ad.entity, damage, ad.level, ad.has_fearless));
+                ls_hits.push((s.entity, damage, s.level, s.has_fearless));
             }
         }
 
         // Reset attacker cooldown (penalized if blocking, affected by facing)
         let base_cooldown = if world
-            .get::<ShieldComponent>(ad.entity)
+            .get::<ShieldComponent>(s.entity)
             .is_some_and(|sc| sc.state == ShieldState::Blocking)
         {
             combat_config.shield.attack_speed_penalty
         } else {
-            ad.interval
+            s.attack.interval_ticks
         };
         // Apply facing attack speed factor (not for cavalry instant attacks)
-        let cooldown = if ad.stype == SoldierType::Cavalry && windup_config.cavalry_no_windup {
+        let cooldown = if s.soldier_type == SoldierType::Cavalry && windup_config.cavalry_no_windup {
             base_cooldown
         } else {
-            let target_angle = facing::compute_angle_between(ad.pos, tpos);
-            let factor = facing::facing_atk_speed_factor(ad.facing, target_angle);
+            let target_angle = facing::compute_angle_between(s.pos, tpos);
+            let factor = facing::facing_atk_speed_factor(s.facing, target_angle);
             // effective_cooldown = base / factor
             // factor is Fixed with 8 fractional bits
             // base / factor = base * 256 / factor.0
@@ -553,10 +495,10 @@ pub fn melee_attack_system(world: &mut World, current_tick: u32) {
             let effective = (base_cooldown as i64 * 256) / factor_i64;
             effective.max(1) as u32
         };
-        world.entity_mut(ad.entity).insert(Attack {
-            damage: ad.dmg,
-            range: ad.range,
-            interval_ticks: ad.interval,
+        world.entity_mut(s.entity).insert(Attack {
+            damage: s.attack.damage,
+            range: s.attack.range,
+            interval_ticks: s.attack.interval_ticks,
             cooldown_remaining: cooldown,
         });
     }
@@ -862,23 +804,12 @@ pub fn archer_attack_system(world: &mut World) {
         }
     }
 
-    // Collect enemy soldier positions + build SpatialHash
-    let all_units: Vec<(UnitId, FixedVec2, Faction)> = {
-        let mut q = world.query::<(
-            Entity,
-            &UnitIdComponent,
-            &LogicalPosition,
-            &FactionComponent,
-            &SoldierMarker,
-        )>();
-        q.iter(world)
-            .map(|(_, id, pos, fac, _)| (id.0, pos.0, fac.0))
-            .collect()
-    };
+    // Collect enemy soldier positions + build SpatialHash (using shared helper)
+    let soldier_pos_faction = crate::soldier::build_soldier_pos_faction_map(world);
     let soldier_faction_map: HashMap<UnitId, Faction> =
-        all_units.iter().map(|(id, _, fac)| (*id, *fac)).collect();
+        soldier_pos_faction.iter().map(|(&id, (_, fac))| (id, *fac)).collect();
     let mut soldier_spatial = SpatialHash::new(Fixed::from_int(200));
-    for &(uid, pos, _) in &all_units {
+    for (&uid, &(pos, _)) in &soldier_pos_faction {
         soldier_spatial.insert(SpatialEntry { pos, radius: 0, unit_id: uid });
     }
 
@@ -1118,28 +1049,17 @@ pub fn archer_attack_system(world: &mut World) {
 pub fn arrow_movement_system(world: &mut World, current_tick: u32) {
     let combat_config = world.resource::<CombatGlobalConfig>().clone();
 
-    // Collect soldier positions + SpatialHash for collision
-    let all_soldiers: Vec<(UnitId, FixedVec2, Entity, Faction)> = {
-        let mut q = world.query::<(
-            Entity,
-            &UnitIdComponent,
-            &LogicalPosition,
-            &FactionComponent,
-            &SoldierMarker,
-        )>();
-        q.iter(world)
-            .map(|(e, id, pos, fac, _)| (id.0, pos.0, e, fac.0))
-            .collect()
-    };
+    // Build shared soldier index (replaces 4 separate HashMap constructions)
+    let soldier_index = crate::soldier::build_soldier_index(world);
     let soldier_faction_map: HashMap<UnitId, Faction> =
-        all_soldiers.iter().map(|(id, _, _, fac)| (*id, *fac)).collect();
+        soldier_index.iter().map(|(&id, s)| (id, s.faction)).collect();
     let soldier_entity_map: HashMap<UnitId, Entity> =
-        all_soldiers.iter().map(|(id, _, e, _)| (*id, *e)).collect();
+        soldier_index.iter().map(|(&id, s)| (id, s.entity)).collect();
     let soldier_pos_map: HashMap<UnitId, FixedVec2> =
-        all_soldiers.iter().map(|(id, pos, _, _)| (*id, *pos)).collect();
+        soldier_index.iter().map(|(&id, s)| (id, s.pos)).collect();
     let mut soldier_spatial = SpatialHash::new(Fixed::from_int(32));
-    for &(uid, pos, _, _) in &all_soldiers {
-        soldier_spatial.insert(SpatialEntry { pos, radius: 0, unit_id: uid });
+    for (&uid, s) in &soldier_index {
+        soldier_spatial.insert(SpatialEntry { pos: s.pos, radius: 0, unit_id: uid });
     }
 
     // Collect city positions + SpatialHash for collision
@@ -1192,11 +1112,8 @@ pub fn arrow_movement_system(world: &mut World, current_tick: u32) {
             if arrow.decay_remaining > 0 {
                 arrow.decay_remaining -= 1;
                 if let Some(sid) = arrow.stuck_to {
-                    for (eid, epos, _, _) in &all_soldiers {
-                        if *eid == sid {
-                            arrow_pos.0 = *epos;
-                            break;
-                        }
+                    if let Some(&epos) = soldier_pos_map.get(&sid) {
+                        arrow_pos.0 = epos;
                     }
                 }
                 if arrow.decay_remaining == 0 {

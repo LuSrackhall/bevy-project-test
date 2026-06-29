@@ -40,12 +40,12 @@ pub struct SeekStance {
     pub active: bool,
     pub seek_range: u32,
 }
-#[derive(Component, Clone, Debug)]
+#[derive(Component, Clone, Copy, Debug)]
 pub struct Health {
     pub current: u32,
     pub max: u32,
 }
-#[derive(Component, Clone, Debug)]
+#[derive(Component, Clone, Copy, Debug)]
 pub struct Attack {
     pub damage: u32,
     pub range: u32,
@@ -119,6 +119,80 @@ fn integer_sqrt(n: i64) -> i64 {
         y = (x + n / x) / 2;
     }
     x
+}
+
+// ══════════ Shared Soldier/City Index ══════════
+
+/// Snapshot of soldier data for combat systems. Each system calls
+/// `build_soldier_index` independently (no shared Resource) because
+/// entity lifetimes change between phases (melee kills → arrow reads).
+pub(crate) struct SoldierSnapshot {
+    pub entity: Entity,
+    pub pos: FixedVec2,
+    pub faction: Faction,
+    pub soldier_type: SoldierType,
+    pub state: SoldierState,
+    pub health: Health,
+    pub attack: Attack,
+    pub level: u32,
+    pub force_move: bool,
+    pub has_fearless: bool,
+    pub facing: Fixed,
+}
+
+/// Build a HashMap<UnitId, SoldierSnapshot> from all soldier entities.
+/// Each system calls this independently to avoid stale cross-phase data.
+pub(crate) fn build_soldier_index(world: &mut World) -> HashMap<UnitId, SoldierSnapshot> {
+    let mut q = world.query::<(
+        Entity,
+        &UnitIdComponent,
+        &LogicalPosition,
+        &FactionComponent,
+        &SoldierTypeComponent,
+        &SoldierStateComponent,
+        &Health,
+        &Attack,
+        &Level,
+        &Movement,
+        Option<&FearlessBuff>,
+        Option<&FacingDirection>,
+    )>();
+    q.iter(world)
+        .map(|(e, id, pos, fac, st, sst, hp, atk, lvl, mov, fb, facing)| {
+            (
+                id.0,
+                SoldierSnapshot {
+                    entity: e,
+                    pos: pos.0,
+                    faction: fac.0,
+                    soldier_type: st.0,
+                    state: sst.0,
+                    health: *hp,
+                    attack: *atk,
+                    level: lvl.level,
+                    force_move: mov.force_move,
+                    has_fearless: fb.is_some(),
+                    facing: facing.map(|f| f.angle).unwrap_or(Fixed::ZERO),
+                },
+            )
+        })
+        .collect()
+}
+
+/// Build a HashMap<UnitId, (FixedVec2, Faction)> from all soldier entities.
+/// Lighter-weight version for systems that only need position + faction.
+pub(crate) fn build_soldier_pos_faction_map(
+    world: &mut World,
+) -> HashMap<UnitId, (FixedVec2, Faction)> {
+    let mut q = world.query::<(
+        &UnitIdComponent,
+        &LogicalPosition,
+        &FactionComponent,
+        &SoldierMarker,
+    )>();
+    q.iter(world)
+        .map(|(id, pos, fac, _)| (id.0, (pos.0, fac.0)))
+        .collect()
 }
 
 pub fn find_entity_by_unit_id(world: &mut World, unit_id: UnitId) -> Option<Entity> {
