@@ -249,7 +249,11 @@ pub fn simulation_driver_system(
         cmd_buf.0.retain(|c| c.tick > tick);
 
         // 5. Execute tick — the ONLY run_tick call point (I2, I7)
+        #[cfg(feature = "tracing")]
+        let _tick_span = tracing::info_span!("tick", tick_number = tick).entered();
         let events = simulation::run_tick_default(&mut sim_world.0, tick);
+        #[cfg(feature = "tracing")]
+        drop(_tick_span);
         pending.events.push(events);
 
         // Sync tick_clock for presentation layer

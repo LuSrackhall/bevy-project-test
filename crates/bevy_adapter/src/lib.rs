@@ -57,6 +57,16 @@ pub struct BevyAdapterPlugin;
 
 impl Plugin for BevyAdapterPlugin {
     fn build(&self, app: &mut App) {
+        // Register tracy subscriber when tracing feature is enabled
+        #[cfg(feature = "tracing")]
+        {
+            use tracing_subscriber::prelude::*;
+            let tracy_layer = tracing_tracy::TracyLayer::default();
+            tracing_subscriber::registry()
+                .with(tracy_layer)
+                .init();
+        }
+
         app.init_resource::<UnitIdMapper>()
             .init_resource::<CommandBuffer>()
             .init_resource::<PendingEvents>()

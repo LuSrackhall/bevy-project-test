@@ -28,10 +28,10 @@
 
 ## 5. Profiling 基础设施
 
-- [ ] 5.1 在 bevy_adapter/Cargo.toml 添加 tracing 和 tracing-tracy 依赖（feature-gated）
-- [ ] 5.2 在 simulation_driver_system 的 run_tick_default() 调用周围添加 tracing::info_span
-- [ ] 5.3 注册 tracing-tracy subscriber（feature-gated）
-- [ ] 5.4 在 render_view/Cargo.toml 添加 debug_render feature，gate draw_debug_shapes_system 和 unit_info_bar_system
+- [x] 5.1 在 bevy_adapter/Cargo.toml 添加 tracing 和 tracing-tracy 依赖（feature-gated）
+- [x] 5.2 在 simulation_driver_system 的 run_tick_default() 调用周围添加 tracing::info_span
+- [x] 5.3 注册 tracing-tracy subscriber（feature-gated）
+- [x] 5.4 在 render_view/Cargo.toml 添加 debug_render feature，gate draw_debug_shapes_system 和 unit_info_bar_system
 
 ## 6. Benchmark Crate + CI
 

@@ -76,10 +76,8 @@ impl Plugin for RenderViewPlugin {
             .add_systems(
                 Update,
                 (
-                    crate::debug_shape::draw_debug_shapes_system,
                     crate::debug_shape::draw_dropped_shields_system,
                     crate::debug_shape::draw_boundary_walls_system,
-                    crate::unit_info_bar::unit_info_bar_system,
                     crate::unit_info_bar::info_bar_mode_toggle_system,
                     crate::selection::selection_visual_system,
                     crate::selection::drag_visual_system,
@@ -119,6 +117,21 @@ impl Plugin for RenderViewPlugin {
                     crate::camera::center_on_player_city,
                 ),
             );
+
+        // Debug-only visual systems (gated behind debug_render feature per constitution §21)
+        #[cfg(feature = "debug_render")]
+        app.add_systems(
+            Update,
+            (
+                crate::debug_shape::draw_debug_shapes_system,
+                crate::unit_info_bar::unit_info_bar_system,
+            )
+                .run_if(
+                    in_state(GameState::Playing)
+                        .and_then(not(resource_exists_and_equals(bevy_adapter::Paused(true))))
+                        .and_then(not(replay_seeking)),
+                ),
+        );
     }
 }
 

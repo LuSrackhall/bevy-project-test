@@ -3,6 +3,10 @@ name = "render_view"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = ["debug_render"]
+debug_render = []
+
 [dependencies]
 simulation = { path = "../simulation" }
 bevy_adapter = { path = "../bevy_adapter" }
