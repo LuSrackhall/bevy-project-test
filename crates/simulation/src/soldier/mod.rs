@@ -704,6 +704,10 @@ pub fn city_spawn_system(world: &mut World) {
                     crate::types::FacingDirection { angle: Fixed::ZERO },
                 ))
                 .id();
+            // Update incremental index
+            if let Some(mut index) = world.get_resource_mut::<crate::unit_index::UnitIdEntityIndex>() {
+                index.insert(new_id, soldier_entity);
+            }
             // Only Infantry spawns with a shield
             if spawn_type == SoldierType::Infantry {
                 world.entity_mut(soldier_entity).insert(ShieldComponent {
@@ -973,6 +977,10 @@ pub fn city_interaction_system(world: &mut World) {
         // Get UnitId before despawn (fix: was hardcoded UnitId(0))
         let uid = world.entity(*se).get::<UnitIdComponent>().map(|c| c.0).unwrap_or(UnitId(0));
         world.despawn(*se);
+        // Update incremental index
+        if let Some(mut index) = world.get_resource_mut::<crate::unit_index::UnitIdEntityIndex>() {
+            index.remove(uid);
+        }
         let mut events = world.resource_mut::<SimulationEvents>();
         events.destroyed.push(UnitDestroyed {
             unit_id: uid,
@@ -1109,7 +1117,11 @@ pub fn shield_pickup_system(world: &mut World) {
         world.entity_mut(soldier_e).insert(ShieldComponent {
             state: ShieldState::Normal,
         });
+        let dropped_uid = world.entity(dropped_e).get::<UnitIdComponent>().map(|c| c.0).unwrap_or(UnitId(0));
         world.despawn(dropped_e);
+        if let Some(mut index) = world.get_resource_mut::<crate::unit_index::UnitIdEntityIndex>() {
+            index.remove(dropped_uid);
+        }
     }
 }
 

@@ -536,6 +536,10 @@ pub fn melee_attack_system(world: &mut World, current_tick: u32) {
         let uid = find_unit_id(world, te).unwrap_or(UnitId(0));
         drop_shield_on_death(world, te, current_tick);
         world.despawn(te);
+        // Update incremental index
+        if let Some(mut index) = world.get_resource_mut::<crate::unit_index::UnitIdEntityIndex>() {
+            index.remove(uid);
+        }
         // Decrement origin city population when soldier dies in combat
         if let Some(origin_id) = origin {
             if let Some(oe) = find_entity_by_unit_id(world, origin_id) {
@@ -1212,6 +1216,10 @@ pub fn arrow_movement_system(world: &mut World, current_tick: u32) {
                     }
                     drop_shield_on_death(world, te, current_tick);
                     world.despawn(te);
+                    // Update incremental index
+                    if let Some(mut index) = world.get_resource_mut::<crate::unit_index::UnitIdEntityIndex>() {
+                        index.remove(uid);
+                    }
                     let mut events = world.resource_mut::<SimulationEvents>();
                     events.destroyed.push(UnitDestroyed {
                         unit_id: uid,
@@ -1250,6 +1258,10 @@ pub fn arrow_movement_system(world: &mut World, current_tick: u32) {
     for ae in to_despawn {
         let uid = world.entity(ae).get::<UnitIdComponent>().map(|c| c.0).unwrap_or(UnitId(0));
         world.despawn(ae);
+        // Update incremental index
+        if let Some(mut index) = world.get_resource_mut::<crate::unit_index::UnitIdEntityIndex>() {
+            index.remove(uid);
+        }
         world.resource_mut::<SimulationEvents>().destroyed.push(UnitDestroyed {
             unit_id: uid,
             killer_id: None,

@@ -20,11 +20,11 @@
 
 ## 4. UnitIdEntityIndex 增量化
 
-- [ ] 4.1 移除 run_tick 中的 UnitIdEntityIndex::rebuild 全量重建
-- [ ] 4.2 在 consume_commands_system 的 spawn 处理中添加 index.insert
-- [ ] 4.3 在所有 despawn 路径（melee_attack、attack_windup、city_interaction、arrow_movement）中添加 index.remove
-- [ ] 4.4 保留 find_entity_by_unit_id 中的 world.get_entity().is_ok() 安全网
-- [ ] 4.5 运行 golden_test 和 scenario_test 验证确定性不变
+- [x] 4.1 移除 run_tick 中的 UnitIdEntityIndex::rebuild 全量重建
+- [x] 4.2 在 consume_commands_system 的 spawn 处理中添加 index.insert
+- [x] 4.3 在所有 despawn 路径（melee_attack、attack_windup、city_interaction、arrow_movement）中添加 index.remove
+- [x] 4.4 保留 find_entity_by_unit_id 中的 world.get_entity().is_ok() 安全网
+- [x] 4.5 运行 golden_test 和 scenario_test 验证确定性不变
 
 ## 5. Profiling 基础设施
 
