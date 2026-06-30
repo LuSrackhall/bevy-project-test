@@ -94,10 +94,37 @@ fn bench_phase_arrow_compact(c: &mut Criterion) {
     });
 }
 
+fn bench_phase_engagement_compact_1500(c: &mut Criterion) {
+    c.bench_function("phase/compact/combat_engagement/1500", |b| {
+        let mut world = create_world_mixed(1500, 42);
+        compact_all(&mut world);
+        b.iter(|| { black_box(simulation::combat::combat_engagement_system(&mut world)); });
+    });
+}
+
+fn bench_phase_engagement_compact_3000(c: &mut Criterion) {
+    c.bench_function("phase/compact/combat_engagement/3000", |b| {
+        let mut world = create_world_mixed(3000, 42);
+        compact_all(&mut world);
+        b.iter(|| { black_box(simulation::combat::combat_engagement_system(&mut world)); });
+    });
+}
+
+fn bench_phase_melee_compact_1500(c: &mut Criterion) {
+    c.bench_function("phase/compact/melee_attack/1500", |b| {
+        let mut world = create_world_mixed(1500, 42);
+        compact_all(&mut world);
+        b.iter(|| { black_box(simulation::combat::melee_attack_system(&mut world, 1)); });
+    });
+}
+
 criterion_group!(
     benches,
     bench_phase_engagement_compact,
+    bench_phase_engagement_compact_1500,
+    bench_phase_engagement_compact_3000,
     bench_phase_melee_compact,
+    bench_phase_melee_compact_1500,
     bench_phase_overlap_compact,
     bench_phase_archer_compact,
     bench_phase_arrow_compact,

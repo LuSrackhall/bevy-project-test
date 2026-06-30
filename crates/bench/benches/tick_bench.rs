@@ -124,12 +124,62 @@ fn bench_tick_5000_idle(c: &mut Criterion) {
     });
 }
 
+fn bench_tick_1500_combat(c: &mut Criterion) {
+    c.bench_function("tick/1500_combat", |b| {
+        let mut world = create_world_with_soldiers(1500, 42);
+        {
+            let mut q = world.query::<(Entity, &UnitIdComponent, &mut LogicalPosition)>();
+            let mut i = 0;
+            for (_, _, mut pos) in q.iter_mut(&mut world) {
+                let faction_offset = if i % 2 == 0 { 0 } else { 30 };
+                pos.0 = FixedVec2::new(
+                    Fixed::from_int(faction_offset + (i % 20) * 5),
+                    Fixed::from_int((i / 20) * 5),
+                );
+                i += 1;
+            }
+        }
+        let config = simulation::run_config::RunConfig { enable_ai: false };
+        let mut tick = 0u32;
+        b.iter(|| {
+            tick += 1;
+            black_box(simulation::run_tick(&mut world, tick, &config));
+        });
+    });
+}
+
+fn bench_tick_3000_combat(c: &mut Criterion) {
+    c.bench_function("tick/3000_combat", |b| {
+        let mut world = create_world_with_soldiers(3000, 42);
+        {
+            let mut q = world.query::<(Entity, &UnitIdComponent, &mut LogicalPosition)>();
+            let mut i = 0;
+            for (_, _, mut pos) in q.iter_mut(&mut world) {
+                let faction_offset = if i % 2 == 0 { 0 } else { 30 };
+                pos.0 = FixedVec2::new(
+                    Fixed::from_int(faction_offset + (i % 20) * 5),
+                    Fixed::from_int((i / 20) * 5),
+                );
+                i += 1;
+            }
+        }
+        let config = simulation::run_config::RunConfig { enable_ai: false };
+        let mut tick = 0u32;
+        b.iter(|| {
+            tick += 1;
+            black_box(simulation::run_tick(&mut world, tick, &config));
+        });
+    });
+}
+
 criterion_group!(
     benches,
     bench_tick_empty,
     bench_tick_100_idle,
     bench_tick_1000_idle,
     bench_tick_1000_combat,
+    bench_tick_1500_combat,
+    bench_tick_3000_combat,
     bench_tick_5000_idle,
 );
 criterion_main!(benches);
