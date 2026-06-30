@@ -154,17 +154,29 @@ pub fn combat_engagement_system(world: &mut World) {
         let aggro_sq = aggro * aggro;
 
         // Find nearest enemy using per-faction SpatialHash (no faction check needed)
+        // For large ranges (>3 cells), use direct scan instead of query_range
         let mut best: Option<(UnitId, i64)> = None;
+        let large_range = seek_range > 192; // >3 cells → query_range degenerates to full scan
 
         for (&ffac, enemy_spatial) in &faction_spatial {
-            if ffac == faction { continue; } // skip own faction
-            // Use query_range for proper radius search with cell_size=64
-            let neighbors = enemy_spatial.query_range(pos, aggro.0);
-            for entry in &neighbors {
-                if entry.unit_id == uid { continue; }
-                let ds = (pos - entry.pos).length_squared();
-                if ds <= aggro_sq && best.as_ref().is_none_or(|(_, d)| ds.0 < *d) {
-                    best = Some((entry.unit_id, ds.0));
+            if ffac == faction { continue; }
+            if large_range {
+                // Direct scan: iterate all entries in enemy SpatialHash (flat Vec per cell)
+                for entry in enemy_spatial.iter_all() {
+                    if entry.unit_id == uid { continue; }
+                    let ds = (pos - entry.pos).length_squared();
+                    if ds <= aggro_sq && best.as_ref().is_none_or(|(_, d)| ds.0 < *d) {
+                        best = Some((entry.unit_id, ds.0));
+                    }
+                }
+            } else {
+                let neighbors = enemy_spatial.query_range(pos, aggro.0);
+                for entry in &neighbors {
+                    if entry.unit_id == uid { continue; }
+                    let ds = (pos - entry.pos).length_squared();
+                    if ds <= aggro_sq && best.as_ref().is_none_or(|(_, d)| ds.0 < *d) {
+                        best = Some((entry.unit_id, ds.0));
+                    }
                 }
             }
         }

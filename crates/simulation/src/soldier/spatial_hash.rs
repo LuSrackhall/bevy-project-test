@@ -84,6 +84,12 @@ impl SpatialHash {
         result
     }
 
+    /// Iterate all entries across all cells. Used for large-range queries
+    /// where query_range would sweep nearly every cell anyway.
+    pub fn iter_all(&self) -> impl Iterator<Item = &SpatialEntry> {
+        self.cells.values().flat_map(|cell| cell.iter())
+    }
+
     fn cell_key(&self, pos: FixedVec2) -> (i32, i32) {
         let x = (pos.x.0 / self.cell_size) as i32;
         let y = (pos.y.0 / self.cell_size) as i32;
