@@ -89,19 +89,17 @@ pub fn combat_engagement_system(world: &mut World) {
     // Ensure shared index exists (built once per tick or on-demand in tests)
     crate::soldier::TickCombatIndex::ensure_exists(world);
 
-    // Extract data from shared tick index then drop Ref to allow mutable world access
-    let (all_units, faction_map, spatial, spatial_coverage_sq) = {
+    // Build per-faction SpatialHash from shared pos_faction (eliminates faction_map)
+    let (all_units, faction_spatial) = {
         let index = world.resource::<crate::soldier::TickCombatIndex>();
         let all_units = index.pos_faction.clone();
-        let faction_map: HashMap<UnitId, Faction> =
-            all_units.iter().map(|(&id, (_, fac))| (id, *fac)).collect();
-        let cell_size = Fixed::from_int(64);
-        let spatial_coverage_sq = Fixed::from_int(192 * 192);
-        let mut spatial = SpatialHash::new(cell_size);
-        for (&uid, &(pos, _)) in &all_units {
-            spatial.insert(SpatialEntry { pos, radius: 0, unit_id: uid });
+        let mut faction_spatial: HashMap<Faction, SpatialHash> = HashMap::new();
+        for (&uid, &(pos, fac)) in &all_units {
+            faction_spatial.entry(fac)
+                .or_insert_with(|| SpatialHash::new(Fixed::from_int(64)))
+                .insert(SpatialEntry { pos, radius: 0, unit_id: uid });
         }
-        (all_units, faction_map, spatial, spatial_coverage_sq)
+        (all_units, faction_spatial)
     }; // Ref dropped here
 
     // Pre-sort soldier UnitIds for deterministic iteration
@@ -155,32 +153,18 @@ pub fn combat_engagement_system(world: &mut World) {
         let aggro = Fixed::from_int(seek_range as i32);
         let aggro_sq = aggro * aggro;
 
-        // Find nearest enemy: use SpatialHash when coverage is sufficient, else fallback
-        let use_spatial = aggro_sq.0 <= spatial_coverage_sq.0;
+        // Find nearest enemy using per-faction SpatialHash (no faction check needed)
         let mut best: Option<(UnitId, i64)> = None;
 
-        if use_spatial {
-            let neighbors = spatial.query_nearby(pos);
+        for (&ffac, enemy_spatial) in &faction_spatial {
+            if ffac == faction { continue; } // skip own faction
+            // Use query_range for proper radius search with cell_size=64
+            let neighbors = enemy_spatial.query_range(pos, aggro.0);
             for entry in &neighbors {
                 if entry.unit_id == uid { continue; }
-                if let Some(&efac) = faction_map.get(&entry.unit_id) {
-                    if efac == faction { continue; }
-                    let ds = (pos - entry.pos).length_squared();
-                    if ds <= aggro_sq && best.as_ref().is_none_or(|(_, d)| ds.0 < *d) {
-                        best = Some((entry.unit_id, ds.0));
-                    }
-                }
-            }
-        } else {
-            // Fallback: full scan for seek_range > coverage
-            let mut sorted_ids: Vec<UnitId> = all_units.keys().copied().collect();
-            sorted_ids.sort();
-            for &eid in &sorted_ids {
-                let (epos, efac) = &all_units[&eid];
-                if *efac == faction { continue; }
-                let ds = (pos - *epos).length_squared();
+                let ds = (pos - entry.pos).length_squared();
                 if ds <= aggro_sq && best.as_ref().is_none_or(|(_, d)| ds.0 < *d) {
-                    best = Some((eid, ds.0));
+                    best = Some((entry.unit_id, ds.0));
                 }
             }
         }
@@ -314,22 +298,23 @@ pub fn melee_attack_system(world: &mut World, current_tick: u32) {
     }
 
     // Extract data from shared tick index then drop Ref
-    let (faction_map, mut spatial, attackers) = {
+    let (faction_spatial, attackers) = {
         let index = world.resource::<crate::soldier::TickCombatIndex>();
         let soldiers = index.soldiers.clone();
-        let faction_map: HashMap<UnitId, Faction> =
-            soldiers.iter().map(|(&id, s)| (id, s.faction)).collect();
-        let mut spatial = SpatialHash::new(Fixed::from_int(32));
+        // Build per-faction SpatialHash (eliminates faction_map)
+        let mut faction_spatial: HashMap<Faction, SpatialHash> = HashMap::new();
         for (&uid, ref s) in &soldiers {
-            spatial.insert(SpatialEntry { pos: s.pos, radius: 0, unit_id: uid });
+            faction_spatial.entry(s.faction)
+                .or_insert_with(|| SpatialHash::new(Fixed::from_int(32)))
+                .insert(SpatialEntry { pos: s.pos, radius: 0, unit_id: uid });
         }
         let mut attackers: Vec<(UnitId, crate::soldier::SoldierSnapshot)> = soldiers
             .iter()
             .filter(|(_, s)| s.attack.cooldown_remaining == 0 && s.soldier_type != SoldierType::Archer)
             .map(|(&uid, s)| (uid, *s))
             .collect();
-        attackers.sort_by_key(|(uid, _)| *uid); // Deterministic ordering (§2.6)
-        (faction_map, spatial, attackers)
+        attackers.sort_by_key(|(uid, _)| *uid);
+        (faction_spatial, attackers)
     }; // Ref dropped here
 
     let mut pending_deaths: Vec<(Entity, Option<UnitId>, Option<UnitId>)> = Vec::new(); // (target, killer, city_origin)
@@ -361,12 +346,12 @@ pub fn melee_attack_system(world: &mut World, current_tick: u32) {
         let range_f = Fixed::from_int(s.attack.range as i32);
         let range_sq = range_f * range_f;
         let mut best_target: Option<(UnitId, FixedVec2, i64)> = None;
-        // Use SpatialHash for O(k) neighbor query (melee range is small, cell_size=32)
-        let neighbors = spatial.query_nearby(s.pos);
-        for entry in &neighbors {
-            if entry.unit_id == uid { continue; }
-            if let Some(&efac) = faction_map.get(&entry.unit_id) {
-                if efac == s.faction { continue; }
+        // Use per-faction SpatialHash (no faction check per neighbor)
+        for (&ffac, enemy_spatial) in &faction_spatial {
+            if ffac == s.faction { continue; }
+            let neighbors = enemy_spatial.query_range(s.pos, range_f.0);
+            for entry in &neighbors {
+                if entry.unit_id == uid { continue; }
                 let dist_sq = (s.pos - entry.pos).length_squared();
                 if dist_sq <= range_sq {
                     // Blocking: check frontal angle
@@ -809,16 +794,16 @@ pub fn archer_attack_system(world: &mut World) {
         }
     }
 
-    // Extract data from shared tick index then drop Ref
-    let (soldier_faction_map, soldier_spatial) = {
+    // Extract data from shared tick index then drop Ref — per-faction SpatialHash
+    let soldier_faction_spatial = {
         let index = world.resource::<crate::soldier::TickCombatIndex>();
-        let faction_map: HashMap<UnitId, Faction> =
-            index.pos_faction.iter().map(|(&id, (_, fac))| (id, *fac)).collect();
-        let mut spatial = SpatialHash::new(Fixed::from_int(200));
-        for (&uid, &(pos, _)) in &index.pos_faction {
-            spatial.insert(SpatialEntry { pos, radius: 0, unit_id: uid });
+        let mut faction_spatial: HashMap<Faction, SpatialHash> = HashMap::new();
+        for (&uid, &(pos, fac)) in &index.pos_faction {
+            faction_spatial.entry(fac)
+                .or_insert_with(|| SpatialHash::new(Fixed::from_int(200)))
+                .insert(SpatialEntry { pos, radius: 0, unit_id: uid });
         }
-        (faction_map, spatial)
+        faction_spatial
     }; // Ref dropped here
 
     // Collect enemy city positions + build SpatialHash
@@ -892,10 +877,10 @@ pub fn archer_attack_system(world: &mut World) {
         let mut enemy_soldiers_in_range: Vec<(UnitId, FixedVec2)> = Vec::new();
         let mut nearest: Option<(UnitId, FixedVec2)> = None;
         let mut nearest_d = i64::MAX;
-        for entry in &soldier_spatial.query_nearby(ad.pos) {
-            if entry.unit_id == ad.uid { continue; }
-            if let Some(&efac) = soldier_faction_map.get(&entry.unit_id) {
-                if efac == ad.faction { continue; }
+        for (&ffac, enemy_spatial) in &soldier_faction_spatial {
+            if ffac == ad.faction { continue; }
+            for entry in &enemy_spatial.query_nearby(ad.pos) {
+                if entry.unit_id == ad.uid { continue; }
                 let ds = (ad.pos - entry.pos).length_squared();
                 if ds <= range_sq {
                     enemy_soldiers_in_range.push((entry.unit_id, entry.pos));
