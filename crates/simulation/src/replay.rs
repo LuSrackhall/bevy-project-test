@@ -303,4 +303,94 @@ mod tests {
             "Replay with seek must produce identical state as continuous replay"
         );
     }
+
+
+    /// Large-scale replay determinism: many units, multiple commands, 500 ticks.
+    /// Catches HashMap iteration order non-determinism that simple tests miss.
+    #[test]
+    fn test_large_scale_replay_determinism() {
+        let seed = 42u64;
+        let map_size = MapSize::Small;
+        let total_ticks = 500u32;
+
+        // --- Record phase ---
+        let mut world1 = init_simulation_world(seed);
+        map::generate_map(&mut world1, map_size);
+        let mut replay = ReplayFile::new(seed, map_size, total_ticks);
+
+        for tick in 1..=total_ticks {
+            // Issue seek commands at tick 10
+            if tick == 10 {
+                let mut cmds = Vec::new();
+                let mut q = world1.query::<(&UnitIdComponent, &FactionComponent, &SoldierMarker)>();
+                let soldier_uids: Vec<UnitId> = q.iter(&world1)
+                    .filter(|(_, f, _)| f.0 == Faction::Player)
+                    .map(|(id, _, _)| id.0)
+                    .collect();
+                for uid in soldier_uids {
+                    cmds.push(GameCommand {
+                        tick: 11,
+                        player_id: 0,
+                        action: Action::SetSeekStance {
+                            scope: crate::command::SeekScope::All,
+                            seek_range: 60,
+                            unit_ids: vec![uid],
+                        },
+                    });
+                }
+                for cmd in &cmds {
+                    world1.resource_mut::<CommandBuffer>().push(cmd.clone());
+                }
+                replay.record_tick(11, cmds);
+            }
+
+            // Issue move commands at tick 100
+            if tick == 100 {
+                let mut cmds = Vec::new();
+                let mut q = world1.query::<(&UnitIdComponent, &FactionComponent, &SoldierMarker)>();
+                let soldier_uids: Vec<UnitId> = q.iter(&world1)
+                    .filter(|(_, f, _)| f.0 == Faction::Player)
+                    .take(50)
+                    .map(|(id, _, _)| id.0)
+                    .collect();
+                for uid in soldier_uids {
+                    cmds.push(GameCommand {
+                        tick: 101,
+                        player_id: 0,
+                        action: Action::MoveTo {
+                            unit: uid,
+                            target: FixedVec2::new(Fixed::from_int(200), Fixed::from_int(200)),
+                        },
+                    });
+                }
+                for cmd in &cmds {
+                    world1.resource_mut::<CommandBuffer>().push(cmd.clone());
+                }
+                replay.record_tick(101, cmds);
+            }
+
+            run_tick_default(&mut world1, tick);
+        }
+        let hash1 = hash_world_state(&mut world1);
+
+        // --- Replay phase ---
+        let ron_str = replay.to_ron();
+        let loaded = ReplayFile::from_ron(&ron_str).unwrap();
+        let mut world2 = init_simulation_world(loaded.seed);
+        map::generate_map(&mut world2, loaded.map_size);
+
+        for tick in 1..=total_ticks {
+            let cmds = loaded.commands_for_tick(tick).to_vec();
+            for cmd in cmds {
+                world2.resource_mut::<CommandBuffer>().push(cmd);
+            }
+            run_tick_default(&mut world2, tick);
+        }
+        let hash2 = hash_world_state(&mut world2);
+
+        assert_eq!(
+            hash1, hash2,
+            "Large-scale replay determinism failed. hash1={}, hash2={}", hash1, hash2
+        );
+    }
 }
