@@ -93,7 +93,7 @@ pub fn combat_engagement_system(world: &mut World) {
     let (all_units, faction_spatial) = {
         let index = world.resource::<crate::soldier::TickCombatIndex>();
         let all_units = index.pos_faction.clone();
-        let mut faction_spatial: HashMap<Faction, SpatialHash> = HashMap::new();
+        let mut faction_spatial: BTreeMap<Faction, SpatialHash> = BTreeMap::new();
         for (&uid, &(pos, fac)) in &all_units {
             faction_spatial.entry(fac)
                 .or_insert_with(|| SpatialHash::new(Fixed::from_int(64)))
@@ -314,7 +314,7 @@ pub fn melee_attack_system(world: &mut World, current_tick: u32) {
         let index = world.resource::<crate::soldier::TickCombatIndex>();
         let soldiers = index.soldiers.clone();
         // Build per-faction SpatialHash (eliminates faction_map)
-        let mut faction_spatial: HashMap<Faction, SpatialHash> = HashMap::new();
+        let mut faction_spatial: BTreeMap<Faction, SpatialHash> = BTreeMap::new();
         for (&uid, ref s) in &soldiers {
             faction_spatial.entry(s.faction)
                 .or_insert_with(|| SpatialHash::new(Fixed::from_int(32)))
@@ -813,7 +813,7 @@ pub fn archer_attack_system(world: &mut World) {
     // Extract data from shared tick index then drop Ref — per-faction SpatialHash
     let soldier_faction_spatial = {
         let index = world.resource::<crate::soldier::TickCombatIndex>();
-        let mut faction_spatial: HashMap<Faction, SpatialHash> = HashMap::new();
+        let mut faction_spatial: BTreeMap<Faction, SpatialHash> = BTreeMap::new();
         for (&uid, &(pos, fac)) in &index.pos_faction {
             faction_spatial.entry(fac)
                 .or_insert_with(|| SpatialHash::new(Fixed::from_int(200)))

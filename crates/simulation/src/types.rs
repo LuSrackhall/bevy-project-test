@@ -266,7 +266,7 @@ impl IdGenerator {
 // Enums
 // ═══════════════════════════════════════════════════════════════
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Hash, Serialize, Deserialize)]
 pub enum Faction {
     Player,
     Enemy,

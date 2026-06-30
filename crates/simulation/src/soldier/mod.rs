@@ -12,7 +12,7 @@ use crate::types::*;
 use bevy_ecs::component::Component;
 use bevy_ecs::entity::Entity;
 use bevy_ecs::world::World;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 // BTreeMap removed; using HashMap for positions
 
 // ══════════ Components ══════════
@@ -151,7 +151,7 @@ pub(crate) struct TickCombatIndex {
     /// SpatialHash for all soldiers (cell_size=32, fine-grained)
     pub all_spatial: spatial_hash::SpatialHash,
     /// Per-faction SpatialHash for O(k/2) queries
-    pub faction_spatial: HashMap<Faction, spatial_hash::SpatialHash>,
+    pub faction_spatial: BTreeMap<Faction, spatial_hash::SpatialHash>,
     /// Soldier position+faction only (lighter weight for some systems)
     pub pos_faction: HashMap<UnitId, (FixedVec2, Faction)>,
 }
@@ -180,7 +180,7 @@ impl TickCombatIndex {
         }
 
         // Build per-faction SpatialHash
-        let mut faction_spatial: HashMap<Faction, spatial_hash::SpatialHash> = HashMap::new();
+        let mut faction_spatial: BTreeMap<Faction, spatial_hash::SpatialHash> = BTreeMap::new();
         for (&uid, s) in &soldiers {
             faction_spatial
                 .entry(s.faction)
