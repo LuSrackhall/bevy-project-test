@@ -326,6 +326,10 @@ pub fn melee_attack_system(world: &mut World, current_tick: u32) {
 
     for (uid, s) in &attackers {
         let uid = *uid;
+        // Skip if entity was despawned earlier in this loop (stale snapshot)
+        if world.get_entity(s.entity).is_err() {
+            continue;
+        }
         // ForceMove suppression: non-cavalry units skip attack during force_move
         if s.force_move && s.soldier_type != SoldierType::Cavalry {
             continue;
