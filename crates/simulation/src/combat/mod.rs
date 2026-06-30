@@ -86,34 +86,23 @@ pub(crate) fn drop_shield_on_death(world: &mut World, dying_entity: Entity, curr
 pub fn combat_engagement_system(world: &mut World) {
     let _soldier_config = world.resource::<SoldierConfig>().clone();
 
-    // Collect all entity positions & factions
-    let all_units: HashMap<UnitId, (FixedVec2, Faction)> = {
-        let mut q = world.query::<(
-            Entity,
-            &UnitIdComponent,
-            &LogicalPosition,
-            &FactionComponent,
-        )>();
-        q.iter(world)
-            .map(|(_, id, pos, fac)| (id.0, (pos.0, fac.0)))
-            .collect()
-    };
+    // Ensure shared index exists (built once per tick or on-demand in tests)
+    crate::soldier::TickCombatIndex::ensure_exists(world);
 
-    // Pre-build faction map for O(1) lookup in SpatialHash loop (avoids World borrow)
-    let faction_map: HashMap<UnitId, Faction> =
-        all_units.iter().map(|(&id, (_, fac))| (id, *fac)).collect();
-
-    // Build spatial hash for O(k) neighbor queries
-    let cell_size = Fixed::from_int(64);
-    let spatial_coverage_sq = Fixed::from_int(192 * 192); // (3 * cell_size)^2
-    let mut spatial = SpatialHash::new(cell_size);
-    for (&uid, &(pos, _)) in &all_units {
-        spatial.insert(SpatialEntry {
-            pos,
-            radius: 0,
-            unit_id: uid,
-        });
-    }
+    // Extract data from shared tick index then drop Ref to allow mutable world access
+    let (all_units, faction_map, spatial, spatial_coverage_sq) = {
+        let index = world.resource::<crate::soldier::TickCombatIndex>();
+        let all_units = index.pos_faction.clone();
+        let faction_map: HashMap<UnitId, Faction> =
+            all_units.iter().map(|(&id, (_, fac))| (id, *fac)).collect();
+        let cell_size = Fixed::from_int(64);
+        let spatial_coverage_sq = Fixed::from_int(192 * 192);
+        let mut spatial = SpatialHash::new(cell_size);
+        for (&uid, &(pos, _)) in &all_units {
+            spatial.insert(SpatialEntry { pos, radius: 0, unit_id: uid });
+        }
+        (all_units, faction_map, spatial, spatial_coverage_sq)
+    }; // Ref dropped here
 
     // Pre-sort soldier UnitIds for deterministic iteration
     let mut sorted_soldier_uids: Vec<UnitId> = Vec::new();
@@ -311,6 +300,9 @@ fn try_passive_block(
 pub fn melee_attack_system(world: &mut World, current_tick: u32) {
     let combat_config = world.resource::<CombatGlobalConfig>().clone();
 
+    // Ensure shared index exists
+    crate::soldier::TickCombatIndex::ensure_exists(world);
+
     // Tick cooldowns
     {
         let mut q = world.query::<(Entity, &mut Attack, &SoldierTypeComponent)>();
@@ -321,22 +313,24 @@ pub fn melee_attack_system(world: &mut World, current_tick: u32) {
         }
     }
 
-    // Build shared soldier index (replaces 3 separate HashMap constructions)
-    let soldier_index = crate::soldier::build_soldier_index(world);
-
-    // Derive faction map and SpatialHash from soldier index
-    let faction_map: HashMap<UnitId, Faction> =
-        soldier_index.iter().map(|(&id, s)| (id, s.faction)).collect();
-    let mut spatial = SpatialHash::new(Fixed::from_int(32));
-    for (&uid, s) in &soldier_index {
-        spatial.insert(SpatialEntry { pos: s.pos, radius: 0, unit_id: uid });
-    }
-
-    // Ready attackers — filter from soldier_index
-    let attackers: Vec<(&UnitId, &crate::soldier::SoldierSnapshot)> = soldier_index
-        .iter()
-        .filter(|(_, s)| s.attack.cooldown_remaining == 0 && s.soldier_type != SoldierType::Archer)
-        .collect();
+    // Extract data from shared tick index then drop Ref
+    let (faction_map, mut spatial, attackers) = {
+        let index = world.resource::<crate::soldier::TickCombatIndex>();
+        let soldiers = index.soldiers.clone();
+        let faction_map: HashMap<UnitId, Faction> =
+            soldiers.iter().map(|(&id, s)| (id, s.faction)).collect();
+        let mut spatial = SpatialHash::new(Fixed::from_int(32));
+        for (&uid, ref s) in &soldiers {
+            spatial.insert(SpatialEntry { pos: s.pos, radius: 0, unit_id: uid });
+        }
+        let mut attackers: Vec<(UnitId, crate::soldier::SoldierSnapshot)> = soldiers
+            .iter()
+            .filter(|(_, s)| s.attack.cooldown_remaining == 0 && s.soldier_type != SoldierType::Archer)
+            .map(|(&uid, s)| (uid, *s))
+            .collect();
+        attackers.sort_by_key(|(uid, _)| *uid); // Deterministic ordering (§2.6)
+        (faction_map, spatial, attackers)
+    }; // Ref dropped here
 
     let mut pending_deaths: Vec<(Entity, Option<UnitId>, Option<UnitId>)> = Vec::new(); // (target, killer, city_origin)
     let mut xp_grants: Vec<(Entity, u32)> = Vec::new();
@@ -345,7 +339,8 @@ pub fn melee_attack_system(world: &mut World, current_tick: u32) {
 
     let windup_config = combat_config.attack_windup.clone();
 
-    for (&uid, s) in &attackers {
+    for (uid, s) in &attackers {
+        let uid = *uid;
         // ForceMove suppression: non-cavalry units skip attack during force_move
         if s.force_move && s.soldier_type != SoldierType::Cavalry {
             continue;
@@ -801,6 +796,9 @@ pub fn archer_attack_system(world: &mut World) {
     let soldier_config = world.resource::<SoldierConfig>().clone();
     let combat_config = world.resource::<CombatGlobalConfig>().clone();
 
+    // Ensure shared index exists
+    crate::soldier::TickCombatIndex::ensure_exists(world);
+
     // Tick cooldowns for archers
     {
         let mut q = world.query::<(Entity, &mut Attack, &SoldierTypeComponent)>();
@@ -811,14 +809,17 @@ pub fn archer_attack_system(world: &mut World) {
         }
     }
 
-    // Collect enemy soldier positions + build SpatialHash (using shared helper)
-    let soldier_pos_faction = crate::soldier::build_soldier_pos_faction_map(world);
-    let soldier_faction_map: HashMap<UnitId, Faction> =
-        soldier_pos_faction.iter().map(|(&id, (_, fac))| (id, *fac)).collect();
-    let mut soldier_spatial = SpatialHash::new(Fixed::from_int(200));
-    for (&uid, &(pos, _)) in &soldier_pos_faction {
-        soldier_spatial.insert(SpatialEntry { pos, radius: 0, unit_id: uid });
-    }
+    // Extract data from shared tick index then drop Ref
+    let (soldier_faction_map, soldier_spatial) = {
+        let index = world.resource::<crate::soldier::TickCombatIndex>();
+        let faction_map: HashMap<UnitId, Faction> =
+            index.pos_faction.iter().map(|(&id, (_, fac))| (id, *fac)).collect();
+        let mut spatial = SpatialHash::new(Fixed::from_int(200));
+        for (&uid, &(pos, _)) in &index.pos_faction {
+            spatial.insert(SpatialEntry { pos, radius: 0, unit_id: uid });
+        }
+        (faction_map, spatial)
+    }; // Ref dropped here
 
     // Collect enemy city positions + build SpatialHash
     let all_cities: Vec<(UnitId, FixedVec2, Faction)> = {
@@ -1057,18 +1058,25 @@ pub fn archer_attack_system(world: &mut World) {
 pub fn arrow_movement_system(world: &mut World, current_tick: u32) {
     let combat_config = world.resource::<CombatGlobalConfig>().clone();
 
-    // Build shared soldier index (replaces 4 separate HashMap constructions)
-    let soldier_index = crate::soldier::build_soldier_index(world);
-    let soldier_faction_map: HashMap<UnitId, Faction> =
-        soldier_index.iter().map(|(&id, s)| (id, s.faction)).collect();
-    let soldier_entity_map: HashMap<UnitId, Entity> =
-        soldier_index.iter().map(|(&id, s)| (id, s.entity)).collect();
-    let soldier_pos_map: HashMap<UnitId, FixedVec2> =
-        soldier_index.iter().map(|(&id, s)| (id, s.pos)).collect();
-    let mut soldier_spatial = SpatialHash::new(Fixed::from_int(32));
-    for (&uid, s) in &soldier_index {
-        soldier_spatial.insert(SpatialEntry { pos: s.pos, radius: 0, unit_id: uid });
-    }
+    // Ensure shared index exists
+    crate::soldier::TickCombatIndex::ensure_exists(world);
+
+    // Extract data from shared tick index then drop Ref
+    let (soldier_faction_map, soldier_entity_map, soldier_pos_map, soldier_spatial) = {
+        let index = world.resource::<crate::soldier::TickCombatIndex>();
+        let soldiers = &index.soldiers;
+        let faction_map: HashMap<UnitId, Faction> =
+            soldiers.iter().map(|(&id, s)| (id, s.faction)).collect();
+        let entity_map: HashMap<UnitId, Entity> =
+            soldiers.iter().map(|(&id, s)| (id, s.entity)).collect();
+        let pos_map: HashMap<UnitId, FixedVec2> =
+            soldiers.iter().map(|(&id, s)| (id, s.pos)).collect();
+        let mut spatial = SpatialHash::new(Fixed::from_int(32));
+        for (&uid, s) in soldiers {
+            spatial.insert(SpatialEntry { pos: s.pos, radius: 0, unit_id: uid });
+        }
+        (faction_map, entity_map, pos_map, spatial)
+    }; // Ref dropped here
 
     // Collect city positions + SpatialHash for collision
     let all_cities: Vec<(UnitId, FixedVec2, Entity, Faction, u32)> = {
@@ -2306,8 +2314,8 @@ mod integration_tests {
 
         let enemy_hp_before = world.get::<Health>(enemy).unwrap().current;
 
-        // 运行多个 tick
-        for tick in 1..=20 {
+        // 运行多个 tick（共享索引有 1-tick 位置滞后，需要更多 tick）
+        for tick in 1..=30 {
             crate::run_tick_default(&mut world, tick);
         }
 

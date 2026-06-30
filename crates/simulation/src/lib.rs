@@ -113,6 +113,10 @@ pub fn run_tick(world: &mut World, tick_number: u32, config: &RunConfig) -> Simu
     // Clear previous events
     { *world.resource_mut::<SimulationEvents>() = SimulationEvents::new(); }
 
+    // Build shared TickCombatIndex once (replaces 14 redundant scans per tick)
+    let tick_index = soldier::TickCombatIndex::build(world);
+    world.insert_resource(tick_index);
+
     // Phase 1: Consume pre-sorted commands
     soldier::consume_commands_system(world, commands);
 
