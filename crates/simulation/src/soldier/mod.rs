@@ -126,6 +126,7 @@ fn integer_sqrt(n: i64) -> i64 {
 /// Snapshot of soldier data for combat systems. Each system calls
 /// `build_soldier_index` independently (no shared Resource) because
 /// entity lifetimes change between phases (melee kills → arrow reads).
+#[derive(Clone, Copy)]
 pub(crate) struct SoldierSnapshot {
     pub entity: Entity,
     pub pos: FixedVec2,
@@ -138,6 +139,70 @@ pub(crate) struct SoldierSnapshot {
     pub force_move: bool,
     pub has_fearless: bool,
     pub facing: Fixed,
+}
+
+// ══════════ Tick-Combat Shared Index ══════════
+
+/// Shared tick-scoped combat index built once per tick and shared across
+/// all combat systems. Eliminates 14 redundant full-entity scans.
+#[derive(bevy_ecs::prelude::Resource)]
+pub(crate) struct TickCombatIndex {
+    pub soldiers: HashMap<UnitId, SoldierSnapshot>,
+    /// SpatialHash for all soldiers (cell_size=32, fine-grained)
+    pub all_spatial: spatial_hash::SpatialHash,
+    /// Per-faction SpatialHash for O(k/2) queries
+    pub faction_spatial: HashMap<Faction, spatial_hash::SpatialHash>,
+    /// Soldier position+faction only (lighter weight for some systems)
+    pub pos_faction: HashMap<UnitId, (FixedVec2, Faction)>,
+}
+
+impl TickCombatIndex {
+    /// Ensure the shared index exists. Called at tick start and as fallback in tests.
+    pub fn ensure_exists(world: &mut World) {
+        if !world.contains_resource::<Self>() {
+            let index = Self::build(world);
+            world.insert_resource(index);
+        }
+    }
+
+    /// Build shared index from current World state. Called once at tick start.
+    pub fn build(world: &mut World) -> Self {
+        let soldiers = build_soldier_index(world);
+
+        // Build all-soldier SpatialHash (cell_size=32)
+        let mut all_spatial = spatial_hash::SpatialHash::new(Fixed::from_int(32));
+        for (&uid, s) in &soldiers {
+            all_spatial.insert(spatial_hash::SpatialEntry {
+                pos: s.pos,
+                radius: 0,
+                unit_id: uid,
+            });
+        }
+
+        // Build per-faction SpatialHash
+        let mut faction_spatial: HashMap<Faction, spatial_hash::SpatialHash> = HashMap::new();
+        for (&uid, s) in &soldiers {
+            faction_spatial
+                .entry(s.faction)
+                .or_insert_with(|| spatial_hash::SpatialHash::new(Fixed::from_int(32)))
+                .insert(spatial_hash::SpatialEntry {
+                    pos: s.pos,
+                    radius: 0,
+                    unit_id: uid,
+                });
+        }
+
+        // Lightweight pos+faction map
+        let pos_faction: HashMap<UnitId, (FixedVec2, Faction)> =
+            soldiers.iter().map(|(&id, s)| (id, (s.pos, s.faction))).collect();
+
+        Self {
+            soldiers,
+            all_spatial,
+            faction_spatial,
+            pos_faction,
+        }
+    }
 }
 
 /// Build a HashMap<UnitId, SoldierSnapshot> from all soldier entities.
