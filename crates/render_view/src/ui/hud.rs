@@ -629,14 +629,19 @@ pub(crate) fn update_top_bar(
         }
     }
 
-    // Dynamic per-faction breakdown using {:?} for faction names (temporary display)
+    // Dynamic per-faction breakdown using Chinese faction labels
     if let Some(id) = ht.enemy {
         if let Ok(mut t) = tq.get_mut(id) {
             let parts: Vec<String> = counts
                 .factions
                 .iter()
                 .map(|(faction, (soldiers, cities))| {
-                    format!("{:?}: 兵{}/城{}", faction, soldiers, cities)
+                    let label = match faction {
+                        simulation::types::Faction::Player => "玩家",
+                        simulation::types::Faction::Enemy => "敌人",
+                        simulation::types::Faction::Neutral => "中立",
+                    };
+                    format!("{}: 兵{}/城{}", label, soldiers, cities)
                 })
                 .collect();
             t.0 = parts.join("  ");
