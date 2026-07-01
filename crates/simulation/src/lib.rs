@@ -12,6 +12,7 @@ pub mod scenario;
 pub mod soldier;
 pub mod types;
 pub mod unit_index;
+pub mod world_stats;
 
 use crate::city::config::CityGlobalConfig;
 use crate::combat::config::CombatGlobalConfig;

@@ -1,9 +1,9 @@
 ## 1. world_stats 模块
 
-- [ ] 1.1 新建 `simulation/src/world_stats.rs`：`FactionCounts` struct + `count_factions` 函数，`BTreeMap<Faction, (u32,u32)>`
-- [ ] 1.2 `FactionCounts` 提供 `soldiers(faction)`、`cities(faction)`、`total_soldiers()`、`total_cities()` 方法
-- [ ] 1.3 在 `simulation/src/lib.rs` 注册 `pub mod world_stats;`
-- [ ] 1.4 编写 world_stats 单元测试（确定性 + 地图生成后计数）
+- [x] 1.1 新建 `simulation/src/world_stats.rs`：`FactionCounts` struct + `count_factions` 函数，`BTreeMap<Faction, (u32,u32)>`
+- [x] 1.2 `FactionCounts` 提供 `soldiers(faction)`、`cities(faction)`、`total_soldiers()`、`total_cities()` 方法
+- [x] 1.3 在 `simulation/src/lib.rs` 注册 `pub mod world_stats;`
+- [x] 1.4 编写 world_stats 单元测试（确定性 + 地图生成后计数）
 
 ## 2. HUD Observer GameMode 检查
 
