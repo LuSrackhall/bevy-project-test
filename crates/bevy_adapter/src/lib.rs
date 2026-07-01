@@ -13,6 +13,11 @@ use crate::tick::PendingEvents;
 use bevy::prelude::*;
 use simulation::command::CommandBuffer;
 
+/// System set for simulation tick processing. Input systems must run BEFORE this set
+/// to guarantee commands are collected before tick execution (§0.1 determinism).
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SimulationTickSet;
+
 /// Lightweight gate for input systems. Live = normal game, Replay = playback.
 /// SimulationDriver handles the actual replay mechanics; this only gates input systems.
 #[derive(Resource, Default, PartialEq, Eq)]
@@ -80,11 +85,12 @@ impl Plugin for BevyAdapterPlugin {
             .init_resource::<ReplayRecorder>()
             .init_resource::<ReplayStatus>()
             // Unified driver: simulation_driver_system + sync_entities
+            .configure_sets(Update, SimulationTickSet.before(crate::lifecycle::SyncEntitiesSet))
             .add_systems(
                 Update,
                 (
-                    crate::driver::simulation_driver_system.before(crate::lifecycle::sync_entities_system),
-                    crate::lifecycle::sync_entities_system,
+                    crate::driver::simulation_driver_system.in_set(SimulationTickSet),
+                    crate::lifecycle::sync_entities_system.in_set(crate::lifecycle::SyncEntitiesSet),
                 )
                     .run_if(resource_exists_and_equals(GameActive(true))),
             );

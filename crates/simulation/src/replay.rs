@@ -20,11 +20,19 @@ pub struct ReplayFile {
     /// Commands per tick. Only external player commands are recorded;
     /// AI commands are deterministic and regenerated from seed.
     pub commands_per_tick: BTreeMap<u32, Vec<GameCommand>>,
+    /// Per-tick world state hashes for desync detection.
+    /// Recorded every DESYNC_CHECK_INTERVAL ticks during live play,
+    /// compared at the same ticks during replay.
+    #[serde(default)]
+    pub tick_hashes: BTreeMap<u32, u64>,
 }
 
 impl ReplayFile {
     /// Current format version.
-    pub const CURRENT_VERSION: u32 = 1;
+    pub const CURRENT_VERSION: u32 = 2;
+
+    /// Desync check interval: record hash every N ticks (20 = once per second at 20Hz).
+    pub const DESYNC_CHECK_INTERVAL: u32 = 20;
 
     /// Create a new ReplayFile.
     pub fn new(seed: u64, map_size: MapSize, total_ticks: u32) -> Self {
@@ -34,6 +42,7 @@ impl ReplayFile {
             map_size,
             total_ticks,
             commands_per_tick: BTreeMap::new(),
+            tick_hashes: BTreeMap::new(),
         }
     }
 
@@ -42,6 +51,16 @@ impl ReplayFile {
         if !commands.is_empty() {
             self.commands_per_tick.insert(tick, commands);
         }
+    }
+
+    /// Record world state hash for a specific tick.
+    pub fn record_tick_hash(&mut self, tick: u32, hash: u64) {
+        self.tick_hashes.insert(tick, hash);
+    }
+
+    /// Get the recorded hash for a tick (None if not a check-point tick).
+    pub fn hash_for_tick(&self, tick: u32) -> Option<u64> {
+        self.tick_hashes.get(&tick).copied()
     }
 
     /// Get commands for a specific tick (empty slice if none).
@@ -119,7 +138,7 @@ mod tests {
         let ron_str = replay.to_ron();
         let loaded = ReplayFile::from_ron(&ron_str).unwrap();
 
-        assert_eq!(loaded.format_version, 1);
+        assert_eq!(loaded.format_version, 2);
         assert_eq!(loaded.seed, 42);
         assert_eq!(loaded.total_ticks, 100);
         assert_eq!(loaded.commands_for_tick(5).len(), 1);

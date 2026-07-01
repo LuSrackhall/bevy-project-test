@@ -14,6 +14,7 @@ pub struct ReplayRecorder {
     pub seed: u64,
     pub map_size: MapSize,
     pub command_log: Vec<(u32, Vec<GameCommand>)>,
+    pub tick_hashes: Vec<(u32, u64)>,
     pub is_recording: bool,
 }
 
@@ -25,11 +26,21 @@ impl ReplayRecorder {
         }
     }
 
+    /// Record world state hash for desync detection.
+    pub fn record_tick_hash(&mut self, tick: u32, hash: u64) {
+        if self.is_recording {
+            self.tick_hashes.push((tick, hash));
+        }
+    }
+
     /// Finalize and produce a ReplayFile.
     pub fn finish(&self, total_ticks: u32) -> ReplayFile {
         let mut replay = ReplayFile::new(self.seed, self.map_size, total_ticks);
         for (tick, cmds) in &self.command_log {
             replay.record_tick(*tick, cmds.clone());
+        }
+        for (tick, hash) in &self.tick_hashes {
+            replay.record_tick_hash(*tick, *hash);
         }
         replay
     }

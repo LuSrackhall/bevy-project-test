@@ -22,8 +22,8 @@ pub fn ai_decide(world: &mut World, current_tick: u32) {
 
     let _soldier_config = world.resource::<SoldierConfig>().clone();
 
-    // Collect AI (Enemy) cities
-    let ai_cities: Vec<(UnitId, FixedVec2, u32, u32)> = {
+    // Collect AI (Enemy) cities — sorted for determinism (§0.1)
+    let mut ai_cities: Vec<(UnitId, FixedVec2, u32, u32)> = {
         let mut query = world.query::<(
             Entity,
             &UnitIdComponent,
@@ -37,9 +37,10 @@ pub fn ai_decide(world: &mut World, current_tick: u32) {
             .map(|(_, id, pos, city, _)| (id.0, pos.0, city.level, city.max_level))
             .collect()
     };
+    ai_cities.sort_by_key(|(uid, _, _, _)| *uid);
 
-    // Collect Player cities
-    let player_cities: Vec<(UnitId, FixedVec2, u32)> = {
+    // Collect Player cities — sorted for determinism (§0.1)
+    let mut player_cities: Vec<(UnitId, FixedVec2, u32)> = {
         let mut query = world.query::<(
             Entity,
             &UnitIdComponent,
@@ -53,9 +54,10 @@ pub fn ai_decide(world: &mut World, current_tick: u32) {
             .map(|(_, id, pos, city, _)| (id.0, pos.0, city.level))
             .collect()
     };
+    player_cities.sort_by_key(|(uid, _, _)| *uid);
 
-    // Collect Neutral cities
-    let neutral_cities: Vec<(UnitId, FixedVec2, u32, u32)> = {
+    // Collect Neutral cities — sorted for determinism (§0.1)
+    let mut neutral_cities: Vec<(UnitId, FixedVec2, u32, u32)> = {
         let mut query = world.query::<(
             Entity,
             &UnitIdComponent,
@@ -69,9 +71,10 @@ pub fn ai_decide(world: &mut World, current_tick: u32) {
             .map(|(_, id, pos, city, _)| (id.0, pos.0, city.level, city.health_max))
             .collect()
     };
+    neutral_cities.sort_by_key(|(uid, _, _, _)| *uid);
 
-    // Collect all soldiers
-    let soldiers: Vec<(UnitId, FixedVec2, Faction, bool, Option<UnitId>)> = {
+    // Collect all soldiers — sorted for determinism (§0.1)
+    let mut soldiers: Vec<(UnitId, FixedVec2, Faction, bool, Option<UnitId>)> = {
         let mut query = world.query::<(
             Entity,
             &UnitIdComponent,
@@ -86,6 +89,7 @@ pub fn ai_decide(world: &mut World, current_tick: u32) {
             })
             .collect()
     };
+    soldiers.sort_by_key(|(uid, _, _, _, _)| *uid);
 
     // Expansion + Attack + Upgrade
     let mut commands: Vec<GameCommand> = Vec::new();
@@ -96,9 +100,9 @@ pub fn ai_decide(world: &mut World, current_tick: u32) {
             let mut by_dist: Vec<(usize, i64)> = neutral_cities
                 .iter()
                 .enumerate()
-                .map(|(i, (_, npos, _, _))| (i, (ai_pos - *npos).length_squared().0))
+                .map(|(i, (uid, npos, _, _))| (i, (ai_pos - *npos).length_squared().0))
                 .collect();
-            by_dist.sort_by_key(|(_, d)| *d);
+            by_dist.sort_by_key(|(i, d)| (*d, neutral_cities[*i].0));
 
             let (idx, _) = by_dist[0];
             let (_target_city_id, target_pos, _, _target_hp) = neutral_cities[idx];
@@ -135,9 +139,9 @@ pub fn ai_decide(world: &mut World, current_tick: u32) {
             let mut by_dist: Vec<(usize, i64)> = player_cities
                 .iter()
                 .enumerate()
-                .map(|(i, (_, ppos, _))| (i, (ai_pos - *ppos).length_squared().0))
+                .map(|(i, (uid, ppos, _))| (i, (ai_pos - *ppos).length_squared().0))
                 .collect();
-            by_dist.sort_by_key(|(_, d)| *d);
+            by_dist.sort_by_key(|(i, d)| (*d, player_cities[*i].0));
 
             for &(idx, _) in &by_dist {
                 let (_target_city_id, target_pos, player_level) = player_cities[idx];
@@ -180,7 +184,7 @@ pub fn ai_decide(world: &mut World, current_tick: u32) {
 
     // Defense: low HP cities switch spawn and recall
     {
-        let low_hp_cities: Vec<UnitId> = {
+        let mut low_hp_cities: Vec<UnitId> = {
             let mut query =
                 world.query::<(Entity, &UnitIdComponent, &CityComponent, &FactionComponent)>();
             query
@@ -191,6 +195,7 @@ pub fn ai_decide(world: &mut World, current_tick: u32) {
                 .map(|(_, id, _, _)| id.0)
                 .collect()
         };
+        low_hp_cities.sort();
         for city_id in low_hp_cities {
             let rng_val = {
                 let mut rng = world.resource_mut::<DeterministicRng>();

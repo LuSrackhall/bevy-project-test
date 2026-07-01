@@ -4,6 +4,10 @@ use crate::tick::PendingEvents;
 use bevy::prelude::*;
 use simulation::soldier::*;
 
+/// System set for entity sync — runs after SimulationTickSet.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SyncEntitiesSet;
+
 /// Sync simulation entities to Bevy entities based on pending tick events.
 pub fn sync_entities_system(
     mut commands: Commands,

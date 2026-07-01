@@ -105,7 +105,8 @@ impl Plugin for RenderViewPlugin {
                             .and_then(not(resource_exists_and_equals(bevy_adapter::Paused(true))))
                             .and_then(not(replay_seeking))
                             .and_then(not(resource_exists_and_equals(bevy_adapter::GameMode::Replay))),
-                    ),
+                    )
+                    .before(bevy_adapter::SimulationTickSet),
             )
             // Camera: always active
             .add_systems(

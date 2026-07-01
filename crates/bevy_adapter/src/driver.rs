@@ -256,6 +256,24 @@ pub fn simulation_driver_system(
         drop(_tick_span);
         pending.events.push(events);
 
+        // 6. Desync detection: record hash during live, compare during replay
+        if tick % simulation::replay::ReplayFile::DESYNC_CHECK_INTERVAL == 0 {
+            let hash = simulation::golden_test::hash_world_state(&mut sim_world.0);
+            if is_live && !is_seeking {
+                recorder.record_tick_hash(tick, hash);
+            }
+            if let CommandSource::Replay(ref rs) = driver.source {
+                if let Some(expected) = rs.replay.hash_for_tick(tick) {
+                    if hash != expected {
+                        bevy::log::error!(
+                            "DESYNC at tick {}: replay hash {} != recorded hash {}",
+                            tick, hash, expected
+                        );
+                    }
+                }
+            }
+        }
+
         // Sync tick_clock for presentation layer
         tick_clock.current_tick = driver.clock.current_tick;
         tick_clock.accumulator = driver.clock.accumulator;
