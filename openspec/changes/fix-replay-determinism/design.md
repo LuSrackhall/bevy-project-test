@@ -16,64 +16,28 @@
 
 ## Decisions
 
-### D1: Driver 层集成测试设计
+### D1: Driver 层集成测试设计 — 已执行
 
 位置：`crates/bevy_adapter/src/driver.rs` 现有 test 模块内。
 
-结构：
-1. **录制阶段**：新建 `World` + `SimulationDriver::new_live()`，驱动 N tick（带 AI + 模拟人工命令）
-2. **构建 ReplayFile**：手动构造 `ReplayFile`，记录命令和每 tick hash
-3. **回放阶段**：新建 `World` + `SimulationDriver::new_replay()`，驱动相同 N tick
-4. **验证**：`assert_eq!(hash_live, hash_replay)`
+已创建三个测试：
+1. `test_driver_live_replay_determinism` — Live→ReplayFile→Replay, 5000 tick (覆盖用户 DESYNC tick 4040+), AI + 多时段命令, N=5000
+2. `test_replay_seek_continuation_determinism` — forward seek to midpoint + continuation
+3. `test_replay_backward_seek_determinism` — backward seek (reinit) + forward replay
 
-关键：使用 `SimulationDriver` 的 `source.commands_for_tick()` + `inject_commands()` + `simulation::run_tick_default()` 路径（而非直接调用 `run_tick_default`），与真实 driver 流程一致。
+**诊断结论：三个测试全部通过 ✅**
 
-### D2: 精确分歧点定位
+这意味着：仿真层（`run_tick_default`）+ 命令注入路径（`commands_for_tick → inject_commands → run_tick_default`）+ seek 路径全部是确定性的。根因不在 simulation 层或 driver 的 tick-by-tick 处理中。
 
-创建临时提交或 feature flag，将 `DESYNC_CHECK_INTERVAL` 替换为 1。
-在 `ReplayFile::tick_hashes` 中每 tick 记录一个 hash。
-回放时一旦首次检测到 hash 不等，立即 log 该 tick 并停止回放（避免大量重复输出）。
+剩余疑点：
+- 20+ 个 render_view 系统通过 `NonSendMut<SimulationWorld>` 读取世界（只读），但 bevy 跨帧调度顺序可能有未知影响
+- `time.delta_secs() * speed` 的 accumulator 累积在不同帧率下产生不同批次大小，但总 tick 数确定
+- 特定 replay 文件在 tick 4040 附近的 Entity 组合可能触发仿真边缘情况
 
-所有 hash 相关改动在诊断完成后回退。
+### D2: 诊断增强
 
-### D3: Phase 扩散追踪
+在 DESYNC 检测时增加差异化日志：记录分歧 tick 的 entity 数、总 HP、城市数差异。此改动作长期诊断，不修改 hash 检测逻辑。
 
-在 `simulation::lib.rs::run_tick` 中，在每个 phase 后加入临时的 hash_world_state 调用。
-将结果通过 log 输出。
+### D3: Phase 扩散追踪（备用）
 
-```
-Phase 前 → hash0
-consume_commands 后 → hash1
-combat_engagement 后 → hash2
-facing_turn 后 → hash3
-soldier_movement 后 → hash4
-...全部 phase...
-AI 后 → hashN
-```
-
-对比 Live 录制和 Replay 回放的同一 tick 各 phase hash，首个差异 phase 即为根因所在系统。
-
-为提高效率，仅对第一个分歧 tick 做 phase 追踪，非所有 tick。
-
-### D4: 修复实施
-
-见 brainstorm-spec.md D2。具体 code change 取决于诊断结果。
-
-### D5: 录制重构（如诊断需要）
-
-`ReplayRecorder::record_tick` 移除 `if !commands.is_empty()` 过滤：
-```rust
-pub fn record_tick(&mut self, tick: u32, commands: &[GameCommand]) {
-    if self.is_recording {
-        self.command_log.push((tick, commands.to_vec()));
-    }
-}
-```
-同时 `ReplayFile::record_tick` 保持 `!commands.is_empty()` 过滤（文件格式优化）。
-回放时从 `command_log`（全量 tick）构建 `ReplayFile::commands_per_tick`（仅含非空命令）。
-
-## Risks / Trade-offs
-
-- **[诊断串行] Driver 集成测试通过后才能确定是 bevy 层问题** → 如果测试失败则直接定位仿真层，加速诊断
-- **[hash 碰撞] hash_world_state 使用 FNV-1a 64bit，碰撞概率极低** → 可接受
-- **[H1: 非确定性 RNG 消耗]** AI 决策可能在某处因 Entity 顺序变化多调用一次 `rng.next_u64()`，导致后续所有 RNG 调用产生不同输出 → 修复方案：在 AI 层前置校正或按 UnitId 排序 Entity 遍历
+如果前述诊断仍无法定位，对第一个分歧 tick 在 `run_tick` 每个子系统 phase 后插临时 hash。测试通过后暂不执行。

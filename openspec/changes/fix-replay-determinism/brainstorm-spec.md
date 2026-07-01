@@ -16,10 +16,14 @@ DESYNC at tick 4040: replay hash 16154204828727490913 != recorded hash 998425173
 
 疑点区域：
 
-1. **命令注入路径差异**：Live 录制和 Replay 回放的命令流经不同路径（`LiveCommandSource` 从 `cmd_buf` 读取、`ReplayCommandSource` 从 `ReplayFile` 读取），可能产生微妙差异
-2. **录制过滤**：`ReplayRecorder::record_tick` 只在命令非空时记录——空命令 tick 不被记录，回放时这些 tick 收到空 Vec，但 Live 录制时是否原本就是空 Vec？
-3. **仿真层 HashMap 迭代**：`combat::mod.rs` 和 `soldier::TickCombatIndex` 中的 `HashMap<UnitId, ...>` 用于 O(1) 查找，但 `collect()` 到 HashMap 后的 `iter()` 是非确定顺序的。虽然现有测试中未产生分歧，但可能在特定 Entity 数量/布局下触发
-4. **AI 决策 RNG 消耗量分歧**：如果 AI 在遍历 Entity 时遇到不同的顺序（即使只是 `World::query` 的迭代顺序，在 Entity 增删后可能变化），导致 `DeterministicRng` 被消耗的次数不同，后续决策就会产生分歧
+~~1. **命令注入路径差异**：... [已排除 — 5000 tick 集成测试通过]~~
+~~2. **录制过滤**：... [已修复 — ReplayRecorder 无条件记录所有 tick]~~
+~~3. **仿真层 HashMap 迭代**：... [已排除 — 5000 tick 集成测试通过]~~
+~~4. **AI 决策 RNG 消耗量分歧**：... [已排除 — 5000 tick 集成测试通过]~~
+
+**已排除的疑点区域（通过 5000 tick driver 集成测试 + seek 测试）**：仿真层、命令注入路径和 seek 路径全部是确定性的。
+
+**未排除**：bevy 帧调度层的系统交互、特定 replay 文件在 tick 4040 附近的 Entity 组合、future-frame `NonSendMut<SimulationWorld>` 只读访问的时序影响。需要用户回放特定 replay 文件并配合诊断日志进一步定位。
 
 ## Goals / Non-Goals
 
