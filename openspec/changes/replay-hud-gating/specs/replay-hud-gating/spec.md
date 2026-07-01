@@ -30,7 +30,7 @@ The HUD toolbar and seek panel interactive areas SHALL be hidden (`Visibility::H
 
 ### Requirement: Top Bar Updates During Replay
 
-`update_top_bar` SHALL continue running during replay mode, displaying real-time faction counts using `world_stats::count_factions`.
+`update_top_bar` SHALL continue running during replay mode, displaying real-time faction counts using `world_stats::count_factions`. Faction names SHALL use Chinese labels (玩家/敌人/中立) rather than English debug formatting; i18n is a future concern.
 
 #### Scenario: Top bar reflects replay state
 - **WHEN** a replay is playing and simulation state changes

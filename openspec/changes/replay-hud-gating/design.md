@@ -65,7 +65,7 @@ pub fn count_factions(world: &mut World) -> FactionCounts;
 
 ### D5: update_top_bar 改用 count_factions
 
-将当前的手动 faction query 循环替换为 `simulation::world_stats::count_factions(&mut sim.0)`，用 `counts.factions.iter()` 动态生成显示文本。
+将当前的手动 faction query 循环替换为 `simulation::world_stats::count_factions(&mut sim.0)`，用 `counts.factions.iter()` 动态生成显示文本。阵营名称固定为中文（玩家/敌人/中立），不引入 i18n。
 
 ## Risks / Trade-offs
 

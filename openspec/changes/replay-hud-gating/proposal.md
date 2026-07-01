@@ -8,7 +8,7 @@
 - **新增** `HudInteractive` marker + `hide_interactive_in_replay` Update 系统：回放时隐藏 toolbar 和索敌面板
 - **修改** HUD observer（3 处）：加 `GameMode::Replay` 提前返回，阻止命令注入
 - **修改** HUD Update 系统 gate：除 `update_top_bar` 外全部加 `not(GameMode::Replay)` 闸门
-- **修改** `update_top_bar`：改用 `count_factions` 实现动态阵营显示，回放中继续运行
+- **修改** `update_top_bar`：改用 `count_factions` 实现动态阵营显示（中文标签），回放中继续运行
 
 ## Capabilities
 

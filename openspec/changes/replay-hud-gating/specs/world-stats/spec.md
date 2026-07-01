@@ -19,7 +19,7 @@
 
 ### Requirement: Per-Faction Accessors
 
-`FactionCounts` SHALL provide `soldiers(faction)` and `cities(faction)` methods returning `u32`, defaulting to 0 for factions not present.
+`FactionCounts` SHALL provide `soldiers(faction)` and `cities(faction)` methods returning `u32`, defaulting to 0 for factions not present. It SHALL also provide `total_soldiers()` and `total_cities()` returning the sum across all factions.
 
 #### Scenario: Accessor for missing faction
 - **WHEN** `Faction::Neutral` has no units
