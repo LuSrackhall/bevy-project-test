@@ -34,7 +34,7 @@
 
 **4. HUD Update 闸门** — `ui/mod.rs` 中 HUD Update 系统加 `not(GameMode::Replay)` gate。**例外**：`update_top_bar` 不加 gate，回放中也运行，实时显示阵营统计。
 
-**5. update_top_bar 改用 count_factions** — 将已有的手动 faction 遍历替换为 `simulation::world_stats::count_factions`，支持动态阵营显示。
+**5. update_top_bar 改用 count_factions** — 将已有的手动 faction 遍历替换为 `simulation::world_stats::count_factions`，支持动态阵营显示。阵营名称使用中文（玩家/敌人/中立），不引入 i18n。
 
 **6. 不新增顶部 InfoBar** — HUD 顶部栏已覆盖时间+城/兵/敌统计。回放中 `update_top_bar` 继续运行即可实时更新。
 

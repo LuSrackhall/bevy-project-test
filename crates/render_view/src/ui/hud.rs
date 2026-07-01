@@ -102,6 +102,10 @@ pub(crate) struct HoveredSoldierType(pub Option<SoldierType>);
 
 // ══════════ Marker Components ══════════
 
+/// Marker for interactive HUD areas that should be hidden during replay.
+#[derive(Component)]
+pub(crate) struct HudInteractive;
+
 /// Visual theme for buttons — drives hover/pressed color feedback.
 #[derive(Component, Clone)]
 pub struct ButtonTheme {
@@ -273,7 +277,8 @@ pub(crate) fn setup_hud(
                         for (st, label) in [(SoldierType::Militia,"民兵"),(SoldierType::Infantry,"步兵"),(SoldierType::Archer,"弓兵"),(SoldierType::Cavalry,"骑兵")] {
                             p.spawn((WidgetButton, Node { padding: UiRect::all(Val::Px(6.0)), margin: UiRect::all(Val::Px(3.0)), ..default() }, SpawnTypeBtn(st), ButtonTheme::default(), Hovered::default()))
                                 .with_child((Text::new(label), TextFont { font: font.clone().into(), font_size: FontSize::Px(12.0), ..default() }))
-                                .observe(|ev: On<Activate>, q: Query<&SpawnTypeBtn>, selection: Res<SelectionState>, mut sim: NonSendMut<SimulationWorld>| {
+                                .observe(|ev: On<Activate>, q: Query<&SpawnTypeBtn>, selection: Res<SelectionState>, mut sim: NonSendMut<SimulationWorld>, game_mode: Res<bevy_adapter::GameMode>| {
+                                    if *game_mode == bevy_adapter::GameMode::Replay { return; }
                                     let Ok(btn) = q.get(ev.entity) else { return };
                                     let w = &mut sim.0;
                                     if let Some(cid) = selection.selected_city {
@@ -323,6 +328,7 @@ pub(crate) fn setup_hud(
             justify_content: JustifyContent::SpaceBetween, align_items: AlignItems::Center,
             padding: UiRect::horizontal(Val::Px(8.0)), ..default() },
             BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.5)),
+            HudInteractive,
         )).with_children(|p| {
             // Left: existing toolbar buttons
             p.spawn(Node { flex_direction: FlexDirection::Row, align_items: AlignItems::Center, column_gap: Val::Px(4.0), ..default() }).with_children(|p| {
@@ -330,7 +336,8 @@ pub(crate) fn setup_hud(
                     let mut cmd = p.spawn((WidgetButton, Node { padding: UiRect::all(Val::Px(6.0)), ..default() }, ToolbarButton(marker), ButtonTheme::default(), Hovered::default()));
                     if marker == 2 { cmd.insert(ShieldButton); }
                     cmd.with_child((Text::new(label), TextFont { font: font.clone().into(), font_size: FontSize::Px(13.0), ..default() }))
-                        .observe(|ev: On<Activate>, q: Query<&ToolbarButton>, mut sel: ResMut<SelectionState>, mut force: ResMut<ForceMoveNext>, mut sim: NonSendMut<SimulationWorld>, mut cmd_buf: ResMut<CommandBuffer>, tick_clock: Res<TickClock>| {
+                        .observe(|ev: On<Activate>, q: Query<&ToolbarButton>, mut sel: ResMut<SelectionState>, mut force: ResMut<ForceMoveNext>, mut sim: NonSendMut<SimulationWorld>, mut cmd_buf: ResMut<CommandBuffer>, tick_clock: Res<TickClock>, game_mode: Res<bevy_adapter::GameMode>| {
+                            if *game_mode == bevy_adapter::GameMode::Replay { return; }
                             let Ok(btn) = q.get(ev.entity) else { return };
                             match btn.0 {
                                 0 => sel.selection_mode = crate::selection::SelectionMode::Circle,
@@ -376,7 +383,7 @@ pub(crate) fn setup_hud(
             p.spawn(Node { width: Val::Px(1.0), height: Val::Percent(80.0), ..default() });
 
             // Right: seek panel (scope dropdown + range input + issue button)
-            p.spawn((Node { flex_direction: FlexDirection::Row, align_items: AlignItems::Center, column_gap: Val::Px(6.0), ..default() }, SeekPanelRoot))
+            p.spawn((Node { flex_direction: FlexDirection::Row, align_items: AlignItems::Center, column_gap: Val::Px(6.0), ..default() }, SeekPanelRoot, HudInteractive))
             .with_children(|p| {
                 // Mode label
                 ht.mode_label = Some(p.spawn((Text::new("索敌"), TextFont { font: font.clone().into(), font_size: FontSize::Px(12.0), ..default() },
@@ -495,7 +502,8 @@ pub(crate) fn setup_hud(
                     ButtonTheme::green(),
                     Hovered::default(),
                 )).with_child((Text::new("下发"), TextFont { font: font.clone().into(), font_size: FontSize::Px(12.0), ..default() }))
-                .observe(|_ev: On<Activate>, state: Res<SeekPanelState>, selection: Res<SelectionState>, mut cmd_buf: ResMut<CommandBuffer>, tick_clock: Res<TickClock>, mut toast: ResMut<ToastMessage>, mut sim: NonSendMut<SimulationWorld>| {
+                .observe(|_ev: On<Activate>, state: Res<SeekPanelState>, selection: Res<SelectionState>, mut cmd_buf: ResMut<CommandBuffer>, tick_clock: Res<TickClock>, mut toast: ResMut<ToastMessage>, mut sim: NonSendMut<SimulationWorld>, game_mode: Res<bevy_adapter::GameMode>| {
+                    if *game_mode == bevy_adapter::GameMode::Replay { return; }
                     let next_tick = tick_clock.current_tick + 1;
                     let has_sel = !selection.selected_unit_ids.is_empty();
                     if has_sel {
@@ -565,6 +573,22 @@ pub(crate) fn button_style_system(
 
 // ══════════ Update Systems ══════════
 
+/// Hide interactive HUD elements (toolbar, seek panel) during replay mode.
+/// Does NOT gate on Paused — replay player buttons must remain functional.
+pub(crate) fn hide_interactive_in_replay(
+    mode: Res<bevy_adapter::GameMode>,
+    mut q: Query<&mut Visibility, With<HudInteractive>>,
+) {
+    let vis = if *mode == bevy_adapter::GameMode::Replay {
+        Visibility::Hidden
+    } else {
+        Visibility::Inherited
+    };
+    for mut v in q.iter_mut() {
+        *v = vis;
+    }
+}
+
 pub(crate) fn update_top_bar(
     mut tq: Query<&mut Text>,
     ht: Res<HudTexts>,
@@ -572,44 +596,62 @@ pub(crate) fn update_top_bar(
     tick_clock: Res<bevy_adapter::tick::TickClock>,
 ) {
     let w = &mut sim.0;
-    let (mut pc, mut pp, mut pm, mut es) = (0usize, 0u32, 0u32, 0u32);
+
+    // Use count_factions for deterministic per-faction soldier/city counts
+    let counts = simulation::world_stats::count_factions(w);
+
+    // Still need player city population from CityComponent (not tracked by count_factions)
+    let mut pp: u32 = 0;
+    let mut pm: u32 = 0;
     {
-        let mut q = w.query::<(&FactionComponent, &CityComponent)>();
+        let mut q = w.query::<(&FactionComponent, &simulation::soldier::CityComponent)>();
         for (f, c) in q.iter(w) {
-            if f.0 == Faction::Player {
-                pc += 1;
+            if f.0 == simulation::types::Faction::Player {
                 pp += c.population;
                 pm += c.max_population;
             }
         }
     }
-    {
-        let mut q = w.query::<(&FactionComponent, &SoldierTypeComponent)>();
-        for (f, _) in q.iter(w) {
-            if f.0 == Faction::Enemy {
-                es += 1;
-            }
-        }
-    }
-    let e = (tick_clock.current_tick as f64 * tick_clock.tick_duration as f64) as u64;
+
+    let elapsed = (tick_clock.current_tick as f64 * tick_clock.tick_duration as f64) as u64;
+
+    // Update total cities
     if let Some(id) = ht.cities {
         if let Ok(mut t) = tq.get_mut(id) {
-            t.0 = format!("城 {}", pc);
+            t.0 = format!("城 {}", counts.total_cities());
         }
     }
+
+    // Update player population display
     if let Some(id) = ht.pop {
         if let Ok(mut t) = tq.get_mut(id) {
             t.0 = format!("兵 {}/{}", pp, pm);
         }
     }
+
+    // Dynamic per-faction breakdown using Chinese faction labels
     if let Some(id) = ht.enemy {
         if let Ok(mut t) = tq.get_mut(id) {
-            t.0 = format!("敌 {}", es);
+            let parts: Vec<String> = counts
+                .factions
+                .iter()
+                .map(|(faction, (soldiers, cities))| {
+                    let label = match faction {
+                        simulation::types::Faction::Player => "玩家",
+                        simulation::types::Faction::Enemy => "敌人",
+                        simulation::types::Faction::Neutral => "中立",
+                    };
+                    format!("{}: 兵{}/城{}", label, soldiers, cities)
+                })
+                .collect();
+            t.0 = parts.join("  ");
         }
     }
+
+    // Update elapsed time
     if let Some(id) = ht.time {
         if let Ok(mut t) = tq.get_mut(id) {
-            t.0 = format!("T {}:{:02}", e / 60, e % 60);
+            t.0 = format!("T {}:{:02}", elapsed / 60, elapsed % 60);
         }
     }
 }

@@ -19,10 +19,16 @@ impl Plugin for UiPlugin {
             .add_systems(OnEnter(crate::GameState::MainMenu), menu::setup_main_menu)
             .add_systems(OnExit(crate::GameState::MainMenu), menu::cleanup_main_menu)
             // HUD setup is registered in RenderViewPlugin (after reset_game_system)
+            // update_top_bar runs even during replay (top bar shows real-time faction stats)
+            // It has NO gate — not even Paused — since the replay seek driver updates world state
+            .add_systems(
+                Update,
+                hud::update_top_bar.run_if(in_state(crate::GameState::Playing)),
+            )
+            // Other HUD update systems: gated from replay for performance
             .add_systems(
                 Update,
                 (
-                    hud::update_top_bar,
                     hud::update_bottom_panel,
                     hud::shield_button_visibility_system,
                     hud::seek_panel_mode_system,
@@ -35,8 +41,14 @@ impl Plugin for UiPlugin {
                 )
                     .run_if(
                         in_state(crate::GameState::Playing)
+                            .and_then(not(resource_exists_and_equals(bevy_adapter::GameMode::Replay)))
                             .and_then(not(resource_exists_and_equals(bevy_adapter::Paused(true)))),
                     ),
+            )
+            // Hide interactive HUD areas in replay (no Paused gate — replay player must stay functional)
+            .add_systems(
+                Update,
+                hud::hide_interactive_in_replay.run_if(in_state(crate::GameState::Playing)),
             )
             .add_systems(
                 OnEnter(crate::GameState::GameOver),
