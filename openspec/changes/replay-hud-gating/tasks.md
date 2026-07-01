@@ -7,9 +7,9 @@
 
 ## 2. HUD Observer GameMode 检查
 
-- [ ] 2.1 `hud.rs` spawn type 按钮 observer：加 `game_mode: Res<GameMode>` 参数 + 首行 `if *game_mode == GameMode::Replay { return; }`
-- [ ] 2.2 `hud.rs` toolbar 按钮 observer（盾牌/框选/优先移动）：加 GameMode 检查
-- [ ] 2.3 `hud.rs` 索敌下发按钮 observer：加 GameMode 检查
+- [x] 2.1 `hud.rs` spawn type 按钮 observer：加 `game_mode: Res<GameMode>` 参数 + 首行 `if *game_mode == GameMode::Replay { return; }`
+- [x] 2.2 `hud.rs` toolbar 按钮 observer（盾牌/框选/优先移动）：加 GameMode 检查
+- [x] 2.3 `hud.rs` 索敌下发按钮 observer：加 GameMode 检查
 
 ## 3. HudInteractive 标记 + 隐藏系统
 
