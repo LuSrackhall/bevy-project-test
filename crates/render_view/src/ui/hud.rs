@@ -596,44 +596,57 @@ pub(crate) fn update_top_bar(
     tick_clock: Res<bevy_adapter::tick::TickClock>,
 ) {
     let w = &mut sim.0;
-    let (mut pc, mut pp, mut pm, mut es) = (0usize, 0u32, 0u32, 0u32);
+
+    // Use count_factions for deterministic per-faction soldier/city counts
+    let counts = simulation::world_stats::count_factions(w);
+
+    // Still need player city population from CityComponent (not tracked by count_factions)
+    let mut pp: u32 = 0;
+    let mut pm: u32 = 0;
     {
-        let mut q = w.query::<(&FactionComponent, &CityComponent)>();
+        let mut q = w.query::<(&FactionComponent, &simulation::soldier::CityComponent)>();
         for (f, c) in q.iter(w) {
-            if f.0 == Faction::Player {
-                pc += 1;
+            if f.0 == simulation::types::Faction::Player {
                 pp += c.population;
                 pm += c.max_population;
             }
         }
     }
-    {
-        let mut q = w.query::<(&FactionComponent, &SoldierTypeComponent)>();
-        for (f, _) in q.iter(w) {
-            if f.0 == Faction::Enemy {
-                es += 1;
-            }
-        }
-    }
-    let e = (tick_clock.current_tick as f64 * tick_clock.tick_duration as f64) as u64;
+
+    let elapsed = (tick_clock.current_tick as f64 * tick_clock.tick_duration as f64) as u64;
+
+    // Update total cities
     if let Some(id) = ht.cities {
         if let Ok(mut t) = tq.get_mut(id) {
-            t.0 = format!("城 {}", pc);
+            t.0 = format!("城 {}", counts.total_cities());
         }
     }
+
+    // Update player population display
     if let Some(id) = ht.pop {
         if let Ok(mut t) = tq.get_mut(id) {
             t.0 = format!("兵 {}/{}", pp, pm);
         }
     }
+
+    // Dynamic per-faction breakdown using {:?} for faction names (temporary display)
     if let Some(id) = ht.enemy {
         if let Ok(mut t) = tq.get_mut(id) {
-            t.0 = format!("敌 {}", es);
+            let parts: Vec<String> = counts
+                .factions
+                .iter()
+                .map(|(faction, (soldiers, cities))| {
+                    format!("{:?}: 兵{}/城{}", faction, soldiers, cities)
+                })
+                .collect();
+            t.0 = parts.join("  ");
         }
     }
+
+    // Update elapsed time
     if let Some(id) = ht.time {
         if let Ok(mut t) = tq.get_mut(id) {
-            t.0 = format!("T {}:{:02}", e / 60, e % 60);
+            t.0 = format!("T {}:{:02}", elapsed / 60, elapsed % 60);
         }
     }
 }

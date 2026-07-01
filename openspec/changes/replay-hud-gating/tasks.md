@@ -26,8 +26,8 @@
 
 ## 5. update_top_bar 集成 count_factions
 
-- [ ] 5.1 `update_top_bar` 中手动 faction 遍历替换为 `simulation::world_stats::count_factions`
-- [ ] 5.2 显示文本改为动态迭代 `counts.factions.iter()`，用 `{:?}` 临时显示 Faction 名
+- [x] 5.1 `update_top_bar` 中手动 faction 遍历替换为 `simulation::world_stats::count_factions`
+- [x] 5.2 显示文本改为动态迭代 `counts.factions.iter()`，用 `{:?}` 临时显示 Faction 名
 
 ## 6. 构建与验证
 
