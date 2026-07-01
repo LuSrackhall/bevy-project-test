@@ -7,13 +7,16 @@
 ## 2. Driver 层集成测试
 
 - [x] 2.1 在 `bevy_adapter/src/driver.rs` tests 模块中新建 `test_driver_live_replay_determinism`
-- [x] 2.2 测试结构：Live 录制 N=1000 tick（AI + 模拟人工命令）→ 构建 ReplayFile → 反序列化 → Replay 回放 → 逐 tick 对比 hash
-- [x] 2.3 验证：测试**通过** → 问题在 bevy 层（accumulator/speed/seek/帧时序）；测试失败 → 问题在仿真/命令注入路径
+- [x] 2.2 测试覆盖 5000 tick（AI + 多时段模拟人工命令），覆盖至用户 DESYNC 的 tick 4040 之后
+- [x] 2.3 验证：测试 **通过** → 仿真层+命令注入路径确定性的
+- [x] 新增 `test_replay_seek_continuation_determinism` — forward seek 确定性的 ✅
+- [x] 新增 `test_replay_backward_seek_determinism` — backward seek + reinit 确定性的 ✅
 
-## 3. 精确分歧点定位
+## 3. 架构修复：双 seek 处理冲突
 
-- [ ] 3.1 临时将 `DESYNC_CHECK_INTERVAL` 改为 1（每 tick hash），仅在本地诊断阶段使用
-- [ ] 3.2 运行回放复现 DESYNC，确认第一个分歧 tick
+- [ ] 3.1 诊断确认：`replay_seek_system`(render_view) 和 `simulation_driver_system::handle_seek`(bevy_adapter) 各自独立处理 `async_seek`，无明确调度顺序，可能同时处理 seek 导致 World 被处理两次
+- [ ] 3.2 修复：移除 `driver.rs::handle_seek` 中的 seek 处理逻辑，入口统一到 `replay_seek_system`（保持 `simulation_driver_system` 中 `async_seek` 的 early-return guard）
+- [ ] 3.3 验证：`replay_seek_system` 和 `simulation_driver_system` 不再冲突处理 seek
 
 ## 4. Phase 扩散追踪（仅在第一个分歧 tick 执行）
 

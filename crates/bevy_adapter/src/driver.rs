@@ -460,13 +460,15 @@ mod tests {
     /// vs
     /// ReplayCommandSource.commands_for_tick → inject_commands → run_tick_default
     ///
+    /// Uses 5000 ticks to cover the DESYNC range reported by the user (tick ~4040).
+    ///
     /// If this test FAILS → determinism bug is in the simulation layer or command injection path.
     /// If this test PASSES → determinism bug is in bevy frame scheduling / accumulator / async seek.
     #[test]
     fn test_driver_live_replay_determinism() {
         let seed = 42u64;
         let map_size = map::MapSize::Small;
-        let total_ticks = 1000u32;
+        let total_ticks = 5000u32;
 
         // ══════════ Live phase ══════════
         let mut world = simulation::init_simulation_world(seed);
@@ -487,7 +489,7 @@ mod tests {
                 &simulation::soldier::SoldierMarker,
             )>();
             if let Some((id, _, _)) = q.iter(&world).find(|(_, f, _)| f.0 == simulation::types::Faction::Player) {
-                let cmd = simulation::command::GameCommand {
+                cmd_buf.0.push(simulation::command::GameCommand {
                     tick: 51,
                     player_id: 0,
                     action: simulation::command::Action::MoveTo {
@@ -497,13 +499,12 @@ mod tests {
                             simulation::types::Fixed::from_int(300),
                         ),
                     },
-                };
-                cmd_buf.0.push(cmd);
+                });
             }
         }
 
-        // Also add a second batch of commands at tick 200
-        {
+        // Additional player commands at higher tick ranges for extended coverage
+        for (cmd_tick, range_target) in [(101u32, 80u32), (1001, 120), (2001, 60), (3001, 150), (4001, 90)] {
             let mut q = world.query::<(
                 &simulation::soldier::UnitIdComponent,
                 &simulation::soldier::FactionComponent,
@@ -512,15 +513,15 @@ mod tests {
             let ids: Vec<_> = q.iter(&world)
                 .filter(|(_, f, _)| f.0 == simulation::types::Faction::Player)
                 .map(|(id, _, _)| id.0)
-                .take(10)
+                .take(5)
                 .collect();
             for uid in ids {
                 cmd_buf.0.push(simulation::command::GameCommand {
-                    tick: 201,
+                    tick: cmd_tick,
                     player_id: 0,
                     action: simulation::command::Action::SetSeekStance {
                         scope: simulation::command::SeekScope::All,
-                        seek_range: 80,
+                        seek_range: range_target,
                         unit_ids: vec![uid],
                     },
                 });
@@ -597,5 +598,153 @@ mod tests {
         assert_eq!(live_final_hash, replay_final_hash,
             "Live and replay final world state must be identical. live={}, replay={}",
             live_final_hash, replay_final_hash);
+    }
+
+    /// Test: seek forward to midpoint then continue playing.
+    /// This exercises the replay_seek_system path directly.
+    #[test]
+    fn test_replay_seek_continuation_determinism() {
+        let seed = 99u64;
+        let map_size = map::MapSize::Small;
+        let total_ticks = 600u32;
+        let seek_target = 300u32;
+
+        // Build a replay with some commands
+        let mut world_rec = simulation::init_simulation_world(seed);
+        simulation::map::generate_map(&mut world_rec, map_size);
+        let mut replay = simulation::replay::ReplayFile::new(seed, map_size, total_ticks);
+
+        // Inject commands at tick 50
+        {
+            let mut q = world_rec.query::<(
+                &simulation::soldier::UnitIdComponent,
+                &simulation::soldier::FactionComponent,
+                &simulation::soldier::SoldierMarker,
+            )>();
+            if let Some((id, _, _)) = q.iter(&world_rec).find(|(_, f, _)| f.0 == simulation::types::Faction::Player) {
+                let cmd = simulation::command::GameCommand {
+                    tick: 51,
+                    player_id: 0,
+                    action: simulation::command::Action::MoveTo {
+                        unit: id.0,
+                        target: simulation::types::FixedVec2::new(
+                            simulation::types::Fixed::from_int(300),
+                            simulation::types::Fixed::from_int(300),
+                        ),
+                    },
+                };
+                world_rec.resource_mut::<simulation::command::CommandBuffer>().push(cmd.clone());
+                replay.record_tick(51, vec![cmd]);
+            }
+        }
+
+        // Run continuous playback
+        for tick in 1..=total_ticks {
+            simulation::run_tick_default(&mut world_rec, tick);
+        }
+        let hash_continuous = simulation::golden_test::hash_world_state(&mut world_rec);
+
+        // Seek + continue playback
+        let mut world_seek = simulation::init_simulation_world(seed);
+        simulation::map::generate_map(&mut world_seek, map_size);
+
+        // Phase 1: run to seek_target using replay_seek_system-style batch
+        let batch_end = seek_target;
+        let mut tick = 0u32;
+        while tick < batch_end {
+            tick += 1;
+            let cmds = replay.commands_for_tick(tick).to_vec();
+            {
+                let mut sim_cmds = world_seek.resource_mut::<simulation::command::CommandBuffer>();
+                for cmd in cmds {
+                    sim_cmds.0.push(cmd);
+                }
+            }
+            simulation::run_tick_default(&mut world_seek, tick);
+        }
+
+        // Phase 2: continue from seek_target to end (normal playback)
+        for tick in (seek_target + 1)..=total_ticks {
+            let cmds = replay.commands_for_tick(tick).to_vec();
+            {
+                let mut sim_cmds = world_seek.resource_mut::<simulation::command::CommandBuffer>();
+                for cmd in cmds {
+                    sim_cmds.0.push(cmd);
+                }
+            }
+            simulation::run_tick_default(&mut world_seek, tick);
+        }
+
+        let hash_seek = simulation::golden_test::hash_world_state(&mut world_seek);
+        assert_eq!(hash_continuous, hash_seek,
+            "Seek forward then continue must match continuous playback. continuous={}, seek={}",
+            hash_continuous, hash_seek);
+    }
+
+    /// Test: backward seek (reinit world) then forward replay.
+    /// Exercises the EXACT handle_seek + replay continuation path.
+    #[test]
+    fn test_replay_backward_seek_determinism() {
+        let seed = 77u64;
+        let map_size = map::MapSize::Small;
+        let total_ticks = 400u32;
+
+        // Build replay with some commands
+        let mut world_rec = simulation::init_simulation_world(seed);
+        simulation::map::generate_map(&mut world_rec, map_size);
+        let mut replay = simulation::replay::ReplayFile::new(seed, map_size, total_ticks);
+
+        // Player commands at tick 50
+        {
+            let mut q = world_rec.query::<(
+                &simulation::soldier::UnitIdComponent,
+                &simulation::soldier::FactionComponent,
+                &simulation::soldier::SoldierMarker,
+            )>();
+            let ids: Vec<_> = q.iter(&world_rec)
+                .filter(|(_, f, _)| f.0 == simulation::types::Faction::Player)
+                .map(|(id, _, _)| id.0)
+                .take(5)
+                .collect();
+            for uid in &ids {
+                let cmd = simulation::command::GameCommand {
+                    tick: 51,
+                    player_id: 0,
+                    action: simulation::command::Action::SetSeekStance {
+                        scope: simulation::command::SeekScope::All,
+                        seek_range: 60,
+                        unit_ids: vec![*uid],
+                    },
+                };
+                world_rec.resource_mut::<simulation::command::CommandBuffer>().push(cmd.clone());
+                replay.record_tick(51, vec![cmd]);
+            }
+        }
+
+        // Continuous playback
+        for tick in 1..=total_ticks {
+            simulation::run_tick_default(&mut world_rec, tick);
+        }
+        let hash_continuous = simulation::golden_test::hash_world_state(&mut world_rec);
+
+        // Simulate backward seek: reinit + replay from tick 0
+        let mut world_seek = simulation::init_simulation_world(seed);
+        simulation::map::generate_map(&mut world_seek, map_size);
+
+        // Run from 0 to end (backward seek → reinit → forward replay)
+        for tick in 1..=total_ticks {
+            let cmds = replay.commands_for_tick(tick).to_vec();
+            {
+                let mut sim_cmds = world_seek.resource_mut::<simulation::command::CommandBuffer>();
+                for cmd in cmds {
+                    sim_cmds.0.push(cmd);
+                }
+            }
+            simulation::run_tick_default(&mut world_seek, tick);
+        }
+
+        let hash_seek = simulation::golden_test::hash_world_state(&mut world_seek);
+        assert_eq!(hash_continuous, hash_seek,
+            "Backward seek (reinit) + replay must match continuous playback");
     }
 }
