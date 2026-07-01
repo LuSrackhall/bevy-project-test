@@ -33,7 +33,7 @@
 
 - [x] 6.1 `cargo test --package simulation` 全量通过 — 114 passed
 - [x] 6.2 `cargo build --release` 无错误 — release 编译成功
-- [ ] 6.3 手动验证：启动回放，确认 toolbar/索敌不显示，顶部栏实时更新阵营数，底部播放器正常工作
+- [x] 6.3 手动验证：启动回放，确认 toolbar/索敌不显示，顶部栏实时更新阵营数，底部播放器正常工作
 
 ---
 
