@@ -38,6 +38,11 @@ impl Plugin for UiPlugin {
                             .and_then(not(resource_exists_and_equals(bevy_adapter::Paused(true)))),
                     ),
             )
+            // Hide interactive HUD areas in replay (no Paused gate — replay player must stay functional)
+            .add_systems(
+                Update,
+                hud::hide_interactive_in_replay.run_if(in_state(crate::GameState::Playing)),
+            )
             .add_systems(
                 OnEnter(crate::GameState::GameOver),
                 gameover::setup_gameover,

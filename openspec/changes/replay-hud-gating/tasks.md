@@ -13,11 +13,11 @@
 
 ## 3. HudInteractive 标记 + 隐藏系统
 
-- [ ] 3.1 定义 `HudInteractive` marker component（`#[derive(Component)]`）
-- [ ] 3.2 在 toolbar 容器 Node spawn 处加 `HudInteractive`
-- [ ] 3.3 在索敌面板根节点 `SeekPanelRoot` spawn 处加 `HudInteractive`
-- [ ] 3.4 实现 `hide_interactive_in_replay` Update 系统
-- [ ] 3.5 在 `ui/mod.rs` 注册该系统，Playing state + 无 Paused gate
+- [x] 3.1 定义 `HudInteractive` marker component（`#[derive(Component)]`）
+- [x] 3.2 在 toolbar 容器 Node spawn 处加 `HudInteractive`
+- [x] 3.3 在索敌面板根节点 `SeekPanelRoot` spawn 处加 `HudInteractive`
+- [x] 3.4 实现 `hide_interactive_in_replay` Update 系统
+- [x] 3.5 在 `ui/mod.rs` 注册该系统，Playing state + 无 Paused gate
 
 ## 4. HUD Update 系统闸门
 

@@ -102,6 +102,10 @@ pub(crate) struct HoveredSoldierType(pub Option<SoldierType>);
 
 // ══════════ Marker Components ══════════
 
+/// Marker for interactive HUD areas that should be hidden during replay.
+#[derive(Component)]
+pub(crate) struct HudInteractive;
+
 /// Visual theme for buttons — drives hover/pressed color feedback.
 #[derive(Component, Clone)]
 pub struct ButtonTheme {
@@ -324,6 +328,7 @@ pub(crate) fn setup_hud(
             justify_content: JustifyContent::SpaceBetween, align_items: AlignItems::Center,
             padding: UiRect::horizontal(Val::Px(8.0)), ..default() },
             BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.5)),
+            HudInteractive,
         )).with_children(|p| {
             // Left: existing toolbar buttons
             p.spawn(Node { flex_direction: FlexDirection::Row, align_items: AlignItems::Center, column_gap: Val::Px(4.0), ..default() }).with_children(|p| {
@@ -378,7 +383,7 @@ pub(crate) fn setup_hud(
             p.spawn(Node { width: Val::Px(1.0), height: Val::Percent(80.0), ..default() });
 
             // Right: seek panel (scope dropdown + range input + issue button)
-            p.spawn((Node { flex_direction: FlexDirection::Row, align_items: AlignItems::Center, column_gap: Val::Px(6.0), ..default() }, SeekPanelRoot))
+            p.spawn((Node { flex_direction: FlexDirection::Row, align_items: AlignItems::Center, column_gap: Val::Px(6.0), ..default() }, SeekPanelRoot, HudInteractive))
             .with_children(|p| {
                 // Mode label
                 ht.mode_label = Some(p.spawn((Text::new("索敌"), TextFont { font: font.clone().into(), font_size: FontSize::Px(12.0), ..default() },
@@ -567,6 +572,22 @@ pub(crate) fn button_style_system(
 }
 
 // ══════════ Update Systems ══════════
+
+/// Hide interactive HUD elements (toolbar, seek panel) during replay mode.
+/// Does NOT gate on Paused — replay player buttons must remain functional.
+pub(crate) fn hide_interactive_in_replay(
+    mode: Res<bevy_adapter::GameMode>,
+    mut q: Query<&mut Visibility, With<HudInteractive>>,
+) {
+    let vis = if *mode == bevy_adapter::GameMode::Replay {
+        Visibility::Hidden
+    } else {
+        Visibility::Inherited
+    };
+    for mut v in q.iter_mut() {
+        *v = vis;
+    }
+}
 
 pub(crate) fn update_top_bar(
     mut tq: Query<&mut Text>,
