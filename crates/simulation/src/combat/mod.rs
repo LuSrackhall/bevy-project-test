@@ -562,7 +562,7 @@ pub fn melee_attack_system(world: &mut World, current_tick: u32) {
 pub fn attack_windup_system(world: &mut World, current_tick: u32) {
     let combat_config = world.resource::<CombatGlobalConfig>().clone();
 
-    // Collect entities with active windups (remaining_ticks > 0)
+    // Collect entities with active windups (remaining_ticks > 0) — sorted for determinism (§0.1)
     let mut windup_entities: Vec<(Entity, u32, Option<UnitId>)> = Vec::new();
     let mut cancel_windups: Vec<Entity> = Vec::new();
     {
@@ -578,6 +578,7 @@ pub fn attack_windup_system(world: &mut World, current_tick: u32) {
             }
         }
     }
+    windup_entities.sort_by_key(|(e, _, _)| e.index());
     // Apply windup cancellations
     for entity in cancel_windups {
         world.entity_mut(entity).insert(AttackWindup {
@@ -842,7 +843,7 @@ pub fn archer_attack_system(world: &mut World) {
         city_spatial.insert(SpatialEntry { pos, radius: 0, unit_id: uid });
     }
 
-    // Collect archers ready to fire
+    // Collect archers ready to fire — sorted by UnitId for deterministic RNG (§0.1)
     struct ArcData {
         entity: Entity,
         uid: UnitId,
@@ -854,7 +855,7 @@ pub fn archer_attack_system(world: &mut World) {
         level: u32,
         cfg: crate::soldier::config::SoldierUnitConfig,
     }
-    let archers: Vec<ArcData> = {
+    let mut archers: Vec<ArcData> = {
         let mut q = world.query::<(
             Entity,
             &UnitIdComponent,
@@ -885,6 +886,7 @@ pub fn archer_attack_system(world: &mut World) {
             })
             .collect()
     };
+    archers.sort_by_key(|a| a.uid);
 
     for ad in archers {
         // Find all enemy soldiers in range using SpatialHash
