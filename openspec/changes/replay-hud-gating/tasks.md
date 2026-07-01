@@ -21,8 +21,8 @@
 
 ## 4. HUD Update 系统闸门
 
-- [ ] 4.1 `update_top_bar` 移出原有 `.add_systems()` 块，单独注册不带 `not(GameMode::Replay)` gate
-- [ ] 4.2 其余 9 个 HUD Update 系统加 `not(GameMode::Replay)` gate
+- [x] 4.1 `update_top_bar` 移出原有 `.add_systems()` 块，单独注册不带 `not(GameMode::Replay)` gate
+- [x] 4.2 其余 9 个 HUD Update 系统加 `not(GameMode::Replay)` gate
 
 ## 5. update_top_bar 集成 count_factions
 
