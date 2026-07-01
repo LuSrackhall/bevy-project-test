@@ -460,16 +460,30 @@ mod tests {
     /// vs
     /// ReplayCommandSource.commands_for_tick → inject_commands → run_tick_default
     ///
-    /// Uses 5000 ticks to cover the DESYNC range reported by the user (tick ~4040).
+    /// Uses 15000 ticks to cover user DESYNC ranges at both ~340 and ~10240.
     ///
     /// If this test FAILS → determinism bug is in the simulation layer or command injection path.
     /// If this test PASSES → determinism bug is in bevy frame scheduling / accumulator / async seek.
     #[test]
     fn test_driver_live_replay_determinism() {
-        let seed = 42u64;
-        let map_size = map::MapSize::Small;
-        let total_ticks = 5000u32;
+        run_determinism_test(42, map::MapSize::Small, 15000);
+    }
 
+    /// Additional determinism test with Medium map size and different seed.
+    #[test]
+    fn test_driver_live_replay_determinism_medium() {
+        run_determinism_test(99, map::MapSize::Medium, 10000);
+    }
+
+    /// Additional determinism test with another seed for broader coverage.
+    #[test]
+    fn test_driver_live_replay_determinism_seed_77() {
+        run_determinism_test(77, map::MapSize::Small, 15000);
+    }
+
+    /// Run a determinism test with given parameters.
+    /// Extracted for reuse with different seeds, map sizes, and tick counts.
+    fn run_determinism_test(seed: u64, map_size: map::MapSize, total_ticks: u32) {
         // ══════════ Live phase ══════════
         let mut world = simulation::init_simulation_world(seed);
         simulation::map::generate_map(&mut world, map_size);
