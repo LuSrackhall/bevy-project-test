@@ -6,9 +6,9 @@
 
 ## 2. Driver 层集成测试
 
-- [ ] 2.1 在 `bevy_adapter/src/driver.rs` tests 模块中新建 `test_driver_live_replay_determinism`
-- [ ] 2.2 测试结构：Live 录制 N=1000 tick（AI + 模拟人工命令）→ 构建 ReplayFile → 反序列化 → Replay 回放 → 逐 tick 对比 hash
-- [ ] 2.3 验证：测试通过 → 问题在 bevy 层；测试失败 → 问题在仿真/命令注入路径
+- [x] 2.1 在 `bevy_adapter/src/driver.rs` tests 模块中新建 `test_driver_live_replay_determinism`
+- [x] 2.2 测试结构：Live 录制 N=1000 tick（AI + 模拟人工命令）→ 构建 ReplayFile → 反序列化 → Replay 回放 → 逐 tick 对比 hash
+- [x] 2.3 验证：测试**通过** → 问题在 bevy 层（accumulator/speed/seek/帧时序）；测试失败 → 问题在仿真/命令注入路径
 
 ## 3. 精确分歧点定位
 

@@ -452,4 +452,150 @@ mod tests {
         assert_eq!(driver.clock.accumulator, 0.0,
             "Accumulator must be 0 after seek completes");
     }
+
+    /// End-to-end driver determinism test: Live → record → ReplayFile → replay.
+    ///
+    /// Exercises the EXACT command injection path that simulation_driver_system uses:
+    /// LiveCommandSource.commands_for_tick → inject_commands → run_tick_default
+    /// vs
+    /// ReplayCommandSource.commands_for_tick → inject_commands → run_tick_default
+    ///
+    /// If this test FAILS → determinism bug is in the simulation layer or command injection path.
+    /// If this test PASSES → determinism bug is in bevy frame scheduling / accumulator / async seek.
+    #[test]
+    fn test_driver_live_replay_determinism() {
+        let seed = 42u64;
+        let map_size = map::MapSize::Small;
+        let total_ticks = 1000u32;
+
+        // ══════════ Live phase ══════════
+        let mut world = simulation::init_simulation_world(seed);
+        simulation::map::generate_map(&mut world, map_size);
+        let mut cmd_buf = simulation::command::CommandBuffer(Vec::new());
+        let mut recorder = ReplayRecorder {
+            is_recording: true,
+            ..Default::default()
+        };
+        recorder.seed = seed;
+        recorder.map_size = map_size;
+
+        // Simulate a player command at tick 50
+        {
+            let mut q = world.query::<(
+                &simulation::soldier::UnitIdComponent,
+                &simulation::soldier::FactionComponent,
+                &simulation::soldier::SoldierMarker,
+            )>();
+            if let Some((id, _, _)) = q.iter(&world).find(|(_, f, _)| f.0 == simulation::types::Faction::Player) {
+                let cmd = simulation::command::GameCommand {
+                    tick: 51,
+                    player_id: 0,
+                    action: simulation::command::Action::MoveTo {
+                        unit: id.0,
+                        target: simulation::types::FixedVec2::new(
+                            simulation::types::Fixed::from_int(300),
+                            simulation::types::Fixed::from_int(300),
+                        ),
+                    },
+                };
+                cmd_buf.0.push(cmd);
+            }
+        }
+
+        // Also add a second batch of commands at tick 200
+        {
+            let mut q = world.query::<(
+                &simulation::soldier::UnitIdComponent,
+                &simulation::soldier::FactionComponent,
+                &simulation::soldier::SoldierMarker,
+            )>();
+            let ids: Vec<_> = q.iter(&world)
+                .filter(|(_, f, _)| f.0 == simulation::types::Faction::Player)
+                .map(|(id, _, _)| id.0)
+                .take(10)
+                .collect();
+            for uid in ids {
+                cmd_buf.0.push(simulation::command::GameCommand {
+                    tick: 201,
+                    player_id: 0,
+                    action: simulation::command::Action::SetSeekStance {
+                        scope: simulation::command::SeekScope::All,
+                        seek_range: 80,
+                        unit_ids: vec![uid],
+                    },
+                });
+            }
+        }
+
+        // Run Live ticks
+        for tick in 1..=total_ticks {
+            let ctx = DriverContext { bevy_cmds: &cmd_buf };
+            let live_source = LiveCommandSource;
+            let commands = live_source.commands_for_tick(tick, &ctx);
+            recorder.record_tick(tick, &commands);
+
+            // Inject into simulation CommandBuffer (same as inject_commands)
+            {
+                let mut sim_cmds = world.resource_mut::<simulation::command::CommandBuffer>();
+                for cmd in commands {
+                    sim_cmds.0.push(cmd);
+                }
+            }
+
+            // Clean consumed commands (same as cmd_buf.retain in driver)
+            cmd_buf.0.retain(|c| c.tick > tick);
+
+            simulation::run_tick_default(&mut world, tick);
+
+            // Record hash at check intervals
+            if tick % simulation::replay::ReplayFile::DESYNC_CHECK_INTERVAL == 0 {
+                let hash = simulation::golden_test::hash_world_state(&mut world);
+                recorder.record_tick_hash(tick, hash);
+            }
+        }
+        let live_final_hash = simulation::golden_test::hash_world_state(&mut world);
+
+        // Build & serialize ReplayFile
+        let replay = recorder.finish(total_ticks);
+        let ron_str = replay.to_ron();
+        let loaded = simulation::replay::ReplayFile::from_ron(&ron_str)
+            .expect("ReplayFile round-trip should succeed");
+
+        // ══════════ Replay phase ══════════
+        let mut world2 = simulation::init_simulation_world(loaded.seed);
+        simulation::map::generate_map(&mut world2, loaded.map_size);
+        let replay_source = ReplayCommandSource { replay: loaded };
+
+        for tick in 1..=total_ticks {
+            let ctx = DriverContext {
+                bevy_cmds: &simulation::command::CommandBuffer(Vec::new()),
+            };
+            let commands = replay_source.commands_for_tick(tick, &ctx);
+
+            // Inject into simulation CommandBuffer (same as inject_commands)
+            {
+                let mut sim_cmds = world2.resource_mut::<simulation::command::CommandBuffer>();
+                for cmd in commands {
+                    sim_cmds.0.push(cmd);
+                }
+            }
+
+            simulation::run_tick_default(&mut world2, tick);
+
+            // Assert hash equality at each check interval
+            if tick % simulation::replay::ReplayFile::DESYNC_CHECK_INTERVAL == 0 {
+                let expected = replay_source.replay.hash_for_tick(tick)
+                    .expect("Recorded hash must exist at check interval");
+                let actual = simulation::golden_test::hash_world_state(&mut world2);
+                assert_eq!(expected, actual,
+                    "DESYNC at tick {}: replay hash {} != recorded hash {}",
+                    tick, actual, expected);
+            }
+        }
+
+        let replay_final_hash = simulation::golden_test::hash_world_state(&mut world2);
+        assert_eq!(live_final_hash, replay_final_hash,
+            "Live and replay final world state must be identical. live={}, replay={}",
+            live_final_hash, replay_final_hash);
+    }
 }
