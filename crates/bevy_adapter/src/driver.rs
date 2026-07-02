@@ -771,4 +771,70 @@ mod tests {
         assert_eq!(hash_continuous, hash_seek,
             "Backward seek (reinit) + replay must match continuous playback");
     }
+
+    /// Test determinism through set_world() path — simulates reset_game_system
+    /// exactly as the real game does: create world, generate map, call set_world(),
+    /// then run ticks. This catches issues with UnsafeCell replacement during game init.
+    #[test]
+    fn test_set_world_determinism() {
+        let seed = 42u64;
+        let map_size = map::MapSize::Small;
+        let total_ticks = 1000u32;
+
+        // Live: create via set_world (simulating reset_game_system)
+        let mut sim_live = crate::tick::SimulationWorld::new(simulation::init_simulation_world(0));
+        let mut live_world = simulation::init_simulation_world(seed);
+        simulation::map::generate_map(&mut live_world, map_size);
+        sim_live.set_world(live_world);
+
+        let mut recorder = ReplayRecorder {
+            is_recording: true,
+            seed,
+            map_size,
+            ..Default::default()
+        };
+
+        for tick in 1..=total_ticks {
+            let cmds: Vec<GameCommand> = vec![];
+            {
+                let w = sim_live.world_mut();
+                let mut sim_cmds = w.resource_mut::<simulation::command::CommandBuffer>();
+                for cmd in cmds { sim_cmds.0.push(cmd); }
+            }
+            recorder.record_tick(tick, &[]);
+            sim_live.run_tick(tick);
+            if tick % ReplayFile::DESYNC_CHECK_INTERVAL == 0 {
+                let hash = simulation::golden_test::hash_world_state(sim_live.world_mut());
+                recorder.record_tick_hash(tick, hash);
+            }
+        }
+        let live_final = simulation::golden_test::hash_world_state(sim_live.world_mut());
+
+        // Build replay
+        let replay = recorder.finish(total_ticks);
+        let ron = replay.to_ron();
+        let loaded = ReplayFile::from_ron(&ron).unwrap();
+
+        // Replay: also via set_world
+        let mut sim_replay = crate::tick::SimulationWorld::new(simulation::init_simulation_world(0));
+        let mut replay_world = simulation::init_simulation_world(loaded.seed);
+        simulation::map::generate_map(&mut replay_world, loaded.map_size);
+        sim_replay.set_world(replay_world);
+
+        for tick in 1..=total_ticks {
+            let cmds = loaded.commands_for_tick(tick).to_vec();
+            sim_replay.inject_commands(cmds);
+            sim_replay.run_tick(tick);
+            if tick % ReplayFile::DESYNC_CHECK_INTERVAL == 0 {
+                let expected = loaded.hash_for_tick(tick).unwrap();
+                let actual = simulation::golden_test::hash_world_state(sim_replay.world_mut());
+                assert_eq!(expected, actual,
+                    "DESYNC at tick {} via set_world path: replay {} != recorded {}",
+                    tick, actual, expected);
+            }
+        }
+        let replay_final = simulation::golden_test::hash_world_state(sim_replay.world_mut());
+        assert_eq!(live_final, replay_final,
+            "set_world path: live {} != replay {}", live_final, replay_final);
+    }
 }
