@@ -7,8 +7,8 @@
 
 ## 2. P2 — 编译期 Guard：SimulationReader + CommandSink
 
-- [ ] 2.1 在 `bevy_adapter` 中定义 `SimulationReader` trait（`query_world(|&World|)`）
-- [ ] 2.2 在 `bevy_adapter` 中定义 `CommandSink` trait（`submit_command(GameCommand)`）
+- [x] 2.1 在 `bevy_adapter` 中定义 `SimulationReader` trait（`query_world(|&World|)`）
+- [x] 2.2 在 `bevy_adapter` 中定义 `CommandSink` trait（`submit_command(GameCommand)`）
 - [ ] 2.3 将 `SimulationReader` 和 `CommandSink` 作为 Bevy system parameter 暴露（实现 `SystemParam` 或通过 Resource 包裹）
 - [ ] 2.4 在 `bevy_adapter::tick` 中将 `SimulationWorld` 对 render_view 的暴露改为 `impl SimulationReader` / `impl CommandSink`
 - [ ] 2.5 render_view 中所有只读系统（update_top_bar、selection 系统、camera、debug_shape、unit_info_bar 等 ~15 处）改为 `Res<impl SimulationReader>`
