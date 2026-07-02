@@ -1,6 +1,6 @@
 ## Mission
 
-建立 Simulation 的唯一状态修改入口，使 Replay、AI、Scenario、多人联机、断线恢复共享同一条 Command Pipeline，并通过编译期约束和架构守卫保证未来新增功能无法绕过该流水线。
+建立 Simulation 的唯一状态修改入口，使 Replay、AI、Scenario、多人联机、断线恢复共享同一条 Command Pipeline，并通过编译期约束和架构守卫保证未来新增功能无法绕过该流水线。**Simulation 永远不知道命令来源，只负责消费 `GameCommand`。**
 
 ---
 
@@ -53,7 +53,7 @@ trait CommandSource {
 }
 ```
 
-AI 不是 Input。Replay 也不是 Input。Network 更不是 Input。它们都是 **Command Producer**。Simulation 不关心来源。
+命令生产者包括：`PlayerInput`、`AI`、`NetworkReceiver`、`ReplayCommandSource`、`ScenarioRunner`。AI 不是 Input。Replay 不是 Input。ReplayFile 是数据，`ReplayCommandSource` 才是生产者。Simulation 不关心来源，只消费 `GameCommand`。
 
 ### Goal 4: render_view 等非仿真模块无法获得 Simulation 的可写访问权限（编译期保障）
 
@@ -153,9 +153,10 @@ pub trait CommandSource {
 ### D6: P5 — Command 生命周期（架构定义）
 
 ```
-产生: Input / AI / Network / Scenario / Replay
-  → Pending  (未进入 CommandBuffer)
-  → Scheduled (在 CommandBuffer 中，绑定 tick)
+玩家输入 / AI / 网络接收 / ReplayCommandSource / ScenarioRunner
+  → Pending   (未入队，等待调度)
+  → Scheduler (安排到目标 tick，处理延迟补偿 / 预测 / 回滚)
+  → Scheduled (在 CommandBuffer 中，绑定具体 tick)
   → Consumed  (被 take_for_tick 取出)
   → Discard   (tick 执行后清理)
   ↓
@@ -163,16 +164,17 @@ pub trait CommandSource {
   同步到网络 (联机时)
 ```
 
+当前实现中生命周期是隐式的——`submit_command()` 直接进入 `cmd_buf`。本定义新增 `Scheduler` 阶段，为联机场景的延迟补偿和帧预测保留处理位置。当前实现可以跳过 Scheduler 直接进入 Scheduled（单机模式），但架构上为它预留了插槽。
+
 每个阶段的责任：
 
 | 阶段 | 谁操作 | 数据位置 |
 |------|--------|---------|
-| Pending | CommandSink::submit_command() | 调用方栈上 |
-| Scheduled | CommandBuffer | bevy cmd_buf / simulation cmd_buf |
-| Consumed | take_for_tick / consume_commands | simulation 内部 |
-| Discard | retain / 下次 tick | 释放 |
-
-当前实现中生命周期边界是隐式的。本定义写入宪法（§2.5 实现细则），为后续联机的帧预测和回滚提供基础。
+| Pending | `CommandSink::submit_command()` → 暂存 | 调用方 / scheduler 队列 |
+| Scheduler | 网络接收后重新定位 tick（联机模式下） | scheduler 内部 |
+| Scheduled | `CommandBuffer.push()` | bevy cmd_buf / simulation cmd_buf |
+| Consumed | `take_for_tick` / `consume_commands_system` | simulation 内部 |
+| Discard | `retain()` / 下次 tick 清理 | 释放 |
 
 ## Risks / Trade-offs
 
