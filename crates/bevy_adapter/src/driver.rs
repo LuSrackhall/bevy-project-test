@@ -279,10 +279,10 @@ pub fn simulation_driver_system(
         tick_clock.accumulator = driver.clock.accumulator;
     }
 
-    // Check replay end
+    // Check replay end — pause at total_ticks boundary
     if let CommandSource::Replay(ref rs) = driver.source {
         if driver.clock.current_tick >= rs.replay.total_ticks {
-            // Replay finished — caller should transition to Live or show end screen
+            driver.scheduler.is_paused = true;
         }
     }
 }
@@ -298,6 +298,13 @@ fn handle_seek(
         driver.scheduler.async_seek = false;
         return;
     };
+
+    // Cap seek target at replay total_ticks
+    let max_ticks = match &driver.source {
+        CommandSource::Replay(rs) => rs.replay.total_ticks,
+        CommandSource::Live(_) => u32::MAX,
+    };
+    let target = target.min(max_ticks);
 
     // Backward seek: reinitialize world, replay from tick 0
     if target < driver.clock.current_tick {
