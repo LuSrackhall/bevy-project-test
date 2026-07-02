@@ -363,6 +363,7 @@ pub fn command_issue_system(
     hover_map: Res<HoverMap>,
     nodes: Query<&Node>,
     mut sim_world: bevy::ecs::system::NonSendMut<SimulationWorld>,
+    mut cmd_buf: ResMut<CommandBuffer>,
     selection: ResMut<SelectionState>,
     tick_clock: Res<bevy_adapter::tick::TickClock>,
     force_next: Option<ResMut<ForceMoveNext>>,
@@ -417,7 +418,7 @@ pub fn command_issue_system(
     }
     if let Some(target) = hit_enemy {
         for &uid in &selection.selected_unit_ids {
-            sim_world.submit_command(GameCommand {
+            cmd_buf.push(GameCommand {
                 tick: next_tick,
                 player_id: 0,
                 action: Action::Attack { unit: uid, target },
@@ -449,7 +450,7 @@ pub fn command_issue_system(
     }
     if let Some(target) = hit_city {
         for &uid in &selection.selected_unit_ids {
-            sim_world.submit_command(GameCommand {
+            cmd_buf.push(GameCommand {
                 tick: next_tick,
                 player_id: 0,
                 action: Action::Attack { unit: uid, target },
@@ -480,7 +481,7 @@ pub fn command_issue_system(
     }
     if let Some(target) = hit_friendly {
         for &uid in &selection.selected_unit_ids {
-            sim_world.submit_command(GameCommand {
+            cmd_buf.push(GameCommand {
                 tick: next_tick,
                 player_id: 0,
                 action: Action::ReturnToCity {
@@ -503,7 +504,7 @@ pub fn command_issue_system(
         } else {
             Action::MoveTo { unit: uid, target }
         };
-        sim_world.submit_command(GameCommand {
+        cmd_buf.push(GameCommand {
             tick: next_tick,
             player_id: 0,
             action,
@@ -535,8 +536,9 @@ pub fn seek_stance_shortcut_system(
     keyboard: Res<ButtonInput<KeyCode>>,
     selection: Res<SelectionState>,
     seek_state: Res<crate::ui::hud::SeekPanelState>,
-    mut sim_world: bevy::ecs::system::NonSendMut<SimulationWorld>,
+    mut cmd_buf: ResMut<CommandBuffer>,
     tick_clock: Res<bevy_adapter::tick::TickClock>,
+    sim_world: bevy::ecs::system::NonSend<SimulationWorld>,
 ) {
     if !keyboard.just_pressed(KeyCode::KeyS) {
         return;
@@ -558,7 +560,7 @@ pub fn seek_stance_shortcut_system(
     let next_tick = tick_clock.current_tick + 1;
     let seek_range: u32 = 30; // default selection seek range per design D4
 
-    sim_world.submit_command(GameCommand {
+    cmd_buf.push(GameCommand {
         tick: next_tick,
         player_id: 0,
         action: Action::SetSeekStance {
