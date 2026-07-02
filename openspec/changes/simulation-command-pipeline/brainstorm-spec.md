@@ -147,7 +147,19 @@ pub trait CommandSink {
 
 **第四层：CommandSink 纯传输接口约束**
 
-`CommandSink::submit_command()` 必须保持纯传输接口（pure transport interface）。所有语义处理——验证（validation）、鉴权（auth）、优先级（priority）、延迟标记（latency tag）、去重（dedup）——必须发生在 `CommandScheduler` 而非 `CommandSink`。违反此原则将导致 `CommandSink` 退化为 God Entry，腐蚀单一职责边界。
+`CommandSink::submit_command()` 必须保持纯传输接口（pure transport interface）：不得根据 `GameCommand` 内容做任何分流或逻辑判断（zero semantic branching）。只允许 copy → enqueue → attach metadata（非语义）。
+
+所有语义处理——验证（validation）、鉴权（auth）、优先级（priority）、延迟标记（latency tag）、去重（dedup）——必须发生在 `CommandScheduler` 而非 `CommandSink`。违反此原则将导致 `CommandSink` 退化为 God Entry，并产生 `Sink+Scheduler` 双重验证逻辑分叉风险（replay path pass / live path fail）。
+
+**第五层：SimulationReader API 边界约束**
+
+`SimulationReader` 只能提供**结构查询（structural query）**，不得提供**语义查询 API（semantic query）**。`query_world(|w| ...)` 是结构查询——它暴露的是 World 图结构，而非领域概念。以下 API 属于语义查询，禁止在 `SimulationReader` 上定义：
+
+- ❌ `get_unit_by_id(id) → UnitData`
+- ❌ `get_player_units(player) → Vec<UnitId>`
+- ❌ `get_enemy_nearby(pos, range) → Vec<UnitId>`
+
+一旦引入语义查询 API，查询能力将与 Simulation 领域模型耦合，使 Reader 成为「第二个 Simulation API surface」。结构查询保持 Reader 在 Simulation 演进时无需跟随修改。
 
 ### D4: P3 — CommandSource 统一
 
@@ -254,7 +266,20 @@ Mission → Architectural Invariant → Truth Ownership 三者形成闭环：
 - Snapshot Sync（断线重连）
 - Spectator / Observer（观战模式）
 - Dedicated Server（独立服务器）
-- Command Normalizer（命令规范化：合并、去重、语义压缩、优先级归一）——当不同 Producer（AI / 玩家 / 网络）产生不同粒度的命令时，Normalizer 负责将其转化为 Simulation 期望的标准形式
+
+**Command Normalizer（语义收敛层）**——未来架构 Guarantee，非可选优化。当 AI / 玩家 / 网络 / Replay 等不同 Producer 产生不同粒度的 Command 时（如玩家单发 `MoveUnit` vs AI 批量 `MoveGroup`），Normalizer 承担命令合并、去重、语义压缩、优先级归一职责，防止 Scheduler 退化为 God Layer。位置在 Producer → Sink 之间：
+
+```
+Producer
+   ↓
+Normalizer ← 语义统一点（未来架构 Guarantee）
+   ↓
+CommandSink
+   ↓
+CommandScheduler
+   ↓
+Scheduled → Simulation
+```
 
 **约束**：本次设计的任何决策不得封堵上述能力的实现路径。
 
