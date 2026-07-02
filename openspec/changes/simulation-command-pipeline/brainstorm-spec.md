@@ -201,15 +201,17 @@ Command Scheduler 的未来职责：
 - 去重：防止同一条命令被多次调度
 - 合并：合并多条同类命令（如同一单位连续 MoveTo）
 
-每个阶段的责任：
+每个阶段的责任（Owner 遵循 Truth Ownership 原则，单一所有者）：
 
-| 阶段 | 谁操作 | 数据位置 |
-|------|--------|---------|
-| Pending | `CommandSink::submit_command()` → 暂存 | 调用方 / Command Scheduler 队列 |
-| Command Scheduler | 网络接收后重新定位 tick（联机模式下） | Command Scheduler 内部 |
-| Scheduled | `CommandBuffer.push()` | bevy cmd_buf / simulation cmd_buf |
-| Consumed | `take_for_tick` / `consume_commands_system` | simulation 内部 |
-| Discard | `retain()` / 下次 tick 清理 | 释放 |
+| 阶段 | 操作 | 数据位置 | Owner |
+|------|------|---------|-------|
+| Pending | `CommandSink::submit_command()` → 暂存（注：submit 不等同于接受。Scheduler 可拒绝非法/过期命令） | 调用方 / Command Scheduler 队列 | Command Scheduler |
+| Command Scheduler | 网络接收后重新定位 tick（联机模式下） | Command Scheduler 内部 | Command Scheduler |
+| Scheduled | `CommandBuffer.push()` | bevy cmd_buf / simulation cmd_buf | Simulation Driver |
+| Consumed | `take_for_tick` / `consume_commands_system` | simulation 内部 | Simulation |
+| Discard | `retain()` / 下次 tick 清理 | 释放 | 无 |
+
+`CommandSource`（Producer）不拥有 Command 的生命周期。Producer 的职责在 `yield command` 后结束。生命周期（Pending→Scheduled→Consumed→Discard）由 Scheduler→Driver→Simulation 逐级接管。
 
 ## Truth Ownership
 
@@ -239,6 +241,8 @@ Mission → Architectural Invariant → Truth Ownership 三者形成闭环：
 - Dedicated Server（独立服务器）
 
 **约束**：本次设计的任何决策不得封堵上述能力的实现路径。
+
+**Future Work 不豁免 Invariant**：以上所有未来能力（Network、Prediction、Rollback 等）必须继续遵守 Mission 与 Architectural Invariant。不得新增任何绕过 Scheduled GameCommand 的外部状态修改路径。Prediction 不是第二条路——它仍需通过 Scheduler → Scheduled 流程，只是加快了调度速度。
 
 ## Risks / Trade-offs
 
