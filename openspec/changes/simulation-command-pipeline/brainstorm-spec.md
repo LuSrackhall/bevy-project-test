@@ -145,6 +145,10 @@ pub trait CommandSink {
 
 `SimulationReader` 永远不暴露可写 World；`CommandSink` 永远不暴露 World（读或写）。二者之间不存在 `as_any()` → `downcast` → `get_world_mut()` 的转换路径。这是编译期 Guard 的最后一道防线。
 
+**第四层：CommandSink 纯传输接口约束**
+
+`CommandSink::submit_command()` 必须保持纯传输接口（pure transport interface）。所有语义处理——验证（validation）、鉴权（auth）、优先级（priority）、延迟标记（latency tag）、去重（dedup）——必须发生在 `CommandScheduler` 而非 `CommandSink`。违反此原则将导致 `CommandSink` 退化为 God Entry，腐蚀单一职责边界。
+
 ### D4: P3 — CommandSource 统一
 
 ```rust
@@ -250,6 +254,7 @@ Mission → Architectural Invariant → Truth Ownership 三者形成闭环：
 - Snapshot Sync（断线重连）
 - Spectator / Observer（观战模式）
 - Dedicated Server（独立服务器）
+- Command Normalizer（命令规范化：合并、去重、语义压缩、优先级归一）——当不同 Producer（AI / 玩家 / 网络）产生不同粒度的命令时，Normalizer 负责将其转化为 Simulation 期望的标准形式
 
 **约束**：本次设计的任何决策不得封堵上述能力的实现路径。
 
