@@ -19,11 +19,11 @@
 
 ## 3. P3 — CommandSource 统一
 
-- [ ] 3.1 `CommandSource` trait 移除 `is_replay()` 方法，新增 `total_ticks() → Option<u32>`
-- [ ] 3.2 `handle_seek` 中消除对 `CommandSource::Replay` 内部字段的直接访问，改用 `source.total_ticks()`
-- [ ] 3.3 `simulation_driver_system` 结束处的 total_ticks 检查改用 `source.total_ticks()`
-- [ ] 3.4 `cargo check --package bevy_adapter` 通过
-- [ ] 3.5 `cargo test -p bevy_adapter -- test_driver` 全量通过
+- [x] 3.1 `CommandSource` trait 新增 `total_ticks() → Option<u32>`，保留 `is_live()`（用于录制逻辑）
+- [x] 3.2 `handle_seek` 改用 `source.total_ticks()` 替代直接 match `CommandSource::Replay`
+- [x] 3.3 `simulation_driver_system` 结束处的 total_ticks 检查改用 `source.total_ticks().unwrap()`
+- [x] 3.4 `cargo check --package bevy_adapter` 通过
+- [x] 3.5 `cargo test -p bevy_adapter -- test_driver` 全量通过
 
 ## 4. P4 — 架构测试 + 文档
 

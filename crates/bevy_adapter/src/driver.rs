@@ -68,6 +68,15 @@ impl CommandSource {
         }
     }
 
+    /// Total ticks for finite sources (Replay, Scenario, Benchmark).
+    /// Returns None for streaming sources (Live, NetworkReceiver).
+    pub fn total_ticks(&self) -> Option<u32> {
+        match self {
+            Self::Live(_) => None,
+            Self::Replay(s) => Some(s.replay.total_ticks),
+        }
+    }
+
     pub fn is_live(&self) -> bool {
         matches!(self, Self::Live(_))
     }
@@ -136,10 +145,7 @@ impl SimulationDriver {
 
     /// Get total ticks for replay (0 if Live).
     pub fn replay_total_ticks(&self) -> u32 {
-        match &self.source {
-            CommandSource::Replay(rs) => rs.replay.total_ticks,
-            _ => 0,
-        }
+        self.source.total_ticks().unwrap_or(0)
     }
 }
 
@@ -280,8 +286,8 @@ pub fn simulation_driver_system(
     }
 
     // Check replay end — pause at total_ticks boundary
-    if let CommandSource::Replay(ref rs) = driver.source {
-        if driver.clock.current_tick >= rs.replay.total_ticks {
+    if let Some(max) = driver.source.total_ticks() {
+        if driver.clock.current_tick >= max {
             driver.scheduler.is_paused = true;
         }
     }
@@ -300,10 +306,7 @@ fn handle_seek(
     };
 
     // Cap seek target at replay total_ticks
-    let max_ticks = match &driver.source {
-        CommandSource::Replay(rs) => rs.replay.total_ticks,
-        CommandSource::Live(_) => u32::MAX,
-    };
+    let max_ticks = driver.source.total_ticks().unwrap_or(u32::MAX);
     let target = target.min(max_ticks);
 
     // Backward seek: reinitialize world, replay from tick 0
