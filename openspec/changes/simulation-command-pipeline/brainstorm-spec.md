@@ -211,6 +211,7 @@ pub trait CommandSource {
 
 Command Scheduler 的未来职责：
 
+允许（纯时间语义）：
 - Tick 定位：将 Pending 命令分配到目标 tick
 - Tick 重排：网络包到达顺序与 tick 顺序不同时重新排序
 - 延迟补偿：调整命令的生效 tick 以对抗网络延迟
@@ -218,6 +219,13 @@ Command Scheduler 的未来职责：
 - Rollback：接收到 server 回滚通知后撤销已执行命令
 - 去重：防止同一条命令被多次调度
 - 合并：合并多条同类命令（如同一单位连续 MoveTo）
+
+禁止（领域语义）：
+- ❌ 理解 unit / faction / health / position 等 gameplay 概念
+- ❌ 基于游戏规则做决策（"这个单位不能移动"）
+- ❌ 解释 Entity 类型或状态
+
+**CommandScheduler 约束**：Scheduler 只能理解时间，不得理解游戏。这是整个 pipeline 中最关键的防腐层——一旦 Scheduler 开始依赖 Simulation domain semantics，它就从 temporal layer 退化为 domain layer，侵蚀 Simulation 的纯执行者角色。
 
 每个阶段的责任（Owner 遵循 Truth Ownership 原则，单一所有者）：
 
@@ -280,6 +288,8 @@ CommandScheduler
    ↓
 Scheduled → Simulation
 ```
+
+**Normalizer 约束**：Normalizer is stateless semantic transformation only。它 MUST NOT 做 temporal decisions（tick 分配、冲突仲裁属于 Scheduler）。Normalizer = 语义压缩 / canonicalization；Scheduler = 时间映射 / ordering。二者不得语义重叠。
 
 **约束**：本次设计的任何决策不得封堵上述能力的实现路径。
 
