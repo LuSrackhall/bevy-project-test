@@ -282,10 +282,7 @@ pub(crate) fn setup_hud(
                                     let Ok(btn) = q.get(ev.entity) else { return };
                                     let w = &mut sim.0;
                                     if let Some(cid) = selection.selected_city {
-                                        let ce = w.query::<(Entity, &UnitIdComponent, &CityMarker)>().iter(w).find(|(_,id,_)| id.0==cid).map(|(e,_,_)| e);
-                                        if let Some(ce) = ce {
-                                            // Apply immediately for UI feedback
-                                            if let Some(mut c) = w.entity_mut(ce).get_mut::<CityComponent>() { c.spawn_type = btn.0; }
+                                        if let Some(_ce) = w.query::<(Entity, &UnitIdComponent, &CityMarker)>().iter(w).find(|(_,id,_)| id.0==cid).map(|(e,_,_)| e) {
                                             // Push command for replay recording — ensures the change is captured
                                             cmd_buf.push(GameCommand {
                                                 tick: tick_clock.current_tick + 1,
