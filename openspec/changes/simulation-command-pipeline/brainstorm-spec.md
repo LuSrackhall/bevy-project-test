@@ -5,10 +5,14 @@
 ### Architectural Invariant
 
 ```
-Simulation 的任何状态变化，
-必须且只能由 Scheduled GameCommand 驱动。
+任何来自 Simulation 外部的状态修改请求，
+必须先成为 Scheduled GameCommand，
+随后才能影响 Simulation。
 
-不存在第二条状态修改路径。
+Simulation 内部系统允许产生连锁状态更新（如战斗扣血触发升级），
+但不得绕过 Scheduled GameCommand 接收新的外部修改。
+
+不存在第二条外部状态修改路径。
 ```
 
 ---
@@ -63,6 +67,8 @@ trait CommandSource {
 ```
 
 命令生产者包括：`PlayerInput`、`AI`、`NetworkReceiver`、`ReplayCommandSource`、`ScenarioRunner`。AI 不是 Input。Replay 不是 Input。ReplayFile 是数据，`ReplayCommandSource` 才是生产者。Simulation 不关心来源，只消费 `GameCommand`。
+
+`CommandSource` 只负责产生 Scheduled GameCommand，不负责执行命令。Producer → Driver → Simulation 的职责链固定：Producer 生产、Driver 调度、Simulation 执行。
 
 ### Goal 4: render_view 等非仿真模块无法获得 Simulation 的可写访问权限（编译期保障）
 
@@ -133,16 +139,24 @@ pub trait CommandSink {
 
 两个 trait 的实现内部持有 `simulation::World`，其 `&self` 签名从类型系统保证外部无法获取 `&mut World`。
 
+**第三层：不可转换约束**
+
+`SimulationReader` 永远不暴露可写 World；`CommandSink` 永远不暴露 World（读或写）。二者之间不存在 `as_any()` → `downcast` → `get_world_mut()` 的转换路径。这是编译期 Guard 的最后一道防线。
+
 ### D4: P3 — CommandSource 统一
 
 ```rust
 pub trait CommandSource {
     fn commands_for_tick(&mut self, tick: u32, ctx: &DriverContext) -> Vec<GameCommand>;
-    fn total_ticks(&self) -> Option<u32>; // Some for replay/scenario, None for live/network
+    /// 有限命令源（Finite Source）返回 Some(total_ticks)，
+    /// 如 ReplayFile / Scenario / Benchmark。
+    /// 无限命令源（Streaming Source）返回 None，
+    /// 如 Live / NetworkReceiver。
+    fn total_ticks(&self) -> Option<u32>;
 }
 ```
 
-不包含 `is_replay()` 方法。Driver 不应关心 CommandSource 的具体类型。Replay 有 `total_ticks`、Live/Network 没有——用 `Option` 表达区别，不用 bool 判断来源。
+不包含 `is_replay()` 方法。Driver 不应关心 CommandSource 的具体类型。用 `Option<u32>` 表达有限/无限源的区别，不用 bool 判断来源。
 
 消除 driver 中对 `CommandSource::Replay` 内部字段的全部直接访问（当前 `handle_seek` 和 driver 结束处的 `rs.replay.total_ticks` 访问），替换为 `source.total_ticks()`。
 
@@ -175,7 +189,17 @@ pub trait CommandSource {
   同步到网络 (联机时)
 ```
 
-当前实现中生命周期是隐式的——`submit_command()` 直接进入 `cmd_buf`。本定义新增 `Scheduler` 阶段，为联机场景的延迟补偿和帧预测保留处理位置。当前实现可以跳过 Scheduler 直接进入 Scheduled（单机模式），但架构上为它预留了插槽。
+当前实现中生命周期是隐式的——`submit_command()` 直接进入 `cmd_buf`。本定义新增 `Command Scheduler` 阶段，为联机场景的延迟补偿和帧预测保留处理位置。当前实现可以跳过 Command Scheduler 直接进入 Scheduled（单机模式），但架构上为它预留了插槽。
+
+Command Scheduler 的未来职责：
+
+- Tick 定位：将 Pending 命令分配到目标 tick
+- Tick 重排：网络包到达顺序与 tick 顺序不同时重新排序
+- 延迟补偿：调整命令的生效 tick 以对抗网络延迟
+- Prediction：预测性提前执行命令，接收 server ack 后修正
+- Rollback：接收到 server 回滚通知后撤销已执行命令
+- 去重：防止同一条命令被多次调度
+- 合并：合并多条同类命令（如同一单位连续 MoveTo）
 
 每个阶段的责任：
 
@@ -186,6 +210,35 @@ pub trait CommandSource {
 | Scheduled | `CommandBuffer.push()` | bevy cmd_buf / simulation cmd_buf |
 | Consumed | `take_for_tick` / `consume_commands_system` | simulation 内部 |
 | Discard | `retain()` / 下次 tick 清理 | 释放 |
+
+## Truth Ownership
+
+本次 Change 完成后，Simulation 成为唯一 Truth Owner。外部模块只能：
+
+| 操作 | 途径 |
+|------|------|
+| 写（状态修改） | `CommandSink::submit_command()` |
+| 读（状态查询） | `SimulationReader::query_world()` |
+| 其他所有路径 | ❌ 不允许 |
+
+Mission → Architectural Invariant → Truth Ownership 三者形成闭环：
+
+- **Mission**：建立唯一入口
+- **Invariant**：定义什么能改、什么不能改
+- **Truth Ownership**：明确谁负责、谁不负责
+
+## Future Work
+
+本次 Change 不实现以下能力，但架构设计（尤其是 Command Scheduler 和 Command 生命周期）为它们保留了插槽：
+
+- Network Scheduler（联机帧同步）
+- Rollback（回滚仲裁）
+- Prediction（客户端预测）
+- Snapshot Sync（断线重连）
+- Spectator / Observer（观战模式）
+- Dedicated Server（独立服务器）
+
+**约束**：本次设计的任何决策不得封堵上述能力的实现路径。
 
 ## Risks / Trade-offs
 
@@ -200,17 +253,27 @@ pub trait CommandSource {
 ```
 P1 — 消除绕过 Command Pipeline 的直接修改
  ├ 改动: spawn type observer 删除直接修改，只留命令
- ├ Gate: 所有 replay 确定性测试通过
+ ├ Exit Criteria:
+ │   ✓ render_view 中无直接修改 SimulationWorld 的代码
+ │   ✓ cargo check
+ │   ✓ 所有 replay 确定性测试通过
  └ 进入 P2
 
 P2 — 编译期 Guard（SimulationReader + CommandSink）
  ├ 改动: 定义 trait，替换 render_view 参数类型，切断 NonSendMut 暴露
- ├ Gate: Architecture Test 全绿
+ ├ Exit Criteria:
+ │   ✓ render_view 无 NonSendMut<SimulationWorld>
+ │   ✓ cargo check
+ │   ✓ Architecture Test 全绿
+ │   ✓ Replay 确定性测试通过
  └ 进入 P3
 
 P3 — CommandSource 统一
  ├ 改动: 消除 driver 对 CommandSource 类型的直接判断
- ├ Gate: Driver 测试通过 + handle_seek 不访问内部字段
+ ├ Exit Criteria:
+ │   ✓ Driver 测试通过
+ │   ✓ handle_seek 不访问 CommandSource 内部字段
+ │   ✓ cargo check
  └ 进入 Merge
 
 P4 — 架构测试（并行）
