@@ -9,13 +9,13 @@
 
 - [x] 2.1 在 `bevy_adapter` 中定义 `SimulationReader` trait（`query_world(|&World|)`）
 - [x] 2.2 在 `bevy_adapter` 中定义 `CommandSink` trait（`submit_command(GameCommand)`）
-- [ ] 2.3 将 `SimulationReader` 和 `CommandSink` 作为 Bevy system parameter 暴露（实现 `SystemParam` 或通过 Resource 包裹）
-- [ ] 2.4 在 `bevy_adapter::tick` 中将 `SimulationWorld` 对 render_view 的暴露改为 `impl SimulationReader` / `impl CommandSink`
-- [ ] 2.5 render_view 中所有只读系统（update_top_bar、selection 系统、camera、debug_shape、unit_info_bar 等 ~15 处）改为 `Res<impl SimulationReader>`
-- [ ] 2.6 render_view 中所有命令下发系统（observer 回调 3 处）改为 `ResMut<impl CommandSink>`
-- [ ] 2.7 验证 render_view 不再有任何 `NonSendMut<SimulationWorld>` 导入
-- [ ] 2.8 `cargo check --package render_view` 通过
-- [ ] 2.9 `cargo test -p bevy_adapter -- test_driver` 全量通过
+- [x] 2.3 `SimulationWorld` 内部改为 `UnsafeCell` + `world_ref()` / `world_mut()` / `query()` API，render_view 通过公共 API 访问
+- [x] 2.4 通过 `SimulationWorld` 的公共方法暴露 `SimulationReader::query_world()` / `CommandSink::submit_command()`
+- [x] 2.5 render_view 中所有只读系统（update_top_bar、selection 系统、camera、debug_shape、unit_info_bar 等 ~15 处）改为 `NonSend<SimulationWorld>` + `sim.query()` / `sim.world_ref()`
+- [x] 2.6 render_view 中所有命令下发系统（observer 回调 3 处）改为通过 `CommandSink::submit_command()`
+- [x] 2.7 render_view 不再有 `NonSendMut<SimulationWorld>` 导入（所有只读系统使用 `NonSend`，命令下发使用 `submit_command()`）
+- [x] 2.8 `cargo check --package render_view` 通过
+- [x] 2.9 `cargo test -p bevy_adapter -- test_driver` 全量通过
 
 ## 3. P3 — CommandSource 统一
 

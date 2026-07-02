@@ -5,7 +5,7 @@ use bevy::prelude::*;
 use bevy::ui::Pressed;
 use bevy::ui_widgets::{Activate, Button as WidgetButton, MenuPopup};
 use bevy_adapter::input::ForceMoveNext;
-use bevy_adapter::tick::{SimulationWorld, TickClock};
+use bevy_adapter::tick::{CommandSink, SimulationWorld, TickClock};
 use simulation::city::config::CityGlobalConfig;
 use simulation::command::*;
 use simulation::soldier::config::SoldierConfig;
@@ -277,14 +277,16 @@ pub(crate) fn setup_hud(
                         for (st, label) in [(SoldierType::Militia,"民兵"),(SoldierType::Infantry,"步兵"),(SoldierType::Archer,"弓兵"),(SoldierType::Cavalry,"骑兵")] {
                             p.spawn((WidgetButton, Node { padding: UiRect::all(Val::Px(6.0)), margin: UiRect::all(Val::Px(3.0)), ..default() }, SpawnTypeBtn(st), ButtonTheme::default(), Hovered::default()))
                                 .with_child((Text::new(label), TextFont { font: font.clone().into(), font_size: FontSize::Px(12.0), ..default() }))
-                                .observe(|ev: On<Activate>, q: Query<&SpawnTypeBtn>, selection: Res<SelectionState>, mut sim: NonSendMut<SimulationWorld>, game_mode: Res<bevy_adapter::GameMode>, mut cmd_buf: ResMut<CommandBuffer>, tick_clock: Res<TickClock>| {
+                                .observe(|ev: On<Activate>, q: Query<&SpawnTypeBtn>, selection: Res<SelectionState>, mut sim: NonSendMut<SimulationWorld>, tick_clock: Res<TickClock>, game_mode: Res<bevy_adapter::GameMode>| {
                                     if *game_mode == bevy_adapter::GameMode::Replay { return; }
                                     let Ok(btn) = q.get(ev.entity) else { return };
-                                    let w = &mut sim.0;
                                     if let Some(cid) = selection.selected_city {
-                                        if let Some(_ce) = w.query::<(Entity, &UnitIdComponent, &CityMarker)>().iter(w).find(|(_,id,_)| id.0==cid).map(|(e,_,_)| e) {
-                                            // Push command for replay recording — ensures the change is captured
-                                            cmd_buf.push(GameCommand {
+                                        // Read from sim world to verify the city exists
+                                        let world = sim.world_ref();
+                                        let mut want = sim.query::<(Entity, &UnitIdComponent, &CityMarker)>();
+                                        let has_city = want.iter(world).any(|(_, id, _)| id.0 == cid);
+                                        if has_city {
+                                            sim.submit_command(GameCommand {
                                                 tick: tick_clock.current_tick + 1,
                                                 player_id: 0,
                                                 action: Action::SetSpawnType { city: cid, soldier_type: btn.0 },
@@ -340,40 +342,34 @@ pub(crate) fn setup_hud(
                     let mut cmd = p.spawn((WidgetButton, Node { padding: UiRect::all(Val::Px(6.0)), ..default() }, ToolbarButton(marker), ButtonTheme::default(), Hovered::default()));
                     if marker == 2 { cmd.insert(ShieldButton); }
                     cmd.with_child((Text::new(label), TextFont { font: font.clone().into(), font_size: FontSize::Px(13.0), ..default() }))
-                        .observe(|ev: On<Activate>, q: Query<&ToolbarButton>, mut sel: ResMut<SelectionState>, mut force: ResMut<ForceMoveNext>, mut sim: NonSendMut<SimulationWorld>, mut cmd_buf: ResMut<CommandBuffer>, tick_clock: Res<TickClock>, game_mode: Res<bevy_adapter::GameMode>| {
+                        .observe(|ev: On<Activate>, q: Query<&ToolbarButton>, mut sel: ResMut<SelectionState>, mut force: ResMut<ForceMoveNext>, mut sim: NonSendMut<SimulationWorld>, tick_clock: Res<TickClock>, game_mode: Res<bevy_adapter::GameMode>| {
                             if *game_mode == bevy_adapter::GameMode::Replay { return; }
                             let Ok(btn) = q.get(ev.entity) else { return };
                             match btn.0 {
                                 0 => sel.selection_mode = crate::selection::SelectionMode::Circle,
                                 1 => sel.selection_mode = crate::selection::SelectionMode::Rect,
                                 2 => {
-                                    let world = &mut sim.0;
-                                    let has_infantry = sel.selected_unit_ids.iter().any(|uid| {
-                                        find_entity_by_unit_id(world, *uid)
-                                            .and_then(|e| world.get::<simulation::soldier::SoldierTypeComponent>(e))
-                                            .map(|st| st.0 == simulation::types::SoldierType::Infantry)
-                                            .unwrap_or(false)
-                                    });
-                                    if !has_infantry { return; }
-                                    let all_blocking = sel.selected_unit_ids.iter().all(|uid| {
-                                        let e = find_entity_by_unit_id(world, *uid);
-                                        let is_infantry = e.and_then(|e| world.get::<simulation::soldier::SoldierTypeComponent>(e))
-                                            .map(|st| st.0 == simulation::types::SoldierType::Infantry)
-                                            .unwrap_or(false);
-                                        if !is_infantry { return true; }
-                                        e.and_then(|e| world.get::<simulation::soldier::ShieldComponent>(e))
-                                            .map(|sc| sc.state == simulation::types::ShieldState::Blocking)
-                                            .unwrap_or(false)
-                                    });
+                                    let (infantries, all_blocking) = {
+                                        let world = sim.world_mut();
+                                        let infantries: Vec<_> = sel.selected_unit_ids.iter().filter(|uid| {
+                                            let e = find_entity_by_unit_id_internal(world, **uid);
+                                            e.and_then(|e| world.get::<simulation::soldier::SoldierTypeComponent>(e))
+                                                .map(|st| st.0 == simulation::types::SoldierType::Infantry)
+                                                .unwrap_or(false)
+                                        }).copied().collect();
+                                        if infantries.is_empty() { return; }
+                                        let all_blocking = infantries.iter().all(|uid| {
+                                            let e = find_entity_by_unit_id_internal(world, *uid);
+                                            e.and_then(|e| world.get::<simulation::soldier::ShieldComponent>(e))
+                                                .map(|sc| sc.state == simulation::types::ShieldState::Blocking)
+                                                .unwrap_or(false)
+                                        });
+                                        (infantries, all_blocking)
+                                    };
                                     let target_state = if all_blocking { simulation::types::ShieldState::Normal } else { simulation::types::ShieldState::Blocking };
                                     let next_tick = tick_clock.current_tick + 1;
-                                    for uid in &sel.selected_unit_ids {
-                                        let e = find_entity_by_unit_id(world, *uid);
-                                        let is_infantry = e.and_then(|e| world.get::<simulation::soldier::SoldierTypeComponent>(e))
-                                            .map(|st| st.0 == simulation::types::SoldierType::Infantry)
-                                            .unwrap_or(false);
-                                        if !is_infantry { continue; }
-                                        cmd_buf.push(GameCommand { tick: next_tick, player_id: 0, action: simulation::command::Action::SetShield { unit: *uid, state: target_state } });
+                                    for uid in &infantries {
+                                        sim.submit_command(GameCommand { tick: next_tick, player_id: 0, action: simulation::command::Action::SetShield { unit: *uid, state: target_state } });
                                     }
                                 }
                                 3 => force.active = true,
@@ -506,17 +502,17 @@ pub(crate) fn setup_hud(
                     ButtonTheme::green(),
                     Hovered::default(),
                 )).with_child((Text::new("下发"), TextFont { font: font.clone().into(), font_size: FontSize::Px(12.0), ..default() }))
-                .observe(|_ev: On<Activate>, state: Res<SeekPanelState>, selection: Res<SelectionState>, mut cmd_buf: ResMut<CommandBuffer>, tick_clock: Res<TickClock>, mut toast: ResMut<ToastMessage>, mut sim: NonSendMut<SimulationWorld>, game_mode: Res<bevy_adapter::GameMode>| {
+                .observe(|_ev: On<Activate>, state: Res<SeekPanelState>, selection: Res<SelectionState>, tick_clock: Res<TickClock>, mut toast: ResMut<ToastMessage>, mut sim: NonSendMut<SimulationWorld>, game_mode: Res<bevy_adapter::GameMode>| {
                     if *game_mode == bevy_adapter::GameMode::Replay { return; }
                     let next_tick = tick_clock.current_tick + 1;
                     let has_sel = !selection.selected_unit_ids.is_empty();
                     if has_sel {
-                        cmd_buf.push(GameCommand { tick: next_tick, player_id: 0, action: Action::SetSeekStance { scope: state.scope.clone(), seek_range: state.range_value, unit_ids: selection.selected_unit_ids.clone() } });
-                        let count = count_matching(&selection.selected_unit_ids, &state.scope, &mut sim);
+                        sim.submit_command(GameCommand { tick: next_tick, player_id: 0, action: Action::SetSeekStance { scope: state.scope.clone(), seek_range: state.range_value, unit_ids: selection.selected_unit_ids.clone() } });
+                        let count = count_matching(&selection.selected_unit_ids, &state.scope, &sim);
                         let scope_name = scope_label(&state.scope);
                         toast.text = if matches!(state.scope, SeekScope::All) { format!("已下发选中全体({})索敌 范围{}", selection.selected_unit_ids.len(), state.range_value) } else { format!("已下发选中{}({})索敌 范围{}", scope_name, count, state.range_value) };
                     } else {
-                        cmd_buf.push(GameCommand { tick: next_tick, player_id: 0, action: Action::SetSeekStance { scope: state.scope.clone(), seek_range: state.range_value, unit_ids: vec![] } });
+                        sim.submit_command(GameCommand { tick: next_tick, player_id: 0, action: Action::SetSeekStance { scope: state.scope.clone(), seek_range: state.range_value, unit_ids: vec![] } });
                         let scope_name = scope_label(&state.scope);
                         toast.text = format!("已下发{}索敌 范围{}", scope_name, state.range_value);
                     }
@@ -596,20 +592,36 @@ pub(crate) fn hide_interactive_in_replay(
 pub(crate) fn update_top_bar(
     mut tq: Query<&mut Text>,
     ht: Res<HudTexts>,
-    mut sim: bevy::ecs::system::NonSendMut<SimulationWorld>,
+    mut sim_world: bevy::ecs::system::NonSend<SimulationWorld>,
     tick_clock: Res<bevy_adapter::tick::TickClock>,
 ) {
-    let w = &mut sim.0;
+    let world = sim_world.world_ref();
 
-    // Use count_factions for deterministic per-faction soldier/city counts
-    let counts = simulation::world_stats::count_factions(w);
+    // Inline count_factions using read-only queries
+    use std::collections::BTreeMap;
+    let mut f_counts: BTreeMap<Faction, (u32, u32)> = BTreeMap::new();
+    {
+        let mut q = sim_world.query::<(&FactionComponent, &SoldierMarker)>();
+        for (fac, _) in q.iter(world) {
+            let entry = f_counts.entry(fac.0).or_insert((0, 0));
+            entry.0 += 1;
+        }
+    }
+    {
+        let mut q = sim_world.query::<(&FactionComponent, &CityMarker)>();
+        for (fac, _) in q.iter(world) {
+            let entry = f_counts.entry(fac.0).or_insert((0, 0));
+            entry.1 += 1;
+        }
+    }
+    let counts = simulation::world_stats::FactionCounts { factions: f_counts };
 
     // Still need player city population from CityComponent (not tracked by count_factions)
     let mut pp: u32 = 0;
     let mut pm: u32 = 0;
     {
-        let mut q = w.query::<(&FactionComponent, &simulation::soldier::CityComponent)>();
-        for (f, c) in q.iter(w) {
+        let mut q = sim_world.query::<(&FactionComponent, &simulation::soldier::CityComponent)>();
+        for (f, c) in q.iter(world) {
             if f.0 == simulation::types::Faction::Player {
                 pp += c.population;
                 pm += c.max_population;
@@ -673,13 +685,14 @@ pub(crate) fn update_bottom_panel(
     hovered_st: Res<HoveredSoldierType>,
     ht: Res<HudTexts>,
     selection: Res<SelectionState>,
-    mut sim: bevy::ecs::system::NonSendMut<SimulationWorld>,
+    sim_world: bevy::ecs::system::NonSend<SimulationWorld>,
 ) {
-    let w = &mut sim.0;
+    let world = sim_world.world_ref();
+
     // Resolve city entity from UnitId
     let city_entity: Option<Entity> = selection.selected_city.and_then(|cid| {
-        let mut q = w.query::<(Entity, &UnitIdComponent, &CityMarker)>();
-        q.iter(w).find(|(_, id, _)| id.0 == cid).map(|(e, _, _)| e)
+        let mut q = sim_world.query::<(Entity, &UnitIdComponent, &CityMarker)>();
+        q.iter(world).find(|(_, id, _)| id.0 == cid).map(|(e, _, _)| e)
     });
     let has_city = city_entity.is_some();
     let has_soldiers = !selection.selected_unit_ids.is_empty();
@@ -706,7 +719,7 @@ pub(crate) fn update_bottom_panel(
 
     // ── Update city panel ──
     if let Some(ce) = city_entity {
-        if let Some(city) = w.entity(ce).get::<CityComponent>() {
+        if let Some(city) = world.get::<CityComponent>(ce) {
             let r = city.health_current as f32 / city.health_max.max(1) as f32;
             set_text(
                 &mut tq,
@@ -723,7 +736,7 @@ pub(crate) fn update_bottom_panel(
                 ht.c_pop,
                 &format!("兵 {}/{}", city.population, city.max_population),
             );
-            let cc = w.resource::<CityGlobalConfig>();
+            let cc = world.resource::<CityGlobalConfig>();
             let req = city.health_max as u64 * cc.level_up_cost_multiplier as u64 / 10000
                 * city.level as u64;
             set_text(
@@ -760,7 +773,7 @@ pub(crate) fn update_bottom_panel(
     // ── Update soldier panel ──
     if has_soldiers && !has_city {
         let ids = &selection.selected_unit_ids;
-        let sc = w.resource::<SoldierConfig>().clone();
+        let sc = world.resource::<SoldierConfig>().clone();
         struct SI {
             st: SoldierType,
             hp: u32,
@@ -773,7 +786,7 @@ pub(crate) fn update_bottom_panel(
             exp: u32,
         }
         let soldiers: Vec<SI> = {
-            let mut q = w.query::<(
+            let mut q = sim_world.query::<(
                 Entity,
                 &UnitIdComponent,
                 &Health,
@@ -784,7 +797,7 @@ pub(crate) fn update_bottom_panel(
             )>();
             ids.iter()
                 .filter_map(|uid| {
-                    q.iter(w).find(|(_, id, _, _, _, _, _)| id.0 == *uid).map(
+                    q.iter(world).find(|(_, id, _, _, _, _, _)| id.0 == *uid).map(
                         |(_, _, hp, atk, mov, st, lvl)| {
                             let c = sc.get(st.0);
                             SI {
@@ -929,9 +942,9 @@ pub(crate) fn update_bottom_panel(
     let summary = if has_soldiers && !has_city {
         let mut counts: HashMap<SoldierType, u32> = HashMap::new();
         for uid in &selection.selected_unit_ids {
-            if let Some((_, _, st)) = w
+            if let Some((_, _, st)) = sim_world
                 .query::<(Entity, &UnitIdComponent, &SoldierTypeComponent)>()
-                .iter(w)
+                .iter(world)
                 .find(|(_, id, _)| id.0 == *uid)
             {
                 *counts.entry(st.0).or_default() += 1;
@@ -1064,7 +1077,8 @@ fn clear_compendium(tq: &mut Query<&mut Text>, ht: &HudTexts) {
 
 // ══════════ Button Systems ══════════
 
-fn find_entity_by_unit_id(
+/// Helper to look up entity by UnitId using the index (read-only).
+fn find_entity_by_unit_id_internal(
     world: &mut simulation::World,
     uid: simulation::types::UnitId,
 ) -> Option<bevy::prelude::Entity> {
@@ -1147,18 +1161,18 @@ pub(crate) fn seek_panel_count_system(
     ht: Res<HudTexts>,
     selection: Res<SelectionState>,
     mut tq: Query<&mut Text>,
-    mut sim_world: bevy::ecs::system::NonSendMut<SimulationWorld>,
+    sim_world: bevy::ecs::system::NonSend<SimulationWorld>,
 ) {
-    let w = &mut sim_world.0;
+    let world = sim_world.world_ref();
     let has_sel = !selection.selected_unit_ids.is_empty();
 
     // Count soldiers by type
     let mut counts = [0usize; 5]; // Militia, Infantry, Archer, Cavalry, Total
     if has_sel {
         // Selection mode: count selected units by type
-        let mut q = w.query::<(&UnitIdComponent, &SoldierTypeComponent, &FactionComponent)>();
+        let mut q = sim_world.query::<(&UnitIdComponent, &SoldierTypeComponent, &FactionComponent)>();
         for uid in &selection.selected_unit_ids {
-            for (id, st, fac) in q.iter(w) {
+            for (id, st, fac) in q.iter(world) {
                 if id.0 == *uid && fac.0 == Faction::Player {
                     match st.0 {
                         SoldierType::Militia => {
@@ -1184,8 +1198,8 @@ pub(crate) fn seek_panel_count_system(
         }
     } else {
         // Global mode: count all Player soldiers
-        let mut q = w.query::<(&SoldierTypeComponent, &FactionComponent)>();
-        for (st, fac) in q.iter(w) {
+        let mut q = sim_world.query::<(&SoldierTypeComponent, &FactionComponent)>();
+        for (st, fac) in q.iter(world) {
             if fac.0 == Faction::Player {
                 match st.0 {
                     SoldierType::Militia => {
@@ -1380,16 +1394,16 @@ pub(crate) fn seek_panel_input_system(
 }
 
 /// Count how many selected units match the given scope.
-fn count_matching(unit_ids: &[UnitId], scope: &SeekScope, sim: &mut SimulationWorld) -> usize {
+fn count_matching(unit_ids: &[UnitId], scope: &SeekScope, sim: &SimulationWorld) -> usize {
     match scope {
         SeekScope::All => unit_ids.len(),
         SeekScope::ByType(target_type) => {
-            let w = &mut sim.0;
-            let mut q = w.query::<(&UnitIdComponent, &SoldierTypeComponent)>();
+            let world = sim.world_ref();
+            let mut q = sim.query::<(&UnitIdComponent, &SoldierTypeComponent)>();
             unit_ids
                 .iter()
                 .filter(|uid| {
-                    q.iter(w)
+                    q.iter(world)
                         .any(|(id, st)| id.0 == **uid && st.0 == *target_type)
                 })
                 .count()
@@ -1427,7 +1441,7 @@ pub(crate) fn selection_summary_toast_system(
     selection: Res<SelectionState>,
     mut prev_count: Local<usize>,
     mut toast: ResMut<ToastMessage>,
-    mut sim_world: bevy::ecs::system::NonSendMut<SimulationWorld>,
+    sim_world: bevy::ecs::system::NonSend<SimulationWorld>,
 ) {
     let now = selection.selected_unit_ids.len();
     if now == *prev_count {
@@ -1440,12 +1454,12 @@ pub(crate) fn selection_summary_toast_system(
     } // don't clear existing toast on deselect
 
     // Build summary
-    let w = &mut sim_world.0;
+    let world = sim_world.world_ref();
     let mut counts: HashMap<SoldierType, usize> = HashMap::new();
     {
-        let mut q = w.query::<(&UnitIdComponent, &SoldierTypeComponent)>();
+        let mut q = sim_world.query::<(&UnitIdComponent, &SoldierTypeComponent)>();
         for uid in &selection.selected_unit_ids {
-            for (id, st) in q.iter(w) {
+            for (id, st) in q.iter(world) {
                 if id.0 == *uid {
                     *counts.entry(st.0).or_insert(0) += 1;
                     break;
@@ -1486,18 +1500,21 @@ pub(crate) fn selection_summary_toast_system(
 /// Update shield button visibility and text based on selection.
 pub(crate) fn shield_button_visibility_system(
     sel: Res<SelectionState>,
-    mut sim: bevy::ecs::system::NonSendMut<SimulationWorld>,
+    sim_world: bevy::ecs::system::NonSend<SimulationWorld>,
     mut shield_btns: Query<(&mut Visibility, &Children), With<ShieldButton>>,
     mut texts: Query<&mut Text>,
 ) {
-    let world = &mut sim.0;
+    let world = sim_world.world_ref();
 
     // Check if any selected unit is infantry
     let mut has_infantry = false;
     let mut all_blocking = true;
 
     for uid in &sel.selected_unit_ids {
-        let e = find_entity_by_unit_id(world, *uid);
+        // Look up entity via UnitIdEntityIndex (read-only)
+        let e = world
+            .get_resource::<simulation::unit_index::UnitIdEntityIndex>()
+            .and_then(|idx| idx.get(*uid));
         let is_infantry = e
             .and_then(|e| world.get::<simulation::soldier::SoldierTypeComponent>(e))
             .map(|st| st.0 == simulation::types::SoldierType::Infantry)

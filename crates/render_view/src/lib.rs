@@ -143,21 +143,21 @@ fn replay_seeking(status: Option<Res<bevy_adapter::replay::ReplayStatus>>) -> bo
 
 /// Check if all cities of one faction are gone.
 fn check_victory_system(
-    mut sim_world: bevy::ecs::system::NonSendMut<bevy_adapter::tick::SimulationWorld>,
+    sim_world: bevy::ecs::system::NonSend<bevy_adapter::tick::SimulationWorld>,
     mut next_state: ResMut<NextState<GameState>>,
 ) {
-    let world = &mut sim_world.0;
-    let mut query = world.query::<(&simulation::soldier::FactionComponent,)>();
-    let mut player = false;
-    let mut enemy = false;
-    for (f,) in query.iter(world) {
+    let mut has_player = false;
+    let mut has_enemy = false;
+    let world = sim_world.world_ref();
+    let mut q = sim_world.query::<(&simulation::soldier::FactionComponent,)>();
+    for (f,) in q.iter(world) {
         match f.0 {
-            simulation::types::Faction::Player => player = true,
-            simulation::types::Faction::Enemy => enemy = true,
+            simulation::types::Faction::Player => has_player = true,
+            simulation::types::Faction::Enemy => has_enemy = true,
             _ => {}
         }
     }
-    if !player || !enemy {
+    if !has_player || !has_enemy {
         next_state.set(GameState::GameOver);
     }
 }
@@ -218,7 +218,7 @@ fn reset_game_system(
         });
         let mut world = simulation::init_simulation_world(seed);
         simulation::map::generate_map(&mut world, map_size);
-        sim_world.0 = world;
+        *sim_world.world_mut() = world;
 
         // Update current map size and MapBounds
         current_map_size.0 = map_size;
@@ -250,7 +250,7 @@ fn reset_game_system(
         {
             use bevy_adapter::binding::{InterpolationData, LogicEntityRef, PresentationPosition};
             use simulation::soldier::{LogicalPosition, UnitIdComponent};
-            let world = &mut sim_world.0;
+            let world = sim_world.world_mut();
             let to_spawn: Vec<(simulation::types::UnitId, Vec2)> = {
                 let mut query = world.query::<(Entity, &UnitIdComponent, &LogicalPosition)>();
                 query

@@ -13,16 +13,16 @@ pub fn setup_camera(mut commands: Commands) {
 
 /// Center camera on the first player city after map generation.
 pub fn center_on_player_city(
-    mut sim_world: bevy::ecs::system::NonSendMut<SimulationWorld>,
+    sim_world: bevy::ecs::system::NonSend<SimulationWorld>,
     mut cam_query: Query<&mut Transform, With<MainCamera>>,
     mut centered: Local<bool>,
 ) {
     if *centered {
         return;
     }
-    let world = &mut sim_world.0;
-    let mut query = world.query::<(&LogicalPosition, &FactionComponent)>();
-    for (pos, faction) in query.iter(world) {
+    let world = sim_world.world_ref();
+    let mut q = sim_world.query::<(&LogicalPosition, &FactionComponent)>();
+    for (pos, faction) in q.iter(world) {
         if faction.0 == Faction::Player {
             if let Some(mut cam) = cam_query.iter_mut().next() {
                 cam.translation.x = pos.0.x.to_float();

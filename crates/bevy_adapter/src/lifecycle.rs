@@ -52,7 +52,7 @@ pub fn backfill_entities_system(
     mut mapper: ResMut<UnitIdMapper>,
     mut sim_world: bevy::ecs::system::NonSendMut<crate::tick::SimulationWorld>,
 ) {
-    let world = &mut sim_world.0;
+    let world = sim_world.world_mut();
     let to_spawn: Vec<(simulation::types::UnitId, Vec2)> = {
         let mut query = world.query::<(Entity, &UnitIdComponent, &LogicalPosition)>();
         query

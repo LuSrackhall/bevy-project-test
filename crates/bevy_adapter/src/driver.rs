@@ -167,7 +167,7 @@ fn world_fingerprint(sim_world: &mut SimulationWorld) -> u64 {
     }
 
     let mut h = FnvHasher::new();
-    let world = &mut sim_world.0;
+    let world = sim_world.world_mut();
 
     let mut q = world.query::<&simulation::soldier::Health>();
     let mut total_hp: u64 = 0;
@@ -251,14 +251,14 @@ pub fn simulation_driver_system(
         // 5. Execute tick — the ONLY run_tick call point (I2, I7)
         #[cfg(feature = "tracing")]
         let _tick_span = tracing::info_span!("tick", tick_number = tick).entered();
-        let events = simulation::run_tick_default(&mut sim_world.0, tick);
+        let events = simulation::run_tick_default(sim_world.world_mut(), tick);
         #[cfg(feature = "tracing")]
         drop(_tick_span);
         pending.events.push(events);
 
         // 6. Desync detection: record hash during live, compare during replay
         if tick % simulation::replay::ReplayFile::DESYNC_CHECK_INTERVAL == 0 {
-            let hash = simulation::golden_test::hash_world_state(&mut sim_world.0);
+            let hash = simulation::golden_test::hash_world_state(sim_world.world_mut());
             if is_live && !is_seeking {
                 recorder.record_tick_hash(tick, hash);
             }
@@ -313,7 +313,7 @@ fn handle_seek(
             let map_size = rs.replay.map_size;
             let mut world = simulation::init_simulation_world(seed);
             simulation::map::generate_map(&mut world, map_size);
-            sim_world.0 = world;
+            *sim_world.world_mut() = world;
             driver.clock.current_tick = 0;
             driver.clock.accumulator = 0.0;
         }
@@ -325,7 +325,7 @@ fn handle_seek(
         driver.clock.current_tick += 1;
         let cmds = driver.source.commands_for_tick(driver.clock.current_tick, ctx);
         inject_commands(sim_world, cmds);
-        simulation::run_tick_default(&mut sim_world.0, driver.clock.current_tick);
+        simulation::run_tick_default(sim_world.world_mut(), driver.clock.current_tick);
     }
 
     // Seek complete
@@ -338,7 +338,7 @@ fn handle_seek(
 
 /// Inject commands into simulation CommandBuffer.
 fn inject_commands(sim_world: &mut SimulationWorld, commands: Vec<GameCommand>) {
-    let mut sim_cmds = sim_world.0.resource_mut::<simulation::command::CommandBuffer>();
+    let mut sim_cmds = sim_world.world_mut().resource_mut::<simulation::command::CommandBuffer>();
     for cmd in commands {
         sim_cmds.0.push(cmd);
     }

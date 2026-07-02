@@ -29,7 +29,7 @@ fn main() {
                 filter: "warn,icu_provider=error".to_string(),
                 ..default()
             }),))
-        .insert_non_send(SimulationWorld(simulation::init_simulation_world(0)))
+        .insert_non_send(SimulationWorld::new(simulation::init_simulation_world(0)))
         .add_plugins((BevyAdapterPlugin, PresentationPlugin, RenderViewPlugin))
         .run();
 }
