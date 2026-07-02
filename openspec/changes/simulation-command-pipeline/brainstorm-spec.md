@@ -1,3 +1,9 @@
+## Mission
+
+建立 Simulation 的唯一状态修改入口，使 Replay、AI、Scenario、多人联机、断线恢复共享同一条 Command Pipeline，并通过编译期约束和架构守卫保证未来新增功能无法绕过该流水线。
+
+---
+
 ## Context
 
 当前架构存在宪法 §2.5 的落地缺口。宪法要求：
@@ -38,15 +44,16 @@ render_view observer
 
 Simulation 层的 `run_tick()` 只从 `CommandBuffer` 读取命令。对输入来源（键盘、鼠标、网络包、ReplayFile）完全无感。
 
-### Goal 3: 所有外部输入源统一为 CommandSource
+### Goal 3: 所有外部命令生产者统一抽象为 CommandSource
 
 ```rust
 trait CommandSource {
     fn commands_for_tick(&mut self, tick: u32, ctx: &DriverContext) -> Vec<GameCommand>;
+    fn total_ticks(&self) -> Option<u32>;
 }
 ```
 
-`LiveCommandSource`、`ReplayCommandSource` 已实现，后续扩展 `NetworkCommandSource`、`AICommandSource`、`ScenarioCommandSource`。
+AI 不是 Input。Replay 也不是 Input。Network 更不是 Input。它们都是 **Command Producer**。Simulation 不关心来源。
 
 ### Goal 4: render_view 等非仿真模块无法获得 Simulation 的可写访问权限（编译期保障）
 
@@ -55,6 +62,10 @@ trait CommandSource {
 ### Goal 5: 建立 Architecture Guard（CI + 编译约束）
 
 未来新增功能无法绕过命令流水线。包括架构测试（依赖边界检查）和确定性测试（Live→Replay hash 一致）。
+
+### Goal 6: Simulation 与 UI 解耦
+
+Simulation 不知道 Bevy、UI、按钮、Observer、事件的存在。UI 也不知道 Simulation 内部如何运行。中间只有 Command + Query。
 
 ## Non-Goals
 
@@ -78,28 +89,38 @@ trait CommandSource {
 
 验证：`test_driver_live_replay_determinism` 在 P1 前后都通过。
 
-### D3: P2 — 编译期 Guard
+### D3: P2 — 编译期 Guard：SimulationReader + CommandSink
 
-分两层实现：
-
-**第一层：依赖禁止**
-
-`bevy_adapter::tick::SimulationWorld` 停止对 `render_view` 暴露可变访问。render_view 只能通过 `bevy_adapter` 暴露的只读接口与 Simulation 交互。
-
-**第二层：SimulationQuery trait**
+遵循 CQRS 思想，将「读」和「写」拆为两个独立 trait：
 
 ```rust
-// 在 bevy_adapter 中定义，render_view 只能拿到此 trait
-pub trait SimulationQuery {
+pub trait SimulationReader {
+    /// 只读查询 Simulation 世界
     fn query_world<F, R>(&self, f: F) -> R
     where
         F: FnOnce(&simulation::World) -> R;
+}
 
+pub trait CommandSink {
+    /// 提交一条 GameCommand 进入管道
     fn submit_command(&mut self, cmd: GameCommand);
 }
 ```
 
-`render_view` 通过 `Res<impl SimulationQuery>`（只读）或 `ResMut<impl SimulationQuery>`（提交命令）获取。永远拿不到 `&mut simulation::World`。此 trait 的所有实现内部持有 `simulation::World`，其 `&self` 签名从类型系统保证外部无法获取 `&mut World`。
+- HUD 只显示数据 → 只拿 `SimulationReader`
+- 按钮需要下发命令 → 再拿 `CommandSink`
+- Replay Recorder → 只依赖 `CommandSink`
+- 以后 AI、Console、Network → 也只依赖 `CommandSink`
+
+两层约束：
+
+**第一层：依赖禁止**
+
+`bevy_adapter::tick::SimulationWorld` 停止对 `render_view` 暴露可变访问。render_view 只能通过 `bevy_adapter` 暴露的这两个 trait 与 Simulation 交互。
+
+**第二层：类型系统约束**
+
+两个 trait 的实现内部持有 `simulation::World`，其 `&self` 签名从类型系统保证外部无法获取 `&mut World`。
 
 ### D4: P3 — CommandSource 统一
 
@@ -107,11 +128,12 @@ pub trait SimulationQuery {
 pub trait CommandSource {
     fn commands_for_tick(&mut self, tick: u32, ctx: &DriverContext) -> Vec<GameCommand>;
     fn total_ticks(&self) -> Option<u32>; // Some for replay/scenario, None for live/network
-    fn is_replay(&self) -> bool;
 }
 ```
 
-消除 driver 中对 `CommandSource::Replay` 内部字段的直接访问（当前 `handle_seek` 和 driver 结束时访问 `rs.replay.total_ticks`）。替换为 `source.total_ticks()` 调用。
+不包含 `is_replay()` 方法。Driver 不应关心 CommandSource 的具体类型。Replay 有 `total_ticks`、Live/Network 没有——用 `Option` 表达区别，不用 bool 判断来源。
+
+消除 driver 中对 `CommandSource::Replay` 内部字段的全部直接访问（当前 `handle_seek` 和 driver 结束处的 `rs.replay.total_ticks` 访问），替换为 `source.total_ticks()`。
 
 ### D5: P4 — 架构测试
 
@@ -128,7 +150,7 @@ pub trait CommandSource {
 - `test_replay_seek_continuation_determinism`
 - `test_replay_backward_seek_determinism`
 
-### D6: P5 — Command 生命周期（设计时定义，非当前实现）
+### D6: P5 — Command 生命周期（架构定义）
 
 ```
 产生: Input / AI / Network / Scenario / Replay
@@ -136,15 +158,28 @@ pub trait CommandSource {
   → Scheduled (在 CommandBuffer 中，绑定 tick)
   → Consumed  (被 take_for_tick 取出)
   → Discard   (tick 执行后清理)
+  ↓
+  写入 ReplayFile (录制时)
+  同步到网络 (联机时)
 ```
 
-当前实现中生命周期边界是隐式的。本次 Change 不引入显式状态机，但将此生命周期写入设计文档作为后续约束。
+每个阶段的责任：
+
+| 阶段 | 谁操作 | 数据位置 |
+|------|--------|---------|
+| Pending | CommandSink::submit_command() | 调用方栈上 |
+| Scheduled | CommandBuffer | bevy cmd_buf / simulation cmd_buf |
+| Consumed | take_for_tick / consume_commands | simulation 内部 |
+| Discard | retain / 下次 tick | 释放 |
+
+当前实现中生命周期边界是隐式的。本定义写入宪法（§2.5 实现细则），为后续联机的帧预测和回滚提供基础。
 
 ## Risks / Trade-offs
 
 - **[P1 单 tick 延迟]** observer 只推命令不直接改，UI 反馈延迟 1 tick（0.05s） → 用户不可感知。联机模式下这是标配。
-- **[P2 编译约束]** render_view 当前多个系统只读读取 SimulationWorld（update_top_bar、selection 等） → 通过 `SimulationQuery::query_world()` 仍可读取，需逐个修改参数类型。
-- **[P3 CommandSource 统一]** handle_seek 当前直接访问 ReplaySource.replay.replay 字段 → 在 trait 上加 `total_ticks()` 即可解耦。
+- **[P2 编译约束]** render_view 当前多个系统只读读取 SimulationWorld（update_top_bar、selection 等） → 通过 `SimulationReader::query_world()` 仍可读取，需逐个修改参数类型。
+- **[P2 API 扩散]** `SimulationReader` 和 `CommandSink` 是 bevy_adapter 对外公开 API，一旦发布后修改成本高。 → 保持最小接口原则，避免一次暴露过多查询能力。用 `query_world(|world| ...)` 而非逐个功能查询方法。
+- **[P3 CommandSource 统一]** handle_seek 当前直接访问 ReplaySource.replay 字段 → 在 trait 上加 `total_ticks()` 即可解耦。
 - **[P4 架构测试]** 可能因 crate 结构变化变红 → 随架构变化同步更新。
 
 ## Migration Plan
@@ -152,4 +187,4 @@ pub trait CommandSource {
 1. **P1 先行** — 最少阻力，立刻消除已知 DESYNC 源
 2. **P3 CommandSource 统一** — driver 层重构，有测试覆盖，可独立验证
 3. **P2 编译约束 + P4 架构测试** — 可并行执行：加上约束后贯穿修复 render_view 调用方
-4. **P5 生命周期** — 贯穿全程的设计文档约束
+4. **P5 生命周期** — 贯穿全程的架构约束
