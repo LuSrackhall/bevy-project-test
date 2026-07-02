@@ -20,8 +20,11 @@ pub struct ReplayRecorder {
 
 impl ReplayRecorder {
     /// Record commands for a tick. Call after extracting commands, before injecting into simulation.
+    /// Records every tick unconditionally (including empty Vec) to ensure tick alignment
+    /// between live recording and replay playback. The ReplayFile::record_tick in finish()
+    /// filters non-empty for file format optimization.
     pub fn record_tick(&mut self, tick: u32, commands: &[GameCommand]) {
-        if self.is_recording && !commands.is_empty() {
+        if self.is_recording {
             self.command_log.push((tick, commands.to_vec()));
         }
     }

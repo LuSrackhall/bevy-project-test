@@ -277,14 +277,21 @@ pub(crate) fn setup_hud(
                         for (st, label) in [(SoldierType::Militia,"民兵"),(SoldierType::Infantry,"步兵"),(SoldierType::Archer,"弓兵"),(SoldierType::Cavalry,"骑兵")] {
                             p.spawn((WidgetButton, Node { padding: UiRect::all(Val::Px(6.0)), margin: UiRect::all(Val::Px(3.0)), ..default() }, SpawnTypeBtn(st), ButtonTheme::default(), Hovered::default()))
                                 .with_child((Text::new(label), TextFont { font: font.clone().into(), font_size: FontSize::Px(12.0), ..default() }))
-                                .observe(|ev: On<Activate>, q: Query<&SpawnTypeBtn>, selection: Res<SelectionState>, mut sim: NonSendMut<SimulationWorld>, game_mode: Res<bevy_adapter::GameMode>| {
+                                .observe(|ev: On<Activate>, q: Query<&SpawnTypeBtn>, selection: Res<SelectionState>, mut sim: NonSendMut<SimulationWorld>, game_mode: Res<bevy_adapter::GameMode>, mut cmd_buf: ResMut<CommandBuffer>, tick_clock: Res<TickClock>| {
                                     if *game_mode == bevy_adapter::GameMode::Replay { return; }
                                     let Ok(btn) = q.get(ev.entity) else { return };
                                     let w = &mut sim.0;
                                     if let Some(cid) = selection.selected_city {
                                         let ce = w.query::<(Entity, &UnitIdComponent, &CityMarker)>().iter(w).find(|(_,id,_)| id.0==cid).map(|(e,_,_)| e);
                                         if let Some(ce) = ce {
+                                            // Apply immediately for UI feedback
                                             if let Some(mut c) = w.entity_mut(ce).get_mut::<CityComponent>() { c.spawn_type = btn.0; }
+                                            // Push command for replay recording — ensures the change is captured
+                                            cmd_buf.push(GameCommand {
+                                                tick: tick_clock.current_tick + 1,
+                                                player_id: 0,
+                                                action: Action::SetSpawnType { city: cid, soldier_type: btn.0 },
+                                            });
                                         }
                                     }
                                 })
