@@ -8,7 +8,7 @@
 >
 > ## Changelog
 >
-> - **v1.1** (2026-07-02): 解除冻结。基于 ADR-006 新增 §1.2.7 Simulation 零感知原则。
+> - **v1.1** (2026-07-02): 解除冻结。基于 ADR-006 新增 §1.2.7 Simulation 零感知原则。新增 §2.5.4 Simulation Command Pipeline 固化 + §2.5.5 Scheduler 域盲约束。
 > - **v1.0** (2025): 初始冻结版。
 >
 > 参考目录结构：
@@ -175,6 +175,7 @@ pub struct MoveSpeed(pub Fixed);
    b. Simulation 的任何状态变化只能由 Scheduled GameCommand 驱动。不存在第二条状态修改路径。
    c. Simulation 外部模块（render_view 等）永远不得持有 simulation::World 的可写引用。
    d. 上述三条作为架构不变量（Architectural Invariant），任何违反必须被拒绝合并。
+5. **Scheduler 域盲约束（v1.1）**——`CommandScheduler` 只能理解时间语义（tick 定位、排序、延迟补偿），不得依赖或理解 Simulation 领域语义（unit、faction、health、position、gameplay rules）。Scheduler 的操作空间仅限于 `GameCommand` 的元数据（tick、player_id），不得检查或解释 `Action` 负载内容进行条件分支。
 
 ```rust
 pub enum Action {
