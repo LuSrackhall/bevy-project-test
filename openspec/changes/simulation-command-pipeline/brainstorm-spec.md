@@ -67,6 +67,8 @@ trait CommandSource {
 
 Simulation 不知道 Bevy、UI、按钮、Observer、事件的存在。UI 也不知道 Simulation 内部如何运行。中间只有 Command + Query。
 
+此原则已正式写入 ADR-006（Simulation 对下游模块的零感知原则），同时也是 ADR-003（render_view 直接访问 SimulationWorld 的临时许可）的阶段二目标。本次 Change 完成后 ADR-003 标记为 Superseded。
+
 ## Non-Goals
 
 - 不改 `hash_world_state` 自身
