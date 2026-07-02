@@ -27,11 +27,11 @@
 
 ## 4. P4 — 架构测试 + 文档
 
-- [ ] 4.1 新增架构测试：render_view crate 不得直接访问 `simulation::World` 或 `NonSendMut<SimulationWorld>`
-- [ ] 4.2 验证宪法 v1.1 条款与实现一致（§1.2.7 / §2.5.4 / §2.5.5）
-- [ ] 4.3 `cargo test --package simulation` 全量通过
-- [ ] 4.4 `cargo test --package bevy_adapter` 全量通过（含确定性测试）
-- [ ] 4.5 `cargo build --release` 无错误
+- [x] 4.1 新增架构测试：render_view crate 不得使用 `world_mut()` 或直接导入 `use simulation::World`
+- [x] 4.2 验证宪法 v1.1 条款与实现一致（§1.2.7 / §2.5.4 / §2.5.5）
+- [x] 4.3 `cargo test --package simulation` 全量通过
+- [x] 4.4 `cargo test --package bevy_adapter` 全量通过（含确定性测试 + 架构测试）
+- [x] 4.5 `cargo build --release` 无错误
 
 ---
 

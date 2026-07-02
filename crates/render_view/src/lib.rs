@@ -218,7 +218,7 @@ fn reset_game_system(
         });
         let mut world = simulation::init_simulation_world(seed);
         simulation::map::generate_map(&mut world, map_size);
-        *sim_world.world_mut() = world;
+        sim_world.set_world(world);
 
         // Update current map size and MapBounds
         current_map_size.0 = map_size;
@@ -250,9 +250,9 @@ fn reset_game_system(
         {
             use bevy_adapter::binding::{InterpolationData, LogicEntityRef, PresentationPosition};
             use simulation::soldier::{LogicalPosition, UnitIdComponent};
-            let world = sim_world.world_mut();
+            let mut query = sim_world.query::<(Entity, &UnitIdComponent, &LogicalPosition)>();
+            let world = sim_world.world_ref();
             let to_spawn: Vec<(simulation::types::UnitId, Vec2)> = {
-                let mut query = world.query::<(Entity, &UnitIdComponent, &LogicalPosition)>();
                 query
                     .iter(world)
                     .map(|(_, id, pos)| {

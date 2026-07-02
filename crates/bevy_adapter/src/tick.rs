@@ -45,10 +45,34 @@ impl SimulationWorld {
         unsafe { &*self.world.get() }
     }
 
-    /// Mutable access to the inner simulation World.
+    /// Mutable access to the inner simulation World state.
     /// SAFETY: Caller must ensure no `world_ref()` borrow is active.
-    pub fn world_mut(&mut self) -> &mut simulation::World {
+    /// pub(crate) — only bevy_adapter internal systems may mutate the World.
+    pub(crate) fn world_mut(&mut self) -> &mut simulation::World {
         self.world.get_mut()
+    }
+
+    /// Replace the entire simulation World. Used for seek reinitialization.
+    /// This is the only pub mutation method available to external crates.
+    pub fn set_world(&mut self, new_world: simulation::World) {
+        self.world = UnsafeCell::new(new_world);
+    }
+
+    /// Run a full simulation tick. Encapsulates world_mut for external callers.
+    /// Used by replay_seek_system (render_view) and reset_game_system.
+    pub fn run_tick(&mut self, tick: u32) -> simulation::SimulationEvents {
+        simulation::run_tick_default(self.world_mut(), tick)
+    }
+
+    /// Inject commands into the simulation CommandBuffer for current tick.
+    /// Used by replay seek and reset game systems.
+    pub fn inject_commands(&mut self, commands: Vec<simulation::command::GameCommand>) {
+        let mut sim_cmds = self
+            .world_mut()
+            .resource_mut::<simulation::command::CommandBuffer>();
+        for cmd in commands {
+            sim_cmds.0.push(cmd);
+        }
     }
 
     /// Create a read-only [`QueryState`] for the simulation World.

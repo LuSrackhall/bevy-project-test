@@ -350,7 +350,7 @@ pub(crate) fn setup_hud(
                                 1 => sel.selection_mode = crate::selection::SelectionMode::Rect,
                                 2 => {
                                     let (infantries, all_blocking) = {
-                                        let world = sim.world_mut();
+                                        let world = sim.world_ref();
                                         let infantries: Vec<_> = sel.selected_unit_ids.iter().filter(|uid| {
                                             let e = find_entity_by_unit_id_internal(world, **uid);
                                             e.and_then(|e| world.get::<simulation::soldier::SoldierTypeComponent>(e))
@@ -1079,10 +1079,14 @@ fn clear_compendium(tq: &mut Query<&mut Text>, ht: &HudTexts) {
 
 /// Helper to look up entity by UnitId using the index (read-only).
 fn find_entity_by_unit_id_internal(
-    world: &mut simulation::World,
+    world: &simulation::World,
     uid: simulation::types::UnitId,
 ) -> Option<bevy::prelude::Entity> {
-    simulation::soldier::find_entity_by_unit_id(world, uid)
+    // Use the world's UnitIdEntityIndex for read-only lookup
+    world
+        .get_resource::<simulation::unit_index::UnitIdEntityIndex>()
+        .and_then(|idx| idx.0.get(&uid))
+        .copied()
 }
 
 // ══════════ Scope Popup Close on Outside Click ══════════

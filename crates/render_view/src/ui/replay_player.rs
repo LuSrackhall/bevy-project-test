@@ -244,7 +244,7 @@ pub fn replay_seek_system(
         let map_size = rs.replay.map_size;
         let mut world = simulation::init_simulation_world(seed);
         simulation::map::generate_map(&mut world, map_size);
-        *sim_world.world_mut() = world;
+        sim_world.set_world(world);
         driver.clock.current_tick = 0;
         tick_clock.current_tick = 0;
         tick_clock.accumulator = 0.0;
@@ -260,14 +260,9 @@ pub fn replay_seek_system(
         tick += 1;
         let cmds = rs.replay.commands_for_tick(tick).to_vec();
         {
-            let mut sim_cmds = sim_world
-                .world_mut()
-                .resource_mut::<simulation::command::CommandBuffer>();
-            for cmd in cmds {
-                sim_cmds.0.push(cmd);
-            }
+            sim_world.inject_commands(cmds);
         }
-        simulation::run_tick_default(sim_world.world_mut(), tick);
+        sim_world.run_tick(tick);
     }
 
     driver.clock.current_tick = tick;
