@@ -2,6 +2,15 @@
 
 建立 Simulation 的唯一状态修改入口，使 Replay、AI、Scenario、多人联机、断线恢复共享同一条 Command Pipeline，并通过编译期约束和架构守卫保证未来新增功能无法绕过该流水线。**Simulation 永远不知道命令来源，只负责消费 `GameCommand`。**
 
+### Architectural Invariant
+
+```
+Simulation 的任何状态变化，
+必须且只能由 Scheduled GameCommand 驱动。
+
+不存在第二条状态修改路径。
+```
+
 ---
 
 ## Context
@@ -40,9 +49,9 @@ render_view observer
 
 所有来自 Simulation 外部的状态变更请求，都必须首先表达为 `GameCommand`。Simulation 内部的状态连锁更新不受此约束。
 
-### Goal 2: Simulation 只消费 GameCommand，不直接消费任何外部输入
+### Goal 2: Simulation 只消费已调度完成（Scheduled）的 GameCommand
 
-Simulation 层的 `run_tick()` 只从 `CommandBuffer` 读取命令。对输入来源（键盘、鼠标、网络包、ReplayFile）完全无感。
+Simulation 层的 `run_tick()` 只从已调度队列（当前实现为 `CommandBuffer`）读取命令，不直接消费任何外部输入。对输入来源（键盘、鼠标、网络包、ReplayFile）完全无感。`CommandBuffer` 是 Scheduled Commands 的一种实现，未来可替换为 RingBuffer、Timeline、NetQueue 而不违反此目标。
 
 ### Goal 3: 所有外部命令生产者统一抽象为 CommandSource
 
@@ -157,7 +166,7 @@ pub trait CommandSource {
 ```
 玩家输入 / AI / 网络接收 / ReplayCommandSource / ScenarioRunner
   → Pending   (未入队，等待调度)
-  → Scheduler (安排到目标 tick，处理延迟补偿 / 预测 / 回滚)
+  → Command Scheduler (安排到目标 tick，处理延迟补偿 / 预测 / 回滚)
   → Scheduled (在 CommandBuffer 中，绑定具体 tick)
   → Consumed  (被 take_for_tick 取出)
   → Discard   (tick 执行后清理)
@@ -172,8 +181,8 @@ pub trait CommandSource {
 
 | 阶段 | 谁操作 | 数据位置 |
 |------|--------|---------|
-| Pending | `CommandSink::submit_command()` → 暂存 | 调用方 / scheduler 队列 |
-| Scheduler | 网络接收后重新定位 tick（联机模式下） | scheduler 内部 |
+| Pending | `CommandSink::submit_command()` → 暂存 | 调用方 / Command Scheduler 队列 |
+| Command Scheduler | 网络接收后重新定位 tick（联机模式下） | Command Scheduler 内部 |
 | Scheduled | `CommandBuffer.push()` | bevy cmd_buf / simulation cmd_buf |
 | Consumed | `take_for_tick` / `consume_commands_system` | simulation 内部 |
 | Discard | `retain()` / 下次 tick 清理 | 释放 |
@@ -188,7 +197,26 @@ pub trait CommandSource {
 
 ## Migration Plan
 
-1. **P1 先行** — 最少阻力，立刻消除已知 DESYNC 源
-2. **P3 CommandSource 统一** — driver 层重构，有测试覆盖，可独立验证
-3. **P2 编译约束 + P4 架构测试** — 可并行执行：加上约束后贯穿修复 render_view 调用方
-4. **P5 生命周期** — 贯穿全程的架构约束
+```
+P1 — 消除绕过 Command Pipeline 的直接修改
+ ├ 改动: spawn type observer 删除直接修改，只留命令
+ ├ Gate: 所有 replay 确定性测试通过
+ └ 进入 P2
+
+P2 — 编译期 Guard（SimulationReader + CommandSink）
+ ├ 改动: 定义 trait，替换 render_view 参数类型，切断 NonSendMut 暴露
+ ├ Gate: Architecture Test 全绿
+ └ 进入 P3
+
+P3 — CommandSource 统一
+ ├ 改动: 消除 driver 对 CommandSource 类型的直接判断
+ ├ Gate: Driver 测试通过 + handle_seek 不访问内部字段
+ └ 进入 Merge
+
+P4 — 架构测试（并行）
+ ├ Architecture Tests + Determinism Tests 持续维护
+ └ 贯穿全程
+
+P5 — Command 生命周期架构定义（贯穿全程）
+ └ 文档约束
+```

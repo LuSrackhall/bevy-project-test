@@ -170,6 +170,11 @@ pub struct MoveSpeed(pub Fixed);
 1. 所有仿真必须由 `GameCommand` 驱动。
 2. 实时对局、录像回放、AI 对战、服务器权威执行，必须共用同一命令注入与消费流水线。
 3. 仿真层只消费 `CommandBuffer`，不得直接依赖外部输入源。
+4. **Simulation Command Pipeline 固化（v1.1）**——
+   a. Simulation 永远不知道命令来源（§1.2.7）。
+   b. Simulation 的任何状态变化只能由 Scheduled GameCommand 驱动。不存在第二条状态修改路径。
+   c. Simulation 外部模块（render_view 等）永远不得持有 simulation::World 的可写引用。
+   d. 上述三条作为架构不变量（Architectural Invariant），任何违反必须被拒绝合并。
 
 ```rust
 pub enum Action {
