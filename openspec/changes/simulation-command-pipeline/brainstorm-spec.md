@@ -47,6 +47,8 @@ render_view observer
 
 现存 DESYNC 仅因 observer 绕过 CommandPipeline 直接修改 Simulation 状态所致。
 
+**Definition — Scheduled GameCommand**：指已绑定目标 Tick、已完成调度、允许被 Simulation 消费的 `GameCommand`。Scheduled 状态之前为 Pending + Scheduler，之后为 Consumed + Discard。
+
 ## Goals
 
 ### Goal 1: 建立 Simulation 唯一状态修改入口
@@ -215,7 +217,16 @@ Command Scheduler 的未来职责：
 
 ## Truth Ownership
 
-本次 Change 完成后，Simulation 成为唯一 Truth Owner。外部模块只能：
+Simulation 是**游戏状态（Game State）**的唯一 Truth Owner。Command 生命周期遵循单一 Owner 原则，由 Command Scheduler → Simulation Driver → Simulation 顺序接管：
+
+| 阶段 | Owner | 拥有什么 |
+|------|-------|---------|
+| Pending | Command Scheduler | 未调度的 Command |
+| Scheduled | Simulation Driver | 已调度、绑定 tick 的 Command |
+| Consumed | Simulation | 游戏状态 (Health, Position, Faction 等) |
+| Discard | 无 | — |
+
+外部模块对 Truth 的操作权限仅限于：
 
 | 操作 | 途径 |
 |------|------|
