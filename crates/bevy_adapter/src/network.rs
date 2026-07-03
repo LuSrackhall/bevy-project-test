@@ -161,6 +161,9 @@ pub struct NetworkCommandSource {
     pub player_id: u8,
     pub ruleset_version: u32,
     pub connected: bool,
+    /// Input delay in ticks (default 3). Applied when constructing PlayerTickFrame.
+    /// D5: Offset happens only inside NetworkCommandSource.
+    pub input_delay: u32,
 }
 
 impl NetworkCommandSource {
@@ -188,6 +191,33 @@ impl NetworkCommandSource {
     /// Accept a broadcast frame from the relay and store it.
     pub fn push_broadcast(&mut self, frame: BroadcastFrame) {
         self.relay_buffer.insert(frame.payload.tick, frame.payload);
+    }
+
+    /// Apply input delay offset: convert a local tick to the relay-target tick.
+    ///
+    /// D5: Delay offset occurs ONLY inside NetworkCommandSource.
+    /// render_view continues to push commands with `tick = current + 1`.
+    /// This method maps that to `tick + input_delay` before sending to relay.
+    pub fn delayed_tick(&self, local_tick: u32) -> u32 {
+        local_tick + self.input_delay
+    }
+
+    /// Process a ReconnectResponse: load the command log into the relay buffer.
+    ///
+    /// The reconnect path (D11) uses replay-based recovery:
+    /// 1. Client rebuilds world via init_simulation_world(seed) + generate_map
+    /// 2. Replays the TickCommands sequence using run_tick_default
+    /// 3. After catching up, resumes normal lockstep
+    ///
+    /// This method stores the tick log so the driver can consume it sequentially.
+    pub fn apply_reconnect(&mut self, response: &ReconnectResponse) {
+        self.game_id = response.game_id;
+        self.ruleset_version = response.ruleset_version;
+        self.connected = true;
+        self.relay_buffer.clear();
+        for batch in &response.ticks {
+            self.relay_buffer.insert(batch.tick, batch.clone());
+        }
     }
 }
 
