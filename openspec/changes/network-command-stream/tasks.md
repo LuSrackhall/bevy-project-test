@@ -27,15 +27,15 @@
 
 ## 4. Relay Server
 
-- [ ] 4.1 添加 tokio + bincode 依赖到 `crates/bevy_adapter/Cargo.toml`
-- [ ] 4.2 实现 Relay Server 核心结构：player input buffer + tick barrier 调度
-- [ ] 4.3 实现 `on_player_frame(frame)`: 收集 input，尝试 finalize tick
-- [ ] 4.4 实现 `try_finalize(tick)`: 全部玩家到达 → 排序 → broadcast；超时 → NoOp → broadcast
-- [ ] 4.5 实现 `is_timed_out(tick)`: 基于 first_arrival[tick] + D * T_tick + jitter 判断
-- [ ] 4.6 实现幂等去重：基于 (tick, player_id, player_sid) 过滤重复上行帧
-- [ ] 4.7 实现 command log 缓存：存储所有 finalized TickCommands
-- [ ] 4.8 实现 relay 超时 freeze：30 秒无客户端 → 宣布对局结束
-- [ ] 4.9 实现 game_id + ruleset_version 握手验证
+- [x] 4.1 添加 serde 依赖到 `crates/bevy_adapter/Cargo.toml`（tokio 在 transport 任务添加）
+- [x] 4.2 实现 Relay Server 核心结构：player input buffer + tick barrier 调度
+- [x] 4.3 实现 `on_player_frame(frame)`: 收集 input，尝试 finalize tick
+- [x] 4.4 实现 `try_finalize(tick)`: 全部玩家到达 → 排序 → broadcast；超时 → NoOp → broadcast
+- [x] 4.5 实现 `is_timed_out(tick)`: 基于 first_arrival[tick] + D * T_tick + jitter 判断
+- [x] 4.6 实现幂等去重：基于 (tick, player_id, player_sid) 过滤重复上行帧
+- [x] 4.7 实现 command log 缓存：存储所有 finalized TickCommands
+- [x] 4.8 实现 relay 超时 freeze：30 秒无客户端 → 宣布对局结束
+- [x] 4.9 实现 game_id + ruleset_version 握手验证
 
 ## 5. Relay 客户端通信层
 

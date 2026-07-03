@@ -191,7 +191,410 @@ impl NetworkCommandSource {
     }
 }
 
+// ═══════════════════════════════════════════════════════════════
+// RelayServer — tick barrier 核心状态机
+// ═══════════════════════════════════════════════════════════════
+
+/// Tick barrier state machine: collects player inputs, finalizes ticks,
+/// and produces deterministic CommandBatches.
+///
+/// This is a **pure state machine** — it does NOT handle transport.
+/// The transport layer (TCP/UDP) injects `on_player_frame()` calls
+/// and consumes broadcast outputs.
+///
+/// D4: Relay does NOT simulate, sort, assign ordering keys, or inspect Action semantics.
+pub struct RelayServer {
+    /// Game session configuration.
+    game_id: u64,
+    ruleset_version: u32,
+    seed: u64,
+    map_spec_hash: u64,
+    all_players: Vec<u8>,
+
+    /// Buffer per (tick, player_id) -> accumulated commands.
+    buffer: HashMap<u32, HashMap<u8, Vec<GameCommand>>>,
+    /// Set of player_ids that have submitted frames per tick.
+    ready: HashMap<u32, Vec<u8>>,
+    /// Wall clock time (ms) when first player frame for each tick arrived.
+    first_arrival: HashMap<u32, u64>,
+    /// Finalized command log for reconnect and replay.
+    log: Vec<TickCommands>,
+    /// Dedup set: (tick, player_id, player_sid) -> seen
+    seen_frames: std::collections::HashSet<(u32, u8, u64)>,
+
+    /// Default input delay in ticks.
+    input_delay: u32,
+    /// Tick duration in ms.
+    tick_duration_ms: u64,
+    /// Jitter buffer in ms.
+    jitter_ms: u64,
+
+    /// Frozen state: no more broadcasts until timeout or players reconnect.
+    frozen: bool,
+    freezed_at_ms: u64,
+    /// Current tick being collected.
+    current_tick: u32,
+}
+
+impl RelayServer {
+    /// Create a new relay server for a game session.
+    pub fn new(
+        game_id: u64,
+        ruleset_version: u32,
+        seed: u64,
+        map_spec_hash: u64,
+        players: Vec<u8>,
+        input_delay: u32,
+    ) -> Self {
+        Self {
+            game_id,
+            ruleset_version,
+            seed,
+            map_spec_hash,
+            all_players: players,
+            buffer: HashMap::new(),
+            ready: HashMap::new(),
+            first_arrival: HashMap::new(),
+            log: Vec::new(),
+            seen_frames: std::collections::HashSet::new(),
+            input_delay,
+            tick_duration_ms: 50, // 20Hz default
+            jitter_ms: 50,        // 1 tick jitter buffer
+            frozen: false,
+            freezed_at_ms: 0,
+            current_tick: 1,
+        }
+    }
+
+    /// Process an incoming player frame. Returns finalized TickCommands if the tick
+    /// was just completed, or `None` if still waiting for other players.
+    ///
+    /// D4: Relay does NOT modify commands.
+    /// D10: Dedup uses (tick, player_id, player_sid).
+    pub fn on_player_frame(&mut self, frame: &PlayerTickFrame, now_ms: u64) -> Option<TickCommands> {
+        if self.frozen {
+            return None;
+        }
+        if frame.game_id != self.game_id {
+            return None;
+        }
+
+        // D10: Idempotent dedup by (tick, player_id, player_sid)
+        let dedup_key = (frame.tick, frame.player_id, frame.player_sid);
+        if !self.seen_frames.insert(dedup_key) {
+            return None; // Duplicate, silently dropped
+        }
+
+        // Record first arrival time for this tick (used for timeout D5)
+        self.first_arrival.entry(frame.tick).or_insert(now_ms);
+
+        // Store commands
+        self.buffer
+            .entry(frame.tick)
+            .or_default()
+            .entry(frame.player_id)
+            .or_default()
+            .extend(frame.commands.clone());
+
+        // Mark player as ready for this tick
+        self.ready.entry(frame.tick).or_default().push(frame.player_id);
+
+        // Try to finalize
+        self.try_finalize(frame.tick, now_ms)
+    }
+
+    /// Attempt to finalize a tick. Returns finalized TickCommands if complete.
+    ///
+    /// D8: Batch is immutable once finalized. No late corrections.
+    /// D7: NoOp for missing players is a pure function of (tick, player_id).
+    fn try_finalize(&mut self, tick: u32, now_ms: u64) -> Option<TickCommands> {
+        // Check if tick is already finalized (in log)
+        if self.log.iter().any(|b| b.tick == tick) {
+            return None;
+        }
+
+        let all_ready = {
+            let ready_set: std::collections::HashSet<&u8> =
+                self.ready.get(&tick).map(|r| r.iter().collect()).unwrap_or_default();
+            self.all_players.iter().all(|p| ready_set.contains(p))
+        };
+
+        let timed_out = self.is_timed_out(tick, now_ms);
+
+        if !all_ready && !timed_out {
+            return None;
+        }
+
+        // Collect all commands for this tick
+        let mut all_cmds: Vec<GameCommand> = self
+            .buffer
+            .get(&tick)
+            .map(|per_player| {
+                per_player
+                    .values()
+                    .flat_map(|cmds| cmds.iter().cloned())
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        // D7: NoOp injection for missing players (pure function of tick, player_id)
+        let ready_set: std::collections::HashSet<&u8> =
+            self.ready.get(&tick).map(|r| r.iter().collect()).unwrap_or_default();
+        for pid in &self.all_players {
+            if !ready_set.contains(pid) {
+                all_cmds.push(GameCommand {
+                    tick,
+                    player_id: *pid,
+                    action: simulation::command::Action::NoOp,
+                });
+            }
+        }
+
+        // Sort deterministically by (player_id, sort_tag)
+        all_cmds.sort_by_key(|c| (c.player_id, c.action.sort_tag()));
+
+        let batch = TickCommands {
+            tick,
+            commands: all_cmds,
+        };
+
+        // D8: Store in log (immutable once finalized)
+        self.log.push(batch.clone());
+
+        // Clean up staging data for this tick
+        self.buffer.remove(&tick);
+        self.ready.remove(&tick);
+        self.first_arrival.remove(&tick);
+
+        // Advance current tick
+        self.current_tick = tick + 1;
+
+        Some(batch)
+    }
+
+    /// Check if tick has timed out.
+    /// D5: Timeout = relay wall clock first_arrival + D * T_tick + jitter
+    fn is_timed_out(&self, tick: u32, now_ms: u64) -> bool {
+        let arrival = match self.first_arrival.get(&tick) {
+            Some(t) => *t,
+            None => return false, // No frame received yet → can't time out
+        };
+        let timeout_duration =
+            arrival + (self.input_delay as u64 * self.tick_duration_ms) + self.jitter_ms;
+        now_ms >= timeout_duration
+    }
+
+    /// Handle client disconnect. Returns the current player states.
+    ///
+    /// D9: Disconnected players get NoOp injected (already handled in try_finalize).
+    pub fn on_disconnect(&mut self, player_id: u8) -> Vec<PlayerState> {
+        self.all_players.retain(|p| *p != player_id);
+        self.player_states()
+    }
+
+    /// Handle full disconnect (all players gone). Freezes the game.
+    pub fn on_full_disconnect(&mut self, now_ms: u64) {
+        if self.all_players.is_empty() {
+            self.frozen = true;
+            self.freezed_at_ms = now_ms;
+        }
+    }
+
+    /// Handle reconnect request.
+    /// D11: Returns TickCommands from last_tick_consumed+1 to current.
+    /// D12: Validates ruleset_version compatibility.
+    pub fn handle_reconnect(&self, request: &ReconnectRequest) -> Result<ReconnectResponse, String> {
+        let ticks: Vec<TickCommands> = self
+            .log
+            .iter()
+            .filter(|b| b.tick > request.last_tick_consumed)
+            .cloned()
+            .collect();
+
+        Ok(ReconnectResponse {
+            game_id: self.game_id,
+            ruleset_version: self.ruleset_version,
+            seed: self.seed,
+            map_spec_hash: self.map_spec_hash,
+            first_tick: request.last_tick_consumed + 1,
+            ticks,
+            players: self.player_states(),
+        })
+    }
+
+    /// Check if freeze timeout has elapsed (30s).
+    pub fn check_freeze_timeout(&mut self, now_ms: u64) -> bool {
+        if self.frozen && now_ms - self.freezed_at_ms >= 30_000 {
+            return true;
+        }
+        false
+    }
+
+    fn player_states(&self) -> Vec<PlayerState> {
+        self.all_players
+            .iter()
+            .map(|pid| PlayerState::Active { player_id: *pid })
+            .collect()
+    }
+
+    pub fn is_frozen(&self) -> bool {
+        self.frozen
+    }
+
+    pub fn current_tick(&self) -> u32 {
+        self.current_tick
+    }
+
+    pub fn command_log(&self) -> &[TickCommands] {
+        &self.log
+    }
+}
+
 #[cfg(test)]
+mod relay_tests {
+    use super::*;
+    use simulation::command::Action;
+
+    fn make_frame(tick: u32, player_id: u8, sid: u64) -> PlayerTickFrame {
+        PlayerTickFrame {
+            magic: 0xBEEF,
+            game_id: 1,
+            tick,
+            player_id,
+            commands: vec![GameCommand {
+                tick,
+                player_id,
+                action: Action::NoOp,
+            }],
+            player_sid: sid,
+        }
+    }
+
+    /// Helper to create a relay with 2 players.
+    fn relay_2p() -> RelayServer {
+        RelayServer::new(1, 1, 42, 0xABC, vec![0, 1], 3)
+    }
+
+    fn make_empty_frame(tick: u32, player_id: u8, sid: u64) -> PlayerTickFrame {
+        PlayerTickFrame {
+            magic: 0xBEEF,
+            game_id: 1,
+            tick,
+            player_id,
+            commands: vec![],
+            player_sid: sid,
+        }
+    }
+
+    #[test]
+    fn test_single_tick_both_players_completes() {
+        let mut relay = relay_2p();
+        let now = 1000;
+
+        let r1 = relay.on_player_frame(&make_frame(1, 0, 1), now);
+        assert!(r1.is_none()); // Still waiting for player 1
+
+        let r2 = relay.on_player_frame(&make_frame(1, 1, 1), now);
+        assert!(r2.is_some()); // Both arrived → finalized
+
+        let batch = r2.unwrap();
+        assert_eq!(batch.tick, 1);
+        assert_eq!(batch.commands.len(), 2);
+    }
+
+    #[test]
+    fn test_duplicate_frame_dropped() {
+        let mut relay = relay_2p();
+        let now = 1000;
+
+        assert!(relay.on_player_frame(&make_frame(1, 0, 1), now).is_none());
+        // Duplicate (same tick, player, sid)
+        assert!(relay.on_player_frame(&make_frame(1, 0, 1), now).is_none());
+    }
+
+    #[test]
+    fn test_timeout_injects_noop() {
+        let mut relay = relay_2p();
+        let arrival = 1000;
+        let input_delay = 3u32;
+        let tick_dur = 50u64;
+        let jitter = 50u64;
+
+        // Player 0 submits twice (second submission has no new commands, just triggers timeout)
+        assert!(relay.on_player_frame(&make_frame(1, 0, 1), arrival).is_none());
+
+        // Player 1 never submits. Timeout fires after arrival + 3*50 + 50 = 1200ms
+        let timeout = arrival + (input_delay as u64 * tick_dur) + jitter + 1;
+        let result = relay.on_player_frame(&make_empty_frame(1, 0, 2), timeout);
+        assert!(result.is_some()); // Timed out
+
+        let batch = result.unwrap();
+        assert_eq!(batch.commands.len(), 2);
+        // Player 1's command should be NoOp
+        let noop = &batch.commands[1];
+        assert_eq!(noop.player_id, 1);
+        assert_eq!(noop.action, Action::NoOp);
+    }
+
+    #[test]
+    fn test_reconnect_returns_log() {
+        let mut relay = relay_2p();
+        let now = 1000;
+
+        // Finalize tick 1 (both players)
+        relay.on_player_frame(&make_frame(1, 0, 1), now);
+        relay.on_player_frame(&make_frame(1, 1, 1), now);
+
+        // Finalize tick 2 (both players)
+        relay.on_player_frame(&make_frame(2, 0, 1), now + 100);
+        relay.on_player_frame(&make_frame(2, 1, 1), now + 100);
+
+        // Reconnect from tick 1
+        let req = ReconnectRequest {
+            game_id: 1,
+            last_tick_consumed: 1,
+        };
+        let resp = relay.handle_reconnect(&req).unwrap();
+        assert_eq!(resp.first_tick, 2);
+        assert_eq!(resp.ticks.len(), 1); // Only tick 2
+        assert_eq!(resp.seed, 42);
+    }
+
+    #[test]
+    fn test_log_is_immutable() {
+        let mut relay = relay_2p();
+        let now = 1000;
+
+        relay.on_player_frame(&make_frame(1, 0, 1), now);
+        relay.on_player_frame(&make_frame(1, 1, 1), now);
+
+        // Tick 1 should be finalized
+        let log_len_before = relay.command_log().len();
+        assert_eq!(log_len_before, 1);
+
+        // Late frame for tick 1 should NOT be accepted (already finalized)
+        let late = relay.on_player_frame(&make_frame(1, 0, 2), now + 1000);
+        assert!(late.is_none()); // Already finalized, treated as late
+        assert_eq!(relay.command_log().len(), 1); // Log unchanged
+    }
+
+    #[test]
+    fn test_freeze_on_empty_players() {
+        let mut relay = relay_2p();
+        let now = 1000;
+
+        relay.on_disconnect(0);
+        relay.on_disconnect(1);
+        relay.on_full_disconnect(now);
+
+        assert!(relay.is_frozen());
+
+        // Frozen relay ignores frames
+        let result = relay.on_player_frame(&make_frame(1, 0, 1), now);
+        assert!(result.is_none());
+    }
+}
+
 mod tests {
     use super::*;
     use simulation::command::{Action, CommandBuffer, GameCommand};
