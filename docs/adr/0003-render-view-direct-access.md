@@ -2,7 +2,7 @@
 
 ## 状态
 
-Accepted — 阶段一调试形态
+**Superseded by ADR-006** — 阶段二已启动（simulation-command-pipeline Change）
 
 ## 决策
 
@@ -31,4 +31,4 @@ Accepted — 阶段一调试形态
 
 ## 修改条件
 
-当 `presentation` 层具备完整的数据中转能力时，此 ADR 自动失效，所有 `render_view` 对 `simulation` 的直接引用必须移除。
+ADR-006 生效后此 ADR 自动失效。`simulation-command-pipeline` Change 完成后，所有 `render_view` 对 `simulation` 的直接引用必须移除。

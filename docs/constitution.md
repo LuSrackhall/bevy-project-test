@@ -1,9 +1,15 @@
-# AI 编码准则：工业级 RTS 架构宪法（v1.0 — Frozen）
+# AI 编码准则：工业级 RTS 架构宪法（v1.1 — Active）
 
-> **状态：冻结（Frozen）**
+> **状态：生效中（Active）**
 >
-> 本宪法自 v1.0 起冻结。Tier 1 原则不再新增条目，仅修正明确错误。
-> 新规则优先以 ADR 形式提出，稳定后纳入独立规范文档，不膨胀宪法正文。
+> 本宪法自 v1.0（Frozen） 运行至今。v1.1 解除冻结，基于 ADR-006 新增 §1.2.7 "Simulation 零感知原则"，以明确宪法 §1 分层依赖原则的设计期含义。
+>
+> 新规则优先以 ADR 形式提出，稳定后经由项目所有者确认纳入宪法正文。
+>
+> ## Changelog
+>
+> - **v1.1** (2026-07-02): 解除冻结。基于 ADR-006 新增 §1.2.7 Simulation 零感知原则。新增 §2.5.4 Simulation Command Pipeline 固化 + §2.5.5 Scheduler 域盲约束。
+> - **v1.0** (2025): 初始冻结版。
 >
 > 参考目录结构：
 > ```
@@ -72,6 +78,7 @@ content/ (数据驱动资产与平衡配置)
 4. `presentation` 只做状态桥接、插值、生命周期绑定，不得承载仿真决策。
 5. `render_view` 只做视觉与 UI 呈现，不得成为真相源。
 6. `content/` 只放数据配置，不放仿真逻辑。
+7. **`simulation` 对下游模块的零感知原则**（ADR-006）——`simulation` 不仅不得引用下游类型，更不得在**设计上**感知下游模块的存在。`simulation` 不知道 Bevy、UI、Observer、输入设备、渲染管线、音频、网络等概念。它对外部世界的唯一交互通道是 `GameCommand → CommandBuffer → run_tick()` 和只读查询。系统名不得含有 `ui_`、`render_`、`input_` 前缀；注释不得以「为了 UI 显示」作为唯一理由。此原则自 v1.1 起强制执行。
 
 ### 1.3 反向流入禁令
 
@@ -163,6 +170,12 @@ pub struct MoveSpeed(pub Fixed);
 1. 所有仿真必须由 `GameCommand` 驱动。
 2. 实时对局、录像回放、AI 对战、服务器权威执行，必须共用同一命令注入与消费流水线。
 3. 仿真层只消费 `CommandBuffer`，不得直接依赖外部输入源。
+4. **Simulation Command Pipeline 固化（v1.1）**——
+   a. Simulation 永远不知道命令来源（§1.2.7）。
+   b. Simulation 的任何状态变化只能由 Scheduled GameCommand 驱动。不存在第二条状态修改路径。
+   c. Simulation 外部模块（render_view 等）永远不得持有 simulation::World 的可写引用。
+   d. 上述三条作为架构不变量（Architectural Invariant），任何违反必须被拒绝合并。
+5. **Scheduler 域盲约束（v1.1）**——`CommandScheduler` 只能理解时间语义（tick 定位、排序、延迟补偿），不得依赖或理解 Simulation 领域语义（unit、faction、health、position、gameplay rules）。Scheduler 的操作空间仅限于 `GameCommand` 的元数据（tick、player_id），不得检查或解释 `Action` 负载内容进行条件分支。
 
 ```rust
 pub enum Action {

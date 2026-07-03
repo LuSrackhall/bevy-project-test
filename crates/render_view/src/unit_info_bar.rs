@@ -182,7 +182,7 @@ pub(crate) fn unit_info_bar_system(
     mut font_cache: Local<Option<Handle<Font>>>,
     settings: Res<UnitInfoBarSettings>,
     selection: Res<SelectionState>,
-    mut sim_world: bevy::ecs::system::NonSendMut<SimulationWorld>,
+    sim_world: bevy::ecs::system::NonSend<SimulationWorld>,
     mut bar_parts: Local<HashMap<simulation::types::UnitId, BarParts>>,
     mut bar_cache: Local<HashMap<simulation::types::UnitId, CachedBarState>>,
     mut root_xform_vis: BarVisQuery,
@@ -199,13 +199,13 @@ pub(crate) fn unit_info_bar_system(
     }
     let font = font_cache.as_ref().unwrap().clone();
 
-    let world = &mut sim_world.0;
+    let world = sim_world.world_ref();
 
     // ── Collect all units ──
     let mut units: Vec<UnitBarInfo> = Vec::new();
 
     {
-        let mut q = world.query::<(Entity, &UnitIdComponent, &LogicalPosition, &Health, &Level)>();
+        let mut q = sim_world.query::<(Entity, &UnitIdComponent, &LogicalPosition, &Health, &Level)>();
         for (entity, id, pos, hp, lvl) in q.iter(world) {
             let (shield_hp, shield_max) =
                 if let Some(shield) = world.get::<simulation::types::ShieldItem>(entity) {
@@ -227,7 +227,7 @@ pub(crate) fn unit_info_bar_system(
     }
 
     {
-        let mut q = world.query::<(&UnitIdComponent, &LogicalPosition, &CityComponent)>();
+        let mut q = sim_world.query::<(&UnitIdComponent, &LogicalPosition, &CityComponent)>();
         for (id, pos, city) in q.iter(world) {
             units.push(UnitBarInfo {
                 unit_id: id.0,
@@ -256,7 +256,7 @@ pub(crate) fn unit_info_bar_system(
                 if let Ok(world_pos) = camera.viewport_to_world_2d(cam_t, cursor) {
                     // Collect city radii for hover threshold
                     let city_radii: std::collections::HashMap<simulation::types::UnitId, f32> = {
-                        let mut q = world.query::<(&UnitIdComponent, &CityRadius)>();
+                        let mut q = sim_world.query::<(&UnitIdComponent, &CityRadius)>();
                         q.iter(world).map(|(id, r)| (id.0, r.0 as f32)).collect()
                     };
 

@@ -3,7 +3,7 @@ use bevy::picking::hover::HoverMap;
 use bevy::picking::pointer::PointerId;
 use bevy::prelude::*;
 use bevy_adapter::input::ForceMoveNext;
-use bevy_adapter::tick::SimulationWorld;
+use bevy_adapter::tick::{CommandSink, SimulationWorld};
 use simulation::command::*;
 use simulation::soldier::*;
 use simulation::types::*;
@@ -84,7 +84,7 @@ pub fn selection_click_system(
     camera_query: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
     hover_map: Res<HoverMap>,
     nodes: Query<&Node>,
-    mut sim_world: bevy::ecs::system::NonSendMut<SimulationWorld>,
+    sim_world: bevy::ecs::system::NonSend<SimulationWorld>,
     mut selection: ResMut<SelectionState>,
 ) {
     if !mouse.just_pressed(MouseButton::Left) {
@@ -107,12 +107,13 @@ pub fn selection_click_system(
         return;
     };
 
-    let world = &mut sim_world.0;
+    let world = sim_world.world_ref();
+    let index = world.get_resource::<simulation::unit_index::UnitIdEntityIndex>();
 
     // Priority 1: click a friendly city
     let mut hit_city: Option<UnitId> = None;
     {
-        let mut q = world.query::<(
+        let mut q = sim_world.query::<(
             &LogicalPosition,
             &FactionComponent,
             &UnitIdComponent,
@@ -142,7 +143,7 @@ pub fn selection_click_system(
     // Priority 2: click a friendly soldier
     let mut hit: Option<UnitId> = None;
     {
-        let mut q = world.query::<(
+        let mut q = sim_world.query::<(
             &LogicalPosition,
             &FactionComponent,
             &UnitIdComponent,
@@ -188,7 +189,7 @@ pub fn drag_select_system(
     camera_query: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
     hover_map: Res<HoverMap>,
     nodes: Query<&Node>,
-    mut sim_world: bevy::ecs::system::NonSendMut<SimulationWorld>,
+    sim_world: bevy::ecs::system::NonSend<SimulationWorld>,
     mut selection: ResMut<SelectionState>,
 ) {
     let Ok(window) = q_windows.single() else {
@@ -234,15 +235,15 @@ pub fn drag_select_system(
     // Complete drag on mouse release (use !pressed for cross-window detection)
     if !mouse.pressed(MouseButton::Left) && selection.is_dragging {
         if let (Some(start), Some(end)) = (selection.drag_start, selection.drag_current) {
-            let world = &mut sim_world.0;
+            let world = sim_world.world_ref();
             selection.selected_city = None;
-            let mut query = world.query::<(
+            let mut q = sim_world.query::<(
                 &LogicalPosition,
                 &FactionComponent,
                 &UnitIdComponent,
                 &SoldierMarker,
             )>();
-            let new_sel: Vec<UnitId> = query
+            let new_sel: Vec<UnitId> = q
                 .iter(world)
                 .filter(|(pos, fac, _, _)| {
                     if fac.0 != Faction::Player {
@@ -276,17 +277,17 @@ pub fn drag_select_system(
 
 pub fn selection_shortcut_system(
     keyboard: Res<ButtonInput<KeyCode>>,
-    mut sim_world: bevy::ecs::system::NonSendMut<SimulationWorld>,
+    sim_world: bevy::ecs::system::NonSend<SimulationWorld>,
     mut selection: ResMut<SelectionState>,
 ) {
     if keyboard.just_pressed(KeyCode::KeyA)
         && (keyboard.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight])
             || keyboard.any_pressed([KeyCode::SuperLeft, KeyCode::SuperRight]))
     {
-        let world = &mut sim_world.0;
-        let mut query = world.query::<(&FactionComponent, &UnitIdComponent, &SoldierMarker)>();
+        let world = sim_world.world_ref();
+        let mut q = sim_world.query::<(&FactionComponent, &UnitIdComponent, &SoldierMarker)>();
         selection.selected_city = None;
-        selection.selected_unit_ids = query
+        selection.selected_unit_ids = q
             .iter(world)
             .filter(|(fac, _, _)| fac.0 == Faction::Player)
             .map(|(_, id, _)| id.0)
@@ -301,19 +302,19 @@ pub fn selection_shortcut_system(
 pub fn selection_visual_system(
     mut gizmos: Gizmos,
     selection: Res<SelectionState>,
-    mut sim_world: bevy::ecs::system::NonSendMut<SimulationWorld>,
+    sim_world: bevy::ecs::system::NonSend<SimulationWorld>,
 ) {
-    let world = &mut sim_world.0;
+    let world = sim_world.world_ref();
 
     // O(1) per lookup using UnitIdEntityIndex (rebuilt each tick in run_tick)
     for &uid in &selection.selected_unit_ids {
-        if let Some(entity) = simulation::soldier::find_entity_by_unit_id(world, uid) {
-            // Safety: entity may have been despawned this tick; check validity
-            if let Ok(em) = world.get_entity(entity) {
-                if let Some(pos) = em.get::<LogicalPosition>() {
-                    let p = Vec2::new(pos.0.x.to_float(), pos.0.y.to_float());
-                    gizmos.circle_2d(p, 10.0, Color::srgb(0.2, 1.0, 0.2));
-                }
+        let entity = world
+            .get_resource::<simulation::unit_index::UnitIdEntityIndex>()
+            .and_then(|idx| idx.get(uid));
+        if let Some(entity) = entity {
+            if let Some(pos) = world.get::<LogicalPosition>(entity) {
+                let p = Vec2::new(pos.0.x.to_float(), pos.0.y.to_float());
+                gizmos.circle_2d(p, 10.0, Color::srgb(0.2, 1.0, 0.2));
             }
         }
     }
@@ -362,8 +363,8 @@ pub fn command_issue_system(
     hover_map: Res<HoverMap>,
     nodes: Query<&Node>,
     mut sim_world: bevy::ecs::system::NonSendMut<SimulationWorld>,
-    selection: ResMut<SelectionState>,
     mut cmd_buf: ResMut<CommandBuffer>,
+    selection: ResMut<SelectionState>,
     tick_clock: Res<bevy_adapter::tick::TickClock>,
     force_next: Option<ResMut<ForceMoveNext>>,
 ) {
@@ -397,14 +398,14 @@ pub fn command_issue_system(
         f.active = false;
     }
 
-    let world = &mut sim_world.0;
+    let world = sim_world.world_ref();
     let next_tick = tick_clock.current_tick + 1;
 
     // Priority 1: enemy soldier
     let mut hit_enemy: Option<UnitId> = None;
     {
-        let mut query = world.query::<(&LogicalPosition, &FactionComponent, &UnitIdComponent)>();
-        for (pos, fac, id) in query.iter(world) {
+        let mut q = sim_world.query::<(&LogicalPosition, &FactionComponent, &UnitIdComponent)>();
+        for (pos, fac, id) in q.iter(world) {
             if fac.0 != Faction::Player {
                 let dx = pos.0.x.to_float() - world_pos.x;
                 let dy = pos.0.y.to_float() - world_pos.y;
@@ -429,13 +430,13 @@ pub fn command_issue_system(
     // Priority 2: enemy/neutral city
     let mut hit_city: Option<UnitId> = None;
     {
-        let mut query = world.query::<(
+        let mut q = sim_world.query::<(
             &LogicalPosition,
             &FactionComponent,
             &CityRadius,
             &UnitIdComponent,
         )>();
-        for (pos, fac, radius, id) in query.iter(world) {
+        for (pos, fac, radius, id) in q.iter(world) {
             if fac.0 != Faction::Player {
                 let dx = pos.0.x.to_float() - world_pos.x;
                 let dy = pos.0.y.to_float() - world_pos.y;
@@ -461,13 +462,13 @@ pub fn command_issue_system(
     // Priority 3: friendly city
     let mut hit_friendly: Option<UnitId> = None;
     {
-        let mut query = world.query::<(
+        let mut q = sim_world.query::<(
             &LogicalPosition,
             &FactionComponent,
             &CityRadius,
             &UnitIdComponent,
         )>();
-        for (pos, fac, radius, id) in query.iter(world) {
+        for (pos, fac, radius, id) in q.iter(world) {
             if fac.0 == Faction::Player {
                 let dx = pos.0.x.to_float() - world_pos.x;
                 let dy = pos.0.y.to_float() - world_pos.y;
@@ -516,13 +517,13 @@ pub fn command_issue_system(
 pub fn waypoint_cleanup_system(
     mut commands: Commands,
     waypoint_query: Query<(Entity, &Transform), With<Waypoint>>,
-    mut sim_world: bevy::ecs::system::NonSendMut<SimulationWorld>,
+    sim_world: bevy::ecs::system::NonSend<SimulationWorld>,
 ) {
-    let world = &mut sim_world.0;
+    let world = sim_world.world_ref();
     for (wp_entity, wp_transform) in waypoint_query.iter() {
         let _wp_pos = wp_transform.translation.xy();
-        let mut query = world.query::<(&Movement,)>();
-        let has_targeter = query.iter(world).any(|(mov,)| mov.target.is_some());
+        let mut q = sim_world.query::<(&Movement,)>();
+        let has_targeter = q.iter(world).any(|(mov,)| mov.target.is_some());
         if !has_targeter {
             commands.entity(wp_entity).despawn();
         }
@@ -537,7 +538,7 @@ pub fn seek_stance_shortcut_system(
     seek_state: Res<crate::ui::hud::SeekPanelState>,
     mut cmd_buf: ResMut<CommandBuffer>,
     tick_clock: Res<bevy_adapter::tick::TickClock>,
-    sim_world: bevy::ecs::system::NonSendMut<SimulationWorld>,
+    sim_world: bevy::ecs::system::NonSend<SimulationWorld>,
 ) {
     if !keyboard.just_pressed(KeyCode::KeyS) {
         return;
@@ -556,7 +557,6 @@ pub fn seek_stance_shortcut_system(
         return;
     }
 
-    let _world = &sim_world.0;
     let next_tick = tick_clock.current_tick + 1;
     let seek_range: u32 = 30; // default selection seek range per design D4
 

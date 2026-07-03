@@ -7,12 +7,12 @@ use simulation::soldier::*;
 /// Render all simulation entities as colored circles using Gizmos.
 pub fn draw_debug_shapes_system(
     mut gizmos: Gizmos,
-    mut sim_world: bevy::ecs::system::NonSendMut<SimulationWorld>,
+    sim_world: bevy::ecs::system::NonSend<SimulationWorld>,
     q_windows: Query<&Window>,
     q_camera: Query<(&Camera, &GlobalTransform), With<crate::camera::MainCamera>>,
     q_proj: Query<&Projection, With<crate::camera::MainCamera>>,
 ) {
-    let world = &mut sim_world.0;
+    let world = sim_world.world_ref();
 
     // Compute viewport AABB for culling
     let scale = q_proj.iter().next().and_then(|p| {
@@ -32,13 +32,13 @@ pub fn draw_debug_shapes_system(
 
     // Draw cities
     {
-        let mut query = world.query::<(
+        let mut q = sim_world.query::<(
             &LogicalPosition,
             &CityRadius,
             &FactionComponent,
             &CityComponent,
         )>();
-        for (pos, radius, faction, _city) in query.iter(world) {
+        for (pos, radius, faction, _city) in q.iter(world) {
             let px = pos.0.x.to_float();
             let py = pos.0.y.to_float();
             if !in_view(px, py) { continue; }
@@ -55,14 +55,14 @@ pub fn draw_debug_shapes_system(
     // Draw soldiers — circle radius from collision_radius config
     {
         let soldier_config = world.resource::<SoldierConfig>().clone();
-        let mut query = world.query::<(
+        let mut q = sim_world.query::<(
             Entity,
             &LogicalPosition,
             &FactionComponent,
             &SoldierTypeComponent,
             Option<&simulation::types::FacingDirection>,
         )>();
-        for (entity, pos, faction, stype, facing) in query.iter(world) {
+        for (entity, pos, faction, stype, facing) in q.iter(world) {
             let p = Vec2::new(pos.0.x.to_float(), pos.0.y.to_float());
             if !in_view(p.x, p.y) { continue; }
             let color = match faction.0 {
@@ -116,8 +116,8 @@ pub fn draw_debug_shapes_system(
 
     // Draw arrows — bright yellow, with decay-phase alpha/shrink
     {
-        let mut query = world.query::<(&LogicalPosition, &Arrow)>();
-        for (pos, arrow) in query.iter(world) {
+        let mut q = sim_world.query::<(&LogicalPosition, &Arrow)>();
+        for (pos, arrow) in q.iter(world) {
             let p = Vec2::new(pos.0.x.to_float(), pos.0.y.to_float());
 
             // In decay phase: shrink and fade; in flight: full bright yellow
@@ -162,11 +162,11 @@ pub fn draw_boundary_walls_system(
 /// Render dropped shields on the ground as gray rectangles.
 pub fn draw_dropped_shields_system(
     mut gizmos: Gizmos,
-    mut sim_world: bevy::ecs::system::NonSendMut<SimulationWorld>,
+    sim_world: bevy::ecs::system::NonSend<SimulationWorld>,
 ) {
-    let world = &mut sim_world.0;
-    let mut query = world.query::<(&simulation::types::DroppedShield,)>();
-    for (dropped,) in query.iter(world) {
+    let world = sim_world.world_ref();
+    let mut q = sim_world.query::<(&simulation::types::DroppedShield,)>();
+    for (dropped,) in q.iter(world) {
         let p = Vec2::new(dropped.position.x.to_float(), dropped.position.y.to_float());
         let color = Color::srgb(0.6, 0.6, 0.6);
 
