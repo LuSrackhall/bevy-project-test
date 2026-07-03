@@ -6,6 +6,7 @@
 use bevy::prelude::*;
 use simulation::command::{CommandBuffer, GameCommand};
 use simulation::replay::ReplayFile;
+use crate::network::NetworkCommandSource;
 use crate::tick::{PendingEvents, SimulationWorld};
 use crate::replay::ReplayRecorder;
 
@@ -53,10 +54,11 @@ pub struct DriverContext<'a> {
     pub bevy_cmds: &'a CommandBuffer,
 }
 
-/// Command source enum — encapsulates Live vs Replay differences.
+/// Command source enum — encapsulates Live vs Replay vs Network differences.
 pub enum CommandSource {
     Live(LiveCommandSource),
     Replay(ReplayCommandSource),
+    Network(NetworkCommandSource),
 }
 
 impl CommandSource {
@@ -65,15 +67,36 @@ impl CommandSource {
         match self {
             Self::Live(s) => s.commands_for_tick(tick, ctx),
             Self::Replay(s) => s.commands_for_tick(tick, ctx),
+            Self::Network(s) => s.commands_for_tick(tick, ctx),
         }
     }
 
     /// Total ticks for finite sources (Replay, Scenario, Benchmark).
-    /// Returns None for streaming sources (Live, NetworkReceiver).
+    /// Returns None for streaming sources (Live, Network).
     pub fn total_ticks(&self) -> Option<u32> {
         match self {
             Self::Live(_) => None,
             Self::Replay(s) => Some(s.replay.total_ticks),
+            Self::Network(_) => None,
+        }
+    }
+
+    /// Whether this tick's inputs have been fully collected.
+    /// Default true for Live/Replay; Network waits for relay batch.
+    pub fn is_tick_ready(&self, tick: u32) -> bool {
+        match self {
+            Self::Live(_) => true,
+            Self::Replay(_) => true,
+            Self::Network(s) => s.is_tick_ready(tick),
+        }
+    }
+
+    /// Whether the tick stream should be recorded to replay.
+    pub fn should_record(&self) -> bool {
+        match self {
+            Self::Live(_) => true,
+            Self::Replay(_) => true,
+            Self::Network(s) => s.should_record(),
         }
     }
 
@@ -231,11 +254,18 @@ pub fn simulation_driver_system(
     let tick_dur = driver.clock.tick_duration;
 
     while driver.clock.accumulator >= tick_dur {
+        let next_tick = driver.clock.current_tick + 1;
+
+        // D9: Only advance if source signals completeness for this tick.
+        // NetworkCommandSource returns false until relay batch arrives.
+        // Live and Replay sources always return true (no behavioral change).
+        if !driver.source.is_tick_ready(next_tick) {
+            break;
+        }
+
         driver.clock.accumulator -= tick_dur;
-        driver.clock.current_tick += 1;
+        driver.clock.current_tick = next_tick;
         let tick = driver.clock.current_tick;
-        let is_live = driver.source.is_live();
-        let is_seeking = driver.scheduler.async_seek;
 
         // 1. Get commands from source (scoped borrow so it drops before retain)
         let commands = {
@@ -243,8 +273,8 @@ pub fn simulation_driver_system(
             driver.source.commands_for_tick(tick, &ctx)
         };
 
-        // 2. Record if Live + recording enabled + not seeking
-        if is_live && !is_seeking {
+        // 2. Record if source indicates recording is needed
+        if driver.source.should_record() {
             recorder.record_tick(tick, &commands);
         }
 
@@ -262,10 +292,10 @@ pub fn simulation_driver_system(
         drop(_tick_span);
         pending.events.push(events);
 
-        // 6. Desync detection: record hash during live, compare during replay
+        // 6. Desync detection: record hash during primary execution (not replay playback)
         if tick % simulation::replay::ReplayFile::DESYNC_CHECK_INTERVAL == 0 {
             let hash = simulation::golden_test::hash_world_state(sim_world.world_mut());
-            if is_live && !is_seeking {
+            if !driver.is_replay() && !driver.scheduler.async_seek {
                 recorder.record_tick_hash(tick, hash);
             }
             if let CommandSource::Replay(ref rs) = driver.source {

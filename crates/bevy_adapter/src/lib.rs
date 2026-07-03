@@ -2,9 +2,11 @@ pub mod binding;
 pub mod input;
 pub mod lifecycle;
 pub mod mapper;
+pub mod network;
 pub mod replay;
 pub mod tick;
 pub mod driver;
+pub mod transport;
 
 use crate::input::ForceMoveNext;
 use crate::mapper::UnitIdMapper;
