@@ -52,3 +52,7 @@ Replay-based reconnect SHALL guarantee bitwise-identical simulation state compar
 
 - **WHEN** a disconnected client replays the command log from seed to current tick
 - **THEN** the simulation state SHALL be bitwise-identical to the state of clients that remained connected
+
+---
+
+**Implementation:** `network.rs` handles reconnect on relay side (handle_reconnect). `NetworkCommandSource.apply_reconnect()` client side with ruleset_version validation. e2e test verifies deterministic replay equality.

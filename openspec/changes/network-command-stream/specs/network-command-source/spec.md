@@ -34,3 +34,7 @@ The system SHALL provide a `NetworkCommandSource` struct that implements the `Co
 
 - **WHEN** `commands_for_tick()` is called for any tick
 - **THEN** the result SHALL NOT include commands from the Bevy `cmd_buf` resource
+
+---
+
+**Implementation:** `network.rs` lines 155-234. 6 unit tests covering all scenarios. e2e test (`network_e2e.rs`) verifies full TCP → relay_buffer → commands_for_tick → driver pipeline.

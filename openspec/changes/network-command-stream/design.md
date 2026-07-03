@@ -68,23 +68,30 @@ Driver → simulation::run_tick_default()
 
 仅做收集 + barrier + 日志。不做 simulation、不做排序、不解析 Action semantic。
 
+### D6: Transport 层
+
+TCP + bincode（长度前缀定界）。跨线程 bridge 使用 `Arc<Mutex<VecDeque>>` 实现。Relay 以独立二进制部署（与 Bevy 解耦）。Bevy 集成通过 `network_poll_system` + `network_flush_system` 实现。
+
 ## Risks / Trade-offs
 
 - **[强中心时间依赖]** relay wall clock 是唯一时间裁决器 → Phase 1 可接受。未来多 relay 需要 redesign
 - **[cmd_buf 跨模式语义不同]** Live = execution source，Network = staging only → 通过文档约束 + runtime assert 控制
 - **[TickCommands 含 relay policy]** replay 录的是 finalized batch，不是 raw input → 文档已显式说明，防止未来误用
 - **[单 relay 单点]** 当前 relay 是单进程 → 作为最小可行发布，Phase 1 不做高可用
+- **[跨线程数据安全]** SimulationWorld 的 UnsafeCell + tokio I/O 线程 → 通过 mpsc channel 隔离，禁止 tokio 直接访问 bevy Resource
 
 ## Migration Plan
 
 1. CommandSource trait 扩展：加 is_tick_ready()、should_record() 默认实现 → 零改动测试
 2. driver.rs 修改：将 is_live 替换为 should_record() → 回归测试全部通过
-3. 新增 network.rs：NetworkCommandSource + relay 通信协议
-4. Cargo.toml 添加 tokio + bincode
-5. 更新 command-pipeline-guide.md
-6. e2e 测试：本地起 relay → 两个客户端联机 → replay 验证
+3. 新增 network.rs：NetworkCommandSource + RelayServer + 协议类型
+4. Cargo.toml 添加 serde + tokio + bincode
+5. 新增 transport.rs：跨线程 bridge + Bevy systems
+6. 新增 relay crate：lib + binary
+7. 更新 command-pipeline-guide.md
+8. 28 项测试全部通过（含 1 e2e + 3 TCP 集成）
 
 ## Open Questions
 
-- relay 网络库选型：tokio (tokio::net) vs async-std
-- relay 二进制部署形态：bevy 内置线程 vs 独立进程
+- relay 网络库选型：tokio (tokio::net) ✅ 已选
+- relay 二进制部署形态：独立 binary（crates/relay/）✅ 已实现

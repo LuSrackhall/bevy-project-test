@@ -72,3 +72,7 @@ The relay SHALL NOT run simulation, assign ordering keys, modify command payload
 
 - **WHEN** a `PlayerTickFrame` contains commands with various `Action` variants
 - **THEN** the relay SHALL forward them without inspection, modification, or conditional behavior based on action type
+
+---
+
+**Implementation:** `network.rs` lines 238-514 (RelayServer state machine). `relay/src/lib.rs` (TCP transport). 6 unit tests covering state machine logic. 3 TCP integration tests in `relay/tests/integration.rs`. 1 Bevy e2e test in `bevy_adapter/tests/network_e2e.rs`.

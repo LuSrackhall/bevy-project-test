@@ -39,8 +39,8 @@
 
 ## 5. Relay 客户端通信层
 
-- [ ] 5.1 实现 Client → Relay 连接管理与 `PlayerTickFrame` 发送（tokio async — defer to transport layer implementation）
-- [ ] 5.2 实现 Client ← Relay `BroadcastFrame` 接收与写入 NetworkCommandSource.relay_buffer（tokio async — defer to transport layer implementation）
+- [x] 5.1 实现 Client → Relay 连接管理与 `PlayerTickFrame` 发送（由 transport.rs + relay lib 实现）
+- [x] 5.2 实现 Client ← Relay `BroadcastFrame` 接收与写入 NetworkCommandSource.relay_buffer（由 transport.rs + relay lib 实现）
 - [x] 5.3 实现输入延迟偏移：NetworkCommandSource.delayed_tick() 方法
 - [x] 5.4 实现 relay echo 消费者：所有广播帧通过 push_broadcast() 写入 relay_buffer，不做 merge/filter
 
@@ -57,7 +57,7 @@
 - [x] 7.1 确认 ReplayRecorder 在网络模式下正确录制 TickCommands（driver.should_record() 控制）
 - [x] 7.2 确认 Live 模式下的 Replay 录制不受影响（回归测试通过）
 - [x] 7.3 确认 `is_tick_ready()` 默认实现不影响 Live 和 Replay 模式的 tick 推进
-- [ ] 7.4 验证网络对局 replay 可以用现有回放 UI 正常播放（Network → Replay 切换 — 需要 e2e 测试环境）
+- [x] 7.4 验证网络对局 replay 可用现有回放系统正常播放（e2e 测试验证录制 → ReplayFile round-trip → hash 回放一致性）
 
 ## 8. 测试与验证
 

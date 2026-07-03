@@ -12,8 +12,10 @@
 - 新增 `TickCommands` / `BroadcastFrame` / `PlayerTickFrame` 协议数据结构
 - 新增 Reconnect 协议：replay-based recovery（seed + full command log）
 - 新增输入延迟模型：默认 3 ticks @20Hz，可配置
+- 新增 **transport 层**：TCP relay binary + 跨线程 bridge + Bevy 集成
+- 新增 3 项 TCP 集成测试 + 1 项 Bevy e2e 全链路测试（28 测试）
 - 修改 `ReplayRecorder` 条件：从 is_live 替换为 should_record()
-- 修改 `crates/bevy_adapter/Cargo.toml`：添加 tokio + bincode 依赖
+- 修改 `crates/bevy_adapter/Cargo.toml`：添加 serde + tokio + bincode 依赖
 - **不修改** `simulation` crate（宪法 §1.2.7 零感知原则）
 - **不引入**大厅、匹配、账户、observer 系统（Phase 2）
 
@@ -25,6 +27,7 @@
 - `relay-server`: Relay Server 实现，命令收集 + tick barrier + 广播 + command log 缓存
 - `network-reconnect`: 断线重连协议，replay-based recovery（seed + full command log）
 - `input-delay-model`: 输入延迟模型与 config 默认 3 ticks
+- `transport-layer`: TCP + bincode 传输层，跨线程 bridge，Bevy 集成
 
 ### Modified Capabilities
 
@@ -32,8 +35,12 @@
 
 ## Impact
 
-- `crates/bevy_adapter/src/driver.rs`: CommandSource trait 加 is_tick_ready() + should_record()
-- `crates/bevy_adapter/src/network.rs`: 新增 300-500 行，NetworkCommandSource + relay 通信
-- `crates/bevy_adapter/Cargo.toml`: 新增 tokio + bincode 依赖
-- `docs/engineering/command-pipeline-guide.md`: 补充 network 模式数据流
+- `crates/bevy_adapter/src/driver.rs`: CommandSource trait 加 is_tick_ready() + should_record() + Network 变体
+- `crates/bevy_adapter/src/network.rs`: 新增 ~380 行，协议类型 + NetworkCommandSource + RelayServer 状态机
+- `crates/bevy_adapter/src/transport.rs`: 新增 ~300 行，跨线程 bridge + Bevy poll/flush systems
+- `crates/relay/src/main.rs + lib.rs`: 新增 ~270 行，TCP relay server
+- `crates/bevy_adapter/tests/network_e2e.rs`: 新增 Bevy e2e 全链路测试
+- `crates/relay/tests/integration.rs`: 新增 3 项 TCP 集成测试
+- `crates/bevy_adapter/Cargo.toml`: 新增 serde + tokio + bincode 依赖
+- `docs/engineering/command-pipeline-guide.md`: 补充 Network 模式数据流
 - 外部 crate 无感知：render_view、presentation、simulation 不修改

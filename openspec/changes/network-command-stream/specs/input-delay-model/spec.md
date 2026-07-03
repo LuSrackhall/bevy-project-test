@@ -51,3 +51,7 @@ The tick timeout SHALL be based on relay wall clock, measured from `first_arriva
 
 - **WHEN** `now_ms() - first_arrival[100] >= D * T_tick * 1000 + jitter_ms`
 - **THEN** tick 100 SHALL be finalized via timeout, with NoOp for missing players
+
+---
+
+**Implementation:** `NetworkCommandSource.input_delay` field + `delayed_tick()` method (network.rs). RelayServer uses `input_delay` for timeout calculation. Configurable via constructor parameter.
