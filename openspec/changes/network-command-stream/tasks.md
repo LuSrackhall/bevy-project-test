@@ -1,10 +1,10 @@
 ## 1. CommandSource Trait 扩展
 
-- [ ] 1.1 向 `CommandSource` trait 添加 `is_tick_ready()` 方法（默认 true）
-- [ ] 1.2 向 `CommandSource` trait 添加 `should_record()` 方法（默认 true）
-- [ ] 1.3 将 `driver.rs` 中 ReplayRecorder 的条件判断从 `is_live` 改为 `source.should_record()`
-- [ ] 1.4 确认 is_live() / is_replay() 方法在 CommandSource 上仅用于显示判断，不再驱动录制逻辑
-- [ ] 1.5 回归测试：`cargo test -p bevy_adapter` 全部通过
+- [x] 1.1 向 `CommandSource` trait 添加 `is_tick_ready()` 方法（默认 true）
+- [x] 1.2 向 `CommandSource` trait 添加 `should_record()` 方法（默认 true）
+- [x] 1.3 将 `driver.rs` 中 ReplayRecorder 的条件判断从 `is_live` 改为 `source.should_record()`
+- [x] 1.4 确认 is_live() / is_replay() 方法在 CommandSource 上仅用于显示判断，不再驱动录制逻辑
+- [x] 1.5 回归测试：`cargo test -p bevy_adapter` 全部通过
 
 ## 2. 协议数据结构定义
 

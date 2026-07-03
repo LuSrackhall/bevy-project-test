@@ -77,6 +77,21 @@ impl CommandSource {
         }
     }
 
+    /// Whether this tick's inputs have been fully collected.
+    /// Default true for Live/Replay; NetworkCommandSource waits for relay batch.
+    pub fn is_tick_ready(&self, _tick: u32) -> bool {
+        match self {
+            Self::Live(_) => true,
+            Self::Replay(_) => true,
+        }
+    }
+
+    /// Whether the tick stream should be recorded to replay.
+    /// Returns true for all modes (Live, Replay, Network).
+    pub fn should_record(&self) -> bool {
+        true
+    }
+
     pub fn is_live(&self) -> bool {
         matches!(self, Self::Live(_))
     }
@@ -234,8 +249,6 @@ pub fn simulation_driver_system(
         driver.clock.accumulator -= tick_dur;
         driver.clock.current_tick += 1;
         let tick = driver.clock.current_tick;
-        let is_live = driver.source.is_live();
-        let is_seeking = driver.scheduler.async_seek;
 
         // 1. Get commands from source (scoped borrow so it drops before retain)
         let commands = {
@@ -243,8 +256,8 @@ pub fn simulation_driver_system(
             driver.source.commands_for_tick(tick, &ctx)
         };
 
-        // 2. Record if Live + recording enabled + not seeking
-        if is_live && !is_seeking {
+        // 2. Record if source indicates recording is needed
+        if driver.source.should_record() {
             recorder.record_tick(tick, &commands);
         }
 
@@ -262,10 +275,10 @@ pub fn simulation_driver_system(
         drop(_tick_span);
         pending.events.push(events);
 
-        // 6. Desync detection: record hash during live, compare during replay
+        // 6. Desync detection: record hash during primary execution (not replay playback)
         if tick % simulation::replay::ReplayFile::DESYNC_CHECK_INTERVAL == 0 {
             let hash = simulation::golden_test::hash_world_state(sim_world.world_mut());
-            if is_live && !is_seeking {
+            if !driver.is_replay() && !driver.scheduler.async_seek {
                 recorder.record_tick_hash(tick, hash);
             }
             if let CommandSource::Replay(ref rs) = driver.source {
