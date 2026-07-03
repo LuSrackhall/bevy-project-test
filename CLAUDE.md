@@ -35,6 +35,8 @@ simulation ← bevy_adapter ← presentation ← render_view
 
 `render_view` → `bevy_adapter` 通道 → `CommandBuffer`。`render_view` 和 `presentation` 不得直接写入 `simulation::CommandBuffer`。
 
+详细实现指南（含两个 CommandBuffer 的职责区分和常见错误）：[docs/engineering/command-pipeline-guide.md](docs/engineering/command-pipeline-guide.md)
+
 ### 确定性
 
 同一输入 + 同一种子 + 同一版本 = 同一结果。禁止依赖时钟、帧率、线程调度。
@@ -63,8 +65,8 @@ simulation ← bevy_adapter ← presentation ← render_view
 
 ```
 docs/
-├── constitution.md      ← 架构宪法（Frozen）
+├── constitution.md      ← 架构宪法（v1.1 Active）
 ├── adr/                 ← Architecture Decision Records
 ├── architecture/        ← 系统设计文档（随架构演进）
-└── engineering/         ← 工程实践规范（编码、测试、CI）
+└── engineering/         ← 工程实践规范（编码、测试、CI、Command Pipeline 实现指南）
 ```
