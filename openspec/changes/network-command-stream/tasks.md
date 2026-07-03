@@ -8,12 +8,12 @@
 
 ## 2. 协议数据结构定义
 
-- [ ] 2.1 定义 `TickCommands` 结构：`{ tick: u32, commands: Vec<GameCommand> }`
-- [ ] 2.2 定义 `BroadcastFrame` 结构：`{ game_id, ruleset_version, payload: TickCommands, relay_ts_ms }`
-- [ ] 2.3 定义 `PlayerTickFrame` 结构：`{ magic, game_id, tick, player_id, commands, player_sid }`
-- [ ] 2.4 定义 `ReconnectRequest` / `ReconnectResponse`：含 seed、map_spec_hash、ruleset_version
-- [ ] 2.5 为所有新增结构体添加 serde derive（Serialize + Deserialize）
-- [ ] 2.6 确认 `ReplayFile` / `ReplayHeader` 可以序列化 `Vec<TickCommands>` 作为录制格式
+- [x] 2.1 定义 `TickCommands` 结构：`{ tick: u32, commands: Vec<GameCommand> }`
+- [x] 2.2 定义 `BroadcastFrame` 结构：`{ game_id, ruleset_version, payload: TickCommands, relay_ts_ms }`
+- [x] 2.3 定义 `PlayerTickFrame` 结构：`{ magic, game_id, tick, player_id, commands, player_sid }`
+- [x] 2.4 定义 `ReconnectRequest` / `ReconnectResponse`：含 seed、map_spec_hash、ruleset_version
+- [x] 2.5 为所有新增结构体添加 serde derive（Serialize + Deserialize）
+- [x] 2.6 确认 `ReplayFile` / `ReplayHeader` 可以序列化 `Vec<TickCommands>` 作为录制格式
 
 ## 3. NetworkCommandSource 实现
 

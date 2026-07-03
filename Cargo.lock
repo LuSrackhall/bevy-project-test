@@ -409,6 +409,7 @@ name = "bevy_adapter"
 version = "0.1.0"
 dependencies = [
  "bevy",
+ "serde",
  "simulation",
  "tracing",
  "tracing-subscriber",
