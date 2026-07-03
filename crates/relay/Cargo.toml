@@ -1,0 +1,9 @@
+[package]
+name = "relay"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bevy_adapter = { path = "../bevy_adapter" }
+tokio = { version = "1.52.3", features = ["net", "rt", "sync", "macros", "io-util", "time"] }
+bincode = { version = "2", features = ["serde"] }

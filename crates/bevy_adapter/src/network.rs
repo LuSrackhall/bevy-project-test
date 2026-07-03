@@ -210,7 +210,18 @@ impl NetworkCommandSource {
     /// 3. After catching up, resumes normal lockstep
     ///
     /// This method stores the tick log so the driver can consume it sequentially.
-    pub fn apply_reconnect(&mut self, response: &ReconnectResponse) {
+    ///
+    /// D12: Validates ruleset_version — mismatch returns an error.
+    pub fn apply_reconnect(&mut self, response: &ReconnectResponse, expected_version: u32) -> Result<(), String> {
+        // D12: ruleset_version compatibility check
+        if response.ruleset_version != expected_version {
+            return Err(format!(
+                "Schema mismatch: client ruleset_version={}, relay ruleset_version={}. \
+                 Cannot replay — versions must match for deterministic replay.",
+                expected_version, response.ruleset_version
+            ));
+        }
+
         self.game_id = response.game_id;
         self.ruleset_version = response.ruleset_version;
         self.connected = true;
@@ -218,6 +229,7 @@ impl NetworkCommandSource {
         for batch in &response.ticks {
             self.relay_buffer.insert(batch.tick, batch.clone());
         }
+        Ok(())
     }
 }
 
@@ -264,6 +276,8 @@ pub struct RelayServer {
     freezed_at_ms: u64,
     /// Current tick being collected.
     current_tick: u32,
+    /// Game creation wall clock time (ms). Used for absolute timeout fallback.
+    created_at_ms: u64,
 }
 
 impl RelayServer {
@@ -275,6 +289,7 @@ impl RelayServer {
         map_spec_hash: u64,
         players: Vec<u8>,
         input_delay: u32,
+        now_ms: u64,
     ) -> Self {
         Self {
             game_id,
@@ -293,6 +308,7 @@ impl RelayServer {
             frozen: false,
             freezed_at_ms: 0,
             current_tick: 1,
+            created_at_ms: now_ms,
         }
     }
 
@@ -306,6 +322,11 @@ impl RelayServer {
             return None;
         }
         if frame.game_id != self.game_id {
+            return None;
+        }
+
+        // E2: Reject frames from disconnected players
+        if !self.all_players.contains(&frame.player_id) {
             return None;
         }
 
@@ -355,14 +376,17 @@ impl RelayServer {
             return None;
         }
 
-        // Collect all commands for this tick
+        // Collect all commands for this tick, filtering out disconnected players
+        let active_players: std::collections::HashSet<&u8> =
+            self.all_players.iter().collect();
         let mut all_cmds: Vec<GameCommand> = self
             .buffer
             .get(&tick)
             .map(|per_player| {
                 per_player
-                    .values()
-                    .flat_map(|cmds| cmds.iter().cloned())
+                    .iter()
+                    .filter(|(pid, _)| active_players.contains(pid))
+                    .flat_map(|(_, cmds)| cmds.iter().cloned())
                     .collect()
             })
             .unwrap_or_default();
@@ -404,14 +428,23 @@ impl RelayServer {
 
     /// Check if tick has timed out.
     /// D5: Timeout = relay wall clock first_arrival + D * T_tick + jitter
+    /// Fallback: if no frame ever arrived for this tick, use an absolute timeout
+    /// based on game creation time + expected tick schedule.
     fn is_timed_out(&self, tick: u32, now_ms: u64) -> bool {
-        let arrival = match self.first_arrival.get(&tick) {
-            Some(t) => *t,
-            None => return false, // No frame received yet → can't time out
-        };
-        let timeout_duration =
-            arrival + (self.input_delay as u64 * self.tick_duration_ms) + self.jitter_ms;
-        now_ms >= timeout_duration
+        // Primary timeout: based on first_arrival
+        if let Some(arrival) = self.first_arrival.get(&tick) {
+            let timeout_duration =
+                arrival + (self.input_delay as u64 * self.tick_duration_ms) + self.jitter_ms;
+            return now_ms >= timeout_duration;
+        }
+
+        // Fallback: no frame arrived at all for this tick.
+        // Use absolute timeout: tick should appear by approximately
+        // created_at + (tick + input_delay + buffer) * tick_duration
+        let expected_time = self.created_at_ms
+            + (tick as u64 + self.input_delay as u64 + 2) * self.tick_duration_ms  // +2 for extra buffer
+            + self.jitter_ms;
+        now_ms >= expected_time
     }
 
     /// Handle client disconnect. Returns the current player states.
@@ -502,7 +535,7 @@ mod relay_tests {
 
     /// Helper to create a relay with 2 players.
     fn relay_2p() -> RelayServer {
-        RelayServer::new(1, 1, 42, 0xABC, vec![0, 1], 3)
+        RelayServer::new(1, 1, 42, 0xABC, vec![0, 1], 3, 1000)
     }
 
     fn make_empty_frame(tick: u32, player_id: u8, sid: u64) -> PlayerTickFrame {

@@ -254,8 +254,17 @@ pub fn simulation_driver_system(
     let tick_dur = driver.clock.tick_duration;
 
     while driver.clock.accumulator >= tick_dur {
+        let next_tick = driver.clock.current_tick + 1;
+
+        // D9: Only advance if source signals completeness for this tick.
+        // NetworkCommandSource returns false until relay batch arrives.
+        // Live and Replay sources always return true (no behavioral change).
+        if !driver.source.is_tick_ready(next_tick) {
+            break;
+        }
+
         driver.clock.accumulator -= tick_dur;
-        driver.clock.current_tick += 1;
+        driver.clock.current_tick = next_tick;
         let tick = driver.clock.current_tick;
 
         // 1. Get commands from source (scoped borrow so it drops before retain)

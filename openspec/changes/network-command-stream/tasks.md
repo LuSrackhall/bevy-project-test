@@ -74,8 +74,9 @@
 - [x] 9.2 新增 `docs/engineering/command-pipeline-guide.md` 中的 cross-mode comparison table（Live / Network / Replay）
 - [x] 9.3 验证 15 条防漂移约束（D1-D15）在实现中全部对应
 
-## 10. Transport 层（Phase 1.5 — defer to follow-up）
+## 10. Transport 层（Phase 1 MVP）
 
-- [ ] 10.1 实现 tokio async ClientNetwork：连接管理 + PlayerTickFrame 发送
-- [ ] 10.2 实现 tokio async RelayNetwork：TCP listener + per-client tasks
-- [ ] 10.3 e2e 测试：本地起 relay → 两个客户端联机 → replay 验证
+- [x] 10.1 添加 bincode 依赖，收窄 tokio features
+- [x] 10.2 实现 client 侧 transport：NetworkReceiver + NetworkSender 跨线程 bridge + Bevy poll/flush systems
+- [x] 10.3 实现 relay 侧 transport：TCP listener + per-connection handlers + broadcast fanout
+- [ ] 10.4 e2e 测试（手动）：`cargo run -p relay -- --port 9876 --seed 42 --players 2` 启动 relay，双客户端连接验证
