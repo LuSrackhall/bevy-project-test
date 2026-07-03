@@ -48,9 +48,9 @@ render_view 中的现有系统按类型迁移：
 
 | 当前模式 | 迁移目标 | 数量 |
 |---------|---------|------|
-| `NonSendMut<SimulationWorld>` 只读 | `Res<SimulationReader>` | ~15 处 |
-| `NonSendMut<SimulationWorld>` + `cmd_buf.push` | `ResMut<CommandSink>` | 3 处 |
-| `NonSendMut<SimulationWorld>` 混合 | 拆分 Reader/Sink | 0 处（P1 已消除） |
+| `NonSendMut<SimulationWorld>` 只读 | `NonSend<SimulationWorld>` + `query()` | ~15 处 |
+| `NonSendMut<SimulationWorld>` + `cmd_buf.push` | `NonSend<SimulationWorld>` + `ResMut<CommandBuffer>.push()` | 9 处（注意：`submit_command()` 推入错误 buffer 已修复） |
+| `NonSendMut<SimulationWorld>` 混合 | 拆分 Reader + cmd_buf.push | 0 处（P1 已消除） |
 
 ### D4: P3 CommandSource 统一
 

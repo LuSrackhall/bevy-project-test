@@ -127,7 +127,7 @@ pub trait CommandSink {
 ```
 
 - HUD 只显示数据 → 只拿 `SimulationReader`
-- 按钮需要下发命令 → 再拿 `CommandSink`
+- 按钮需要下发命令 → 注入 `ResMut<CommandBuffer>` + `cmd_buf.push()`（注意：`SimulationWorld::submit_command()` 推入 simulation 内部 buffer，绕过录制路径。render_view 必须使用 bevy 级 `cmd_buf`。实现细节见 `docs/engineering/command-pipeline-guide.md`）
 - Replay Recorder → 只依赖 `CommandSink`
 - 以后 AI、Console、Network → 也只依赖 `CommandSink`
 

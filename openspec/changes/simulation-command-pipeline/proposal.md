@@ -10,7 +10,8 @@
 - **P2 编译期收口**：引入 `SimulationReader`（只读查询）+ `CommandSink`（命令提交），替换 render_view 对 `NonSendMut<SimulationWorld>` 的直接访问。render_view 不再持有 SimulationWorld 的可写引用
 - **P3 CommandSource 统一**：消除 driver 对 CommandSource 具体类型的直接判断，用 `total_ticks() → Option<u32>` 替代 is_replay() 检查
 - **宪法更新**：v1.1 新增 §1.2.7（零感知原则）、§2.5.4（Pipeline 固化）、§2.5.5（Scheduler 域盲约束）、§2.5.4（不变量）
-- **Architecture Guard**：新增架构测试，CI 检查 render_view 不再引入 SimulationWorld 可写引用
+- **Architecture Guard**：新增架构测试，CI 检查 render_view 不再`world_mut()` 调用
+- **实现教训**：`submit_command()` 实现推入 simulation 内部 buffer（绕过录制），render_view 必须使用 bevy 级 `cmd_buf.push()`。该规则已写入 `docs/engineering/command-pipeline-guide.md`
 
 ## Capabilities
 

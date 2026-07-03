@@ -12,7 +12,7 @@
 - [x] 2.3 `SimulationWorld` 内部改为 `UnsafeCell` + `world_ref()` / `world_mut()` / `query()` API，render_view 通过公共 API 访问
 - [x] 2.4 通过 `SimulationWorld` 的公共方法暴露 `SimulationReader::query_world()` / `CommandSink::submit_command()`
 - [x] 2.5 render_view 中所有只读系统（update_top_bar、selection 系统、camera、debug_shape、unit_info_bar 等 ~15 处）改为 `NonSend<SimulationWorld>` + `sim.query()` / `sim.world_ref()`
-- [x] 2.6 render_view 中所有命令下发系统（observer 回调 3 处）改为通过 `CommandSink::submit_command()`
+- [x] 2.6 render_view 中所有命令下发系统（observer 回调 3 处 + selection 5 处 + hud 1 处）先改为 `submit_command()`，后续修复为 `cmd_buf.push()`（见 P5）
 - [x] 2.7 render_view 不再有 `NonSendMut<SimulationWorld>` 导入（所有只读系统使用 `NonSend`，命令下发使用 `submit_command()`）
 - [x] 2.8 `cargo check --package render_view` 通过
 - [x] 2.9 `cargo test -p bevy_adapter -- test_driver` 全量通过
@@ -32,6 +32,13 @@
 - [x] 4.3 `cargo test --package simulation` 全量通过
 - [x] 4.4 `cargo test --package bevy_adapter` 全量通过（含确定性测试 + 架构测试）
 - [x] 4.5 `cargo build --release` 无错误
+
+## 5. P5 — CommandBuffer 路由修复 + 教训固化
+
+- [x] 5.1 诊断：`submit_command()` 推入 simulation 内部 CommandBuffer，绕过 bevy 级录制路径
+- [x] 5.2 修复：将所有 `submit_command()` 恢复为 `cmd_buf.push()`（推入 bevy 级 buffer A）
+- [x] 5.3 验证：ESYNC at tick 100 消除，replay 正常
+- [x] 5.4 教训写入 `docs/engineering/command-pipeline-guide.md`
 
 ---
 
