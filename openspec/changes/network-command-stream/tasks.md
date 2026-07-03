@@ -79,4 +79,4 @@
 - [x] 10.1 添加 bincode 依赖，收窄 tokio features
 - [x] 10.2 实现 client 侧 transport：NetworkReceiver + NetworkSender 跨线程 bridge + Bevy poll/flush systems
 - [x] 10.3 实现 relay 侧 transport：TCP listener + per-connection handlers + broadcast fanout
-- [ ] 10.4 e2e 测试（手动）：`cargo run -p relay -- --port 9876 --seed 42 --players 2` 启动 relay，双客户端连接验证
+- [ ] 10.4 e2e 验证（手动运行）：`cargo run -p relay -- --port 9876 --seed 42 --players 2`

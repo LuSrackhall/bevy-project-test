@@ -11,7 +11,7 @@ use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 
 use bevy_adapter::network::{
-    BroadcastFrame, PlayerTickFrame, RelayClientMessage, RelayServerMessage, RelayServer,
+    BroadcastFrame, RelayClientMessage, RelayServerMessage, RelayServer,
 };
 
 struct RelayContext {
