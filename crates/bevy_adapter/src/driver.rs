@@ -6,6 +6,7 @@
 use bevy::prelude::*;
 use simulation::command::{CommandBuffer, GameCommand};
 use simulation::replay::ReplayFile;
+use crate::network::NetworkCommandSource;
 use crate::tick::{PendingEvents, SimulationWorld};
 use crate::replay::ReplayRecorder;
 
@@ -53,10 +54,11 @@ pub struct DriverContext<'a> {
     pub bevy_cmds: &'a CommandBuffer,
 }
 
-/// Command source enum — encapsulates Live vs Replay differences.
+/// Command source enum — encapsulates Live vs Replay vs Network differences.
 pub enum CommandSource {
     Live(LiveCommandSource),
     Replay(ReplayCommandSource),
+    Network(NetworkCommandSource),
 }
 
 impl CommandSource {
@@ -65,31 +67,37 @@ impl CommandSource {
         match self {
             Self::Live(s) => s.commands_for_tick(tick, ctx),
             Self::Replay(s) => s.commands_for_tick(tick, ctx),
+            Self::Network(s) => s.commands_for_tick(tick, ctx),
         }
     }
 
     /// Total ticks for finite sources (Replay, Scenario, Benchmark).
-    /// Returns None for streaming sources (Live, NetworkReceiver).
+    /// Returns None for streaming sources (Live, Network).
     pub fn total_ticks(&self) -> Option<u32> {
         match self {
             Self::Live(_) => None,
             Self::Replay(s) => Some(s.replay.total_ticks),
+            Self::Network(_) => None,
         }
     }
 
     /// Whether this tick's inputs have been fully collected.
-    /// Default true for Live/Replay; NetworkCommandSource waits for relay batch.
-    pub fn is_tick_ready(&self, _tick: u32) -> bool {
+    /// Default true for Live/Replay; Network waits for relay batch.
+    pub fn is_tick_ready(&self, tick: u32) -> bool {
         match self {
             Self::Live(_) => true,
             Self::Replay(_) => true,
+            Self::Network(s) => s.is_tick_ready(tick),
         }
     }
 
     /// Whether the tick stream should be recorded to replay.
-    /// Returns true for all modes (Live, Replay, Network).
     pub fn should_record(&self) -> bool {
-        true
+        match self {
+            Self::Live(_) => true,
+            Self::Replay(_) => true,
+            Self::Network(s) => s.should_record(),
+        }
     }
 
     pub fn is_live(&self) -> bool {

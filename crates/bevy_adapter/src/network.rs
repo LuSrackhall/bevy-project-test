@@ -139,3 +139,153 @@ pub enum RelayServerMessage {
     /// Error / version mismatch.
     Error { code: u32, message: String },
 }
+
+// ═══════════════════════════════════════════════════════════════
+// NetworkCommandSource — 网络模式命令源
+// ═══════════════════════════════════════════════════════════════
+
+use std::collections::HashMap;
+use crate::driver::DriverContext;
+
+/// Network-mode command source: consumes relay-finalized CommandBatches.
+///
+/// **No merge logic.** `commands_for_tick()` returns only what the relay broadcast.
+/// Local player input is uplinked via `cmd_buf` → relay → broadcast back to all clients.
+/// This source does NOT read from the Bevy `cmd_buf` at execution time.
+#[derive(Default)]
+pub struct NetworkCommandSource {
+    /// Incoming finalized command batches from relay, indexed by tick.
+    pub relay_buffer: HashMap<u32, TickCommands>,
+    /// Client-side connection state.
+    pub game_id: u64,
+    pub player_id: u8,
+    pub ruleset_version: u32,
+    pub connected: bool,
+}
+
+impl NetworkCommandSource {
+    /// Check whether this source has received a finalized batch for the given tick.
+    pub fn is_tick_ready(&self, tick: u32) -> bool {
+        self.relay_buffer.contains_key(&tick)
+    }
+
+    /// Consume commands for a tick from the relay buffer.
+    ///
+    /// **Only reads from relay_buffer.** The `ctx` parameter is IGNORED —
+    /// the Bevy `cmd_buf` is NOT read by this source in network mode.
+    pub fn commands_for_tick(&mut self, tick: u32, _ctx: &DriverContext) -> Vec<GameCommand> {
+        self.relay_buffer
+            .remove(&tick)
+            .map(|batch| batch.commands)
+            .unwrap_or_default()
+    }
+
+    /// Network mode always produces a replay.
+    pub fn should_record(&self) -> bool {
+        true
+    }
+
+    /// Accept a broadcast frame from the relay and store it.
+    pub fn push_broadcast(&mut self, frame: BroadcastFrame) {
+        self.relay_buffer.insert(frame.payload.tick, frame.payload);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use simulation::command::{Action, CommandBuffer, GameCommand};
+
+    /// Helper: create a minimal TickCommands.
+    fn make_tick(tick: u32, player_id: u8) -> TickCommands {
+        TickCommands {
+            tick,
+            commands: vec![GameCommand {
+                tick,
+                player_id,
+                action: Action::NoOp,
+            }],
+        }
+    }
+
+    #[test]
+    fn test_is_tick_ready_false_when_empty() {
+        let source = NetworkCommandSource::default();
+        assert!(!source.is_tick_ready(100));
+    }
+
+    #[test]
+    fn test_is_tick_ready_true_after_push() {
+        let mut source = NetworkCommandSource::default();
+        source.push_broadcast(BroadcastFrame {
+            game_id: 1,
+            ruleset_version: 1,
+            payload: make_tick(100, 0),
+            relay_ts_ms: 0,
+        });
+        assert!(source.is_tick_ready(100));
+    }
+
+    #[test]
+    fn test_commands_for_tick_ignores_ctx() {
+        let mut source = NetworkCommandSource::default();
+        source.push_broadcast(BroadcastFrame {
+            game_id: 1,
+            ruleset_version: 1,
+            payload: make_tick(100, 0),
+            relay_ts_ms: 0,
+        });
+
+        // Even if ctx points to a cmd_buf with commands, should only return relay batch
+        let ctx = DriverContext {
+            bevy_cmds: &CommandBuffer(vec![GameCommand {
+                tick: 100,
+                player_id: 99,
+                action: Action::NoOp,
+            }]),
+        };
+
+        let cmds = source.commands_for_tick(100, &ctx);
+        assert_eq!(cmds.len(), 1);
+        // ctx content ignored — returned command has player_id from relay batch
+        assert_eq!(cmds[0].player_id, 0);
+    }
+
+    #[test]
+    fn test_commands_for_tick_returns_nothing_for_missing_tick() {
+        let mut source = NetworkCommandSource::default();
+        let ctx = DriverContext {
+            bevy_cmds: &CommandBuffer(Vec::new()),
+        };
+        let cmds = source.commands_for_tick(999, &ctx);
+        assert!(cmds.is_empty());
+    }
+
+    #[test]
+    fn test_should_record_always_true() {
+        let source = NetworkCommandSource::default();
+        assert!(source.should_record());
+    }
+
+    #[test]
+    fn test_push_broadcast_then_remove_consumes_once() {
+        let mut source = NetworkCommandSource::default();
+        source.push_broadcast(BroadcastFrame {
+            game_id: 1,
+            ruleset_version: 1,
+            payload: make_tick(50, 1),
+            relay_ts_ms: 0,
+        });
+
+        // First call consumes
+        let ctx = DriverContext {
+            bevy_cmds: &CommandBuffer(Vec::new()),
+        };
+        let cmds1 = source.commands_for_tick(50, &ctx);
+        assert_eq!(cmds1.len(), 1);
+
+        // Second call returns empty (already consumed)
+        let cmds2 = source.commands_for_tick(50, &ctx);
+        assert!(cmds2.is_empty());
+    }
+}

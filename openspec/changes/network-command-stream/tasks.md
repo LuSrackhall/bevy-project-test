@@ -17,13 +17,13 @@
 
 ## 3. NetworkCommandSource 实现
 
-- [ ] 3.1 创建 `crates/bevy_adapter/src/network.rs`
-- [ ] 3.2 实现 `NetworkCommandSource` 结构体：`{ relay_buffer: HashMap<u32, TickCommands> }`
-- [ ] 3.3 实现 `is_tick_ready()`：检查 relay_buffer 是否包含目标 tick
-- [ ] 3.4 实现 `commands_for_tick()`：仅从 relay_buffer.remove(tick) 返回，不读 cmd_buf
-- [ ] 3.5 实现 `should_record()`：返回 true
-- [ ] 3.6 验证 NetworkCommandSource 的 `is_tick_ready()` 在无 relay batch 时返回 false
-- [ ] 3.7 验证 `commands_for_tick()` 不读取 `ctx.bevy_cmds`（ignore ctx）
+- [x] 3.1 创建 `crates/bevy_adapter/src/network.rs`
+- [x] 3.2 实现 `NetworkCommandSource` 结构体：`{ relay_buffer: HashMap<u32, TickCommands> }`
+- [x] 3.3 实现 `is_tick_ready()`：检查 relay_buffer 是否包含目标 tick
+- [x] 3.4 实现 `commands_for_tick()`：仅从 relay_buffer.remove(tick) 返回，不读 cmd_buf
+- [x] 3.5 实现 `should_record()`：返回 true
+- [x] 3.6 验证 NetworkCommandSource 的 `is_tick_ready()` 在无 relay batch 时返回 false
+- [x] 3.7 验证 `commands_for_tick()` 不读取 `ctx.bevy_cmds`（ignore ctx）
 
 ## 4. Relay Server
 
