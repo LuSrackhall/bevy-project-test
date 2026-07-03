@@ -16,3 +16,7 @@ bincode = { version = "2", features = ["serde"] }
 tracing = { version = "0.1", optional = true }
 tracing-tracy = { version = "0.11", optional = true }
 tracing-subscriber = { version = "0.3", optional = true, features = ["registry"] }
+
+[dev-dependencies]
+relay = { path = "../relay" }
+simulation = { path = "../simulation" }
