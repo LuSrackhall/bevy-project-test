@@ -504,7 +504,7 @@ fn simulation_driver_system(...) {
 
 - **[reset_game_system 过载]** → 拆为 intent + resolver + bootstrap，每层单一职责
 - **[map_size 双源]** → Network mode 下 relay authoritative，UI 值仅作为 hint
-- **[bootstrap 重入]** → `SessionActive` resource 守卫，one-shot 约束
+- **[bootstrap 重入]** → BootstrapPhase 守卫（phase != Init 则跳过），一次性
 - **[SessionConfig lifecycle]** → bootstrap 调用后即失效，不得在 runtime tick 路径中访问
 - **[connect_and_handshake vs transport protocol]** → transport.rs 有约 10 行的适配改动（GameJoined 通道），协议本身不变。设计中已明确这对组改动
 - **[handshake 同步阻塞]** → `recv_timeout(5s)` 在 bootstrap 线程同步阻塞。Network mode 下 UI 在连接期间会短暂冻结。**UI 契约：bootstrap 触发前必须显示 "SessionConnecting" 等连接状态指示，否则用户会认为游戏卡死。** 此阻塞在 RTS lockstep 设计中可接受（初始化属于一次性延迟，不影响运行时 tick）
@@ -520,7 +520,11 @@ fn simulation_driver_system(...) {
 | `crates/render_view/src/ui/network_panel.rs` | **新文件** — 联机输入面板 UI（relay 地址 + player_count） |
 | `crates/render_view/src/session.rs` | **新文件** — GameIntent enum + resolve_intent() 纯函数 |
 | `crates/bevy_adapter/src/transport.rs` | **修改** — 新增 `spawn_network_client_with_game_joined`，约 10 行 |
-| `crates/bevy_adapter/src/session.rs` | **新文件** — SessionConfig, SessionMode, SessionArtifacts, SessionBootstrap |
+| `crates/bevy_adapter/src/session.rs` | **新文件** — GameIntent, SessionConfig, SessionMode, resolve_intent |
+| `crates/bevy_adapter/src/session/single.rs` | **新文件** — single::initialize() |
+| `crates/bevy_adapter/src/session/replay.rs` | **新文件** — replay::initialize() |
+| `crates/bevy_adapter/src/session/network.rs` | **新文件** — NetworkBootstrapResult, network::initialize(), connect_and_handshake |
+| `crates/bevy_adapter/src/session/bootstrap.rs` | **新文件** — dispatch(), wire(), SessionArtifacts, TransportResources, BootstrapPhase |
 | `crates/bevy_adapter/src/lib.rs` | 注册 session 模块 |
 | `crates/render_view/src/lib.rs` | reset_game_system 调用 resolve_intent + bootstrap；NeedsGameReset 消费 GameIntent |
 | `crates/render_view/src/ui/menu.rs` | 主菜单添加"联机"区域 |
@@ -529,8 +533,6 @@ fn simulation_driver_system(...) {
 **不改动：**
 - `driver.rs` — 不变（CommandSource enum + trait 不变）
 - `network.rs` — 不变
+- `transport.rs` — 不变（除新增 ~10 行 GameJoined 通道）
 - `relay/` — 不变
 - `simulation/` — 不变
-
-**微小改动：**
-- `transport.rs` — 新增 `spawn_network_client_with_game_joined`（约 10 行），为 bootstrap 提供 GameJoined 通道
