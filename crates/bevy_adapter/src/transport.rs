@@ -111,13 +111,15 @@ pub fn network_flush_system(
     };
     if let CommandSource::Network(ref ns) = driver.source {
         let current_tick = driver.clock.current_tick;
-        let target_tick = ns.delayed_tick(current_tick);
+        let target_tick = ns.delayed_tick(current_tick); // current_tick + input_delay
 
-        // Collect commands for the delayed tick
+        // Collect all pending commands from cmd_buf.
+        // render_view pushes commands with tick = current_tick + 1 (local time).
+        // For network mode, they need to be sent with the delayed target tick.
         let cmds: Vec<GameCommand> = cmd_buf
             .0
             .iter()
-            .filter(|c| c.tick == target_tick)
+            .filter(|c| c.tick == current_tick + 1)
             .cloned()
             .collect();
 
