@@ -401,7 +401,22 @@ fn simulation_driver_system(...) {
 
 **宪法对齐：** 消除了对 ECS resource timing 的依赖（§2.5.5 Scheduler 域盲）。`driver.phase` 由 driver 内部状态管理。
 
-**P10：Bootstrap Atomicity。** Bootstrap 必须是原子的：要么完整完成（所有资源注册、source 切换、world init、recorder setup 全部成功），要么完整退回 Init（不残留部分初始化状态——如 `source` 已切但 world 未 init）。实现方式：`wire()` 以 `SessionArtifacts` 为整体输入、整体输出。任何中间阶段失败时，wire 不应修改 `driver.phase`（保持在 Init），让调用者决定重试或中止。不允许出现 `phase != Init` 但部分字段未初始化的状态。
+**P10：Bootstrap Atomicity (prepare → validate → commit)。** Bootstrap 必须是原子的。具体结构：
+
+```text
+prepare  (initialize, I/O, assembly of SessionArtifacts)
+    ↓
+validate (all artifacts ready, transport connected, files loaded)
+    ↓
+commit   (wire: mutate Driver/World/Resources, all writes guaranteed to succeed)
+```
+
+- prepare 阶段：做所有可能失败的事（网络、文件、I/O）。**不修改 Driver/World/Resources。**
+- validate 阶段：确认所有 artifacts 完整。失败则返回 Err（phase 保持 Init）。
+- commit 阶段：将 artifacts 写入系统。**此阶段应保证不失败**（因为所有可变操作已被 prepare 验证）。
+- `driver.source`  和 `insert_resource` 应安排为 commit 阶段的最尾步骤。如果 commit 的任一子步骤失败，整体不应当进入 Active。
+
+不允许出现 `phase != Init` 但部分字段未初始化或系统处于半修改状态的情况。
 
 **隐含前提（P3）：TransportResources are session-scoped exclusive handles。** transport sender/receiver 不能跨 session reuse，否则 relay 会出现 ghost client。D4.1 的 exactly-once consumption 保证这一点——wire() 注册后 Artifacts 被释放，transport 资源绑定到当前 session 生命周期。
 
@@ -438,6 +453,7 @@ fn simulation_driver_system(...) {
 - **[connect_and_handshake vs transport protocol]** → transport.rs 有约 10 行的适配改动（GameJoined 通道），协议本身不变。设计中已明确这对组改动
 - **[handshake 同步阻塞]** → `recv_timeout(5s)` 在 bootstrap 线程同步阻塞。Network mode 下 UI 在连接期间会短暂冻结。**UI 契约：bootstrap 触发前必须显示 "SessionConnecting" 等连接状态指示，否则用户会认为游戏卡死。** 此阻塞在 RTS lockstep 设计中可接受（初始化属于一次性延迟，不影响运行时 tick）
 - **[SessionMode 扩展压力]** → 当前 Single / Replay / Network 三种模式通过 `dispatch()` match 管理。未来扩展至 Spectator / Reconnect / Hot join / AI-only 等模式时，`dispatch()` 可能膨胀为 god match。推荐演进路径：每个模式返回自己的 artifact 类型（`NetworkArtifacts`、`ReplayArtifacts`），通过 `Into<SessionArtifacts>` 转换，dispatch 退化为纯 registry
+- **[InitCtx 膨胀]** → 当前 `InitCtx` 约 8 个字段，未来可能继续增长。演进策略：超 12 个或出现自然分组时拆分为 `DriverInit`、`WorldInit`、`TransportInit` 等细粒度上下文类型
 - **[ReplayRecorder 耦合]** → 当前 `InitCtx` 中包含 `recorder` 作为固定依赖。未来 headless、benchmark、server 等模式可能不需要录制。可演进为 bootstrap hook（`on_session_ready: Box<dyn FnOnce(&mut InitCtx)>`），使 recorder 成为可插拔组件
 - **[架构等级]** → 当前设计达到 Level 4（Explicit Lifecycle Architecture）：lifecycle 显式分层、side effect 单入口、runtime/init/protocol 分域、ECS 资源不参与 control flow。已达到 Level 5 的核心要求（`bootstrap_phase` 消除 ECS timing dependency）。尚缺的：handshake 仍为同步阻塞。后续可沿三条路径演进：A. 时间模型收敛（已完成 BootstrapPhase）→ B. 网络 bootstrap async state machine → C. ECS-free bootstrap layer
 
