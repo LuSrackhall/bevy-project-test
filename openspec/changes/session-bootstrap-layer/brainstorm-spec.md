@@ -235,6 +235,8 @@ impl SessionInitializer for ReplayInitializer {
 - **`wire()` 必须在一个 pass 内完全分解它（fully deconstruct in one pass）**——将内部资源分别注册到 Driver、Bevy Resources、Recorder，不允许 deferred injection 或 lazy registration
 - **`wire()` 完成后，`SessionArtifacts` 不再存在**
 
+**D4.1b：`SessionArtifacts` 在结构上是终止的（structurally terminal）。** 任何新增字段必须经过 initializer + dispatch，不允许在 `wire()` 中补字段。`wire()` 只消费已存在的字段，不扩展 artifact 的结构。
+
 因此：
 - 不应 `Clone`
 - 不应 `Rc`/`Arc` 跨线程共享（`TransportResources` 内部的 `Arc` 是 bridge 实现细节，不属于共享 artifact 本身）
@@ -366,6 +368,8 @@ pub fn connect_and_handshake(
 
 transport.rs 改动量：约 10 行（新增 `spawn_network_client_with_game_joined` + `run_client` 中的 `game_joined_tx.send()`）。relay 协议不变。
 
+**P4 约束：`GameJoined` 是 bootstrap-only synchronization signal，不是 gameplay event。** 它只用于 session establishment barrier，运行时不得重新发送。reconnect 场景下需通过独立的 `ReconnectResponse` 路径处理，不得复用 `GameJoined` 语义。
+
 ### D7: SessionActive — 重入守卫
 
 ```rust
@@ -374,6 +378,23 @@ pub struct SessionActive;
 ```
 
 在 `wire()` 末尾通过 `commands.insert_resource(SessionActive)` 插入。`bootstrap()` 入口检查 `InitCtx.session_active`，已激活则跳过。
+
+**P5 约束（Bevy ordering fence）：Bootstrap 完成后需要二次 commit 信号。**
+
+由于 Bevy `Commands` 是 deferred 的（frame boundary commit），`wire()` 中 `driver.source = Network` 立即生效，但 `insert_resource(transport.receiver)` 要下一帧才可见，中间存在一个帧的时间窗口。
+
+解决方案：`wire()` 末尾插入 `SessionBootstrapped` marker：
+
+```rust
+pub struct SessionBootstrapped;
+// 在 wire() 末尾：commands.insert_resource(SessionBootstrapped);
+```
+
+`simulation_driver_system` 在执行 Network tick 前检查 `SessionBootstrapped` 是否存在。不存在则跳过 tick 推进（is_tick_ready 默认 false），等下一帧。
+
+此 marker 与 `SessionActive` 配合：
+- `SessionActive` 防止 bootstrap 重入（单次执行守卫）
+- `SessionBootstrapped` 防止资源不可见时 tick 提前执行（system ordering fence）
 
 **隐含前提（P1）：Bootstrap execution is linear, single-shot, non-overlapping。** 不能并发、不能重入、不能 partial bootstrap（必须 success/fail atomic）。`SessionActive` + `one-shot ownership` 共同保证这一语义。
 
@@ -408,7 +429,7 @@ pub struct SessionActive;
 - **[bootstrap 重入]** → `SessionActive` resource 守卫，one-shot 约束
 - **[SessionConfig lifecycle]** → bootstrap 调用后即失效，不得在 runtime tick 路径中访问
 - **[connect_and_handshake vs transport protocol]** → transport.rs 有约 10 行的适配改动（GameJoined 通道），协议本身不变。设计中已明确这对组改动
-- **[handshake 同步阻塞]** → `recv_timeout(5s)` 在 bootstrap 线程同步阻塞。Network mode 下 bootstrap 期间 UI 会短暂冻结（loading screen 可缓解）。此为 RTS lockstep 的合理 tradeoff——初始化过程中不允许并发连接操作
+- **[handshake 同步阻塞]** → `recv_timeout(5s)` 在 bootstrap 线程同步阻塞。Network mode 下 UI 在连接期间会短暂冻结。**UI 契约：bootstrap 触发前必须显示 "SessionConnecting" 等连接状态指示，否则用户会认为游戏卡死。** 此阻塞在 RTS lockstep 设计中可接受（初始化属于一次性延迟，不影响运行时 tick）
 - **[SessionMode 扩展压力]** → 当前 Single / Replay / Network 三种模式通过 `dispatch()` match 管理。未来扩展至 Spectator / Reconnect / Hot join / AI-only 等模式时，`dispatch()` 可能膨胀为 god match。到那时应考虑将 dispatch 从静态 match 演进为 capability composition 模型
 
 ---
