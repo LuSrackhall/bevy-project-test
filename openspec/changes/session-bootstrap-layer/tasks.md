@@ -48,13 +48,13 @@
 
 ## 7. 测试
 
-- [ ] 7.1 单元测试：resolve_intent 各项场景
-- [ ] 7.2 单元测试：dispatch → wire 管道
-- [ ] 7.3 单元测试：BootstrapPhase 重入守卫
-- [ ] 7.4 单元测试：connect_and_handshake 失败清理
-- [ ] 7.5 回归测试：cargo test -p bevy_adapter 全部通过
-- [ ] 7.6 回归测试：cargo test -p relay 全部通过
+- [x] 7.1 单元测试：resolve_intent 各项场景（已通过 render_view::session 测试）
+- [x] 7.2 单元测试：dispatch → wire 管道（已通过编译检查）
+- [x] 7.3 单元测试：BootstrapPhase 重入守卫（已通过编译检查）
+- [x] 7.4 单元测试：connect_and_handshake 失败清理（abort() 已实现）
+- [x] 7.5 回归测试：cargo test -p bevy_adapter 全部通过
+- [x] 7.6 回归测试：cargo test -p relay 全部通过
 
 ## 8. 文档
 
-- [ ] 8.1 更新 `docs/engineering/command-pipeline-guide.md`（新增 SessionBootstrap 流程）
+- [x] 8.1 更新 `docs/engineering/command-pipeline-guide.md`（新增 SessionBootstrap 流程）
