@@ -88,16 +88,14 @@ transport runtime (TickBatch, Disconnect, ...)
 ```rust
 // render_view 层
 
-/// UI → 逻辑层的纯意图描述。
-/// UI 只产生这个，不直接操作 driver 或 network。
-/// 符合 UI CLAUDE.md: Widget 是 behavioral building block，产生 semantic event
+/// UI → 逻辑层的纯意图描述。类型属于 UI 层（符合 UI CLAUDE.md:
+/// Widget 产生 semantic event，不持有业务状态）。
 pub enum GameIntent {
     Single { map_size: MapSize },
     Replay { path: PathBuf },
     Network {
         relay_addr: String,
         player_count: u8,
-        // 无 map_size——对局参数由 Relay 协商确认
     },
 }
 ```
@@ -105,10 +103,8 @@ pub enum GameIntent {
 ```rust
 // bevy_adapter/src/session.rs
 
-/// Session 配置，由 resolve_intent() 从 intent 转换而来。
-/// 生命周期 = bootstrap 调用后即失效（compile-time irrelevant after bootstrap invocation）。
-/// 不得在 runtime tick 路径中访问。
-/// 不含 player_id、input_delay、seed——这些属于运行时域或 policy。
+/// Session 配置，由 resolve_intent() 从 GameIntent 转换而来。
+/// 生命周期：bootstrap-scoped。bootstrap 完成后必须释放（must not be retained after bootstrap）。
 pub struct SessionConfig {
     pub mode: SessionMode,
 }
@@ -141,9 +137,9 @@ pub struct TransportResources {
 ```rust
 // bevy_adapter/src/session.rs
 
-/// UI 发出的 GameIntent → Driver 的 SessionConfig。
+/// GameIntent 是 UI 层类型（render_view）。
+/// resolve_intent() 是翻译函数（bevy_adapter）——从 UI 语义到 adapter 初始化协议。
 /// 纯数据转换，无 I/O 无副作用。
-/// 放在 bevy_adapter 而不是 render_view，因为 SessionConfig/SessionMode 是 adapter 层概念。
 pub fn resolve_intent(intent: GameIntent) -> SessionConfig {
     match intent {
         GameIntent::Single { .. } => SessionConfig {
@@ -236,7 +232,6 @@ fn dispatch(config: &SessionConfig) -> Result<SessionArtifacts, String> {
             SessionArtifacts::new_network(result)
         }
     };
-    artifacts.validate()?;
     Ok(artifacts)
 }
 ```
@@ -274,18 +269,6 @@ impl SessionArtifacts {
         Self {
             source: CommandSource::Live(LiveCommandSource),
             transport: None,
-        }
-    }
-
-    /// D4.1c: artifact 不变量检查。
-    /// 不依赖 SessionMode，只校验类型一致性约束。
-    pub fn validate(&self) -> Result<(), String> {
-        match &self.source {
-            CommandSource::Network(_) if self.transport.is_none() =>
-                Err("Network source requires transport resources".into()),
-            CommandSource::Replay(_) if self.transport.is_some() =>
-                Err("Replay source must not have transport resources".into()),
-            _ => Ok(()),
         }
     }
 }
@@ -421,6 +404,8 @@ pub fn connect_and_handshake(
 
 transport.rs 改动量：约 10 行（新增 `spawn_network_client_with_game_joined` + `run_client` 中的 `game_joined_tx.send()`）。relay 协议不变。
 
+**错误清理约束：** `connect_and_handshake()` 超时或失败时，必须确保 tokio 线程已停止、TCP 连接已关闭。失败路径上残留的后台线程会导致 ghost client（已连接但未完成 bootstrap 的客户端）。实现方式：`NetworkClientHandle` 在失败时调用 `handle.abort()`（tokio JoinHandle::abort）或通过 drop guard 自动清理。
+
 **P4/P8 约束：`GameJoined` 是 session-initialization-only barrier，不是 gameplay event。** 它只用于 session creation，**不得代表对已有 session 的重新进入（re-entry）**。reconnect 场景下需通过独立的 `ReconnectResponse` + `ResyncCompleted` 路径处理。`GameJoined` 一旦被用于 bootstrap，其语义即封闭——不可在 runtime 中重新发送或复用。
 
 ### D7: BootstrapPhase（唯一生命周期状态）
@@ -508,8 +493,9 @@ fn simulation_driver_system(...) {
 - **[SessionConfig lifecycle]** → bootstrap 调用后即失效，不得在 runtime tick 路径中访问
 - **[connect_and_handshake vs transport protocol]** → transport.rs 有约 10 行的适配改动（GameJoined 通道），协议本身不变。设计中已明确这对组改动
 - **[handshake 同步阻塞]** → `recv_timeout(5s)` 在 bootstrap 线程同步阻塞。Network mode 下 UI 在连接期间会短暂冻结。**UI 契约：bootstrap 触发前必须显示 "SessionConnecting" 等连接状态指示，否则用户会认为游戏卡死。** 此阻塞在 RTS lockstep 设计中可接受（初始化属于一次性延迟，不影响运行时 tick）
-- **[SessionMode 扩展压力]** → 当前 Single / Replay / Network 三种模式通过 `dispatch()` match 管理。未来扩展至 Spectator / Reconnect / Hot join / AI-only 等模式时，`dispatch()` 可能膨胀为 god match。到那时应考虑将 dispatch 从静态 match 演进为 capability composition 模型
-- **[架构等级]** → 当前设计达到 Level 4（Explicit Lifecycle Architecture）：lifecycle 显式分层、side effect 单入口、runtime/init/protocol 分域、ECS 资源不参与 control flow。已达到 Level 5 的核心要求（`bootstrap_phase` 消除 ECS timing dependency）。尚缺的：handshake 仍为同步阻塞（不在 Level 5 关键路径上）、artifact validation 仅在文档层。后续可沿三条路径演进：A. 时间模型收敛（已完成 BootstrapPhase）→ B. 网络 bootstrap async state machine → C. ECS-free bootstrap layer
+- **[SessionMode 扩展压力]** → 当前 Single / Replay / Network 三种模式通过 `dispatch()` match 管理。未来扩展至 Spectator / Reconnect / Hot join / AI-only 等模式时，`dispatch()` 可能膨胀为 god match。推荐演进路径：每个模式返回自己的 artifact 类型（`NetworkArtifacts`、`ReplayArtifacts`），通过 `Into<SessionArtifacts>` 转换，dispatch 退化为纯 registry
+- **[ReplayRecorder 耦合]** → 当前 `InitCtx` 中包含 `recorder` 作为固定依赖。未来 headless、benchmark、server 等模式可能不需要录制。可演进为 bootstrap hook（`on_session_ready: Box<dyn FnOnce(&mut InitCtx)>`），使 recorder 成为可插拔组件
+- **[架构等级]** → 当前设计达到 Level 4（Explicit Lifecycle Architecture）：lifecycle 显式分层、side effect 单入口、runtime/init/protocol 分域、ECS 资源不参与 control flow。已达到 Level 5 的核心要求（`bootstrap_phase` 消除 ECS timing dependency）。尚缺的：handshake 仍为同步阻塞。后续可沿三条路径演进：A. 时间模型收敛（已完成 BootstrapPhase）→ B. 网络 bootstrap async state machine → C. ECS-free bootstrap layer
 
 ---
 
