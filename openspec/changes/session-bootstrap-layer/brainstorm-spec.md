@@ -287,6 +287,7 @@ fn wire(artifacts: SessionArtifacts, ctx: &mut InitCtx) {
 - 必须通过 move 传递，不允许 `Clone`
 - 不允许 `Rc`/`Arc`（`TransportResources` 内部的 `Arc` 是 bridge 实现细节，不属于 artifact 的共享）
 - 不允许跨 runtime 生命周期保存
+- **wire() 不得调用任何 initializer**——wire 只消费 `SessionArtifacts`（由 dispatch + initializeer 完全构造后传入），不重新请求 I/O 或构造新对象。违反此约束会破坏 `prepare → validate → commit` 的原子性保证。
 
 重入 bootstrap 会导致：双 driver source overwrite、transport resource leak（多 receiver/sender instance）。BootstrapPhase + D4.1 的 single-consumption semantic 共同防止此问题。
 
@@ -414,7 +415,7 @@ commit   (wire: mutate Driver/World/Resources, all writes guaranteed to succeed)
 - prepare 阶段：做所有可能失败的事（网络、文件、I/O）。**不修改 Driver/World/Resources。**
 - validate 阶段：确认所有 artifacts 完整。失败则返回 Err（phase 保持 Init）。
 - commit 阶段：将 artifacts 写入系统。**此阶段应保证不失败**（因为所有可变操作已被 prepare 验证）。
-- `driver.source`  和 `insert_resource` 应安排为 commit 阶段的最尾步骤。如果 commit 的任一子步骤失败，整体不应当进入 Active。
+- **commit 写入顺序固定**：`init_world() → setup_recorder() → insert_resource() → driver.source → driver.phase = Wired`。`driver.source` 和 `driver.phase` 是最后一步——写入前 Driver 仍处于 `Init`，写入后系统才被视为 Active。这个顺序确保不会有"source 已切但 world 未 init"的半初始化帧。
 
 不允许出现 `phase != Init` 但部分字段未初始化或系统处于半修改状态的情况。
 
