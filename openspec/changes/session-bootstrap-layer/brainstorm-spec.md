@@ -237,6 +237,16 @@ impl SessionInitializer for ReplayInitializer {
 
 **D4.1b：`SessionArtifacts` 是 schema closure invariant（模式闭合不变量）。** 任何新增/修改字段必须经过 initializer + dispatch 通道，不允许在 `wire()` 层扩展 artifact 结构。`wire()` 只消费已存在的字段，不增补、不演化 artifact schema。此约束保证：artifact 的演化路径在 dispatch 和 initializer 中可见，不会出现 wire 层悄悄新增资源注册路径而不被 dispatch 感知。
 
+**D4.1c：artifact validation boundary。** `dispatch()` 在将 artifacts 交给 `wire()` 之前应调用 `validate_artifacts()` 做 invariants 检查。此函数不依赖 SessionMode，只校验类型一致性约束：
+
+| 约束 | 检查 |
+|------|------|
+| Network mode | `transport.is_some()` |
+| Replay/Single mode | `transport.is_none()` |
+| 所有 mode | `source` 字段非空，与 SessionMode 语义一致 |
+
+`validate_artifacts()` 在 dispatch 中作为最后一步调用。若失败，bootstrap 终止并返回错误。这是「initializer → dispatch → wire」管道的最后一道静态收口。
+
 因此：
 - 不应 `Clone`
 - 不应 `Rc`/`Arc` 跨线程共享（`TransportResources` 内部的 `Arc` 是 bridge 实现细节，不属于共享 artifact 本身）
@@ -383,20 +393,22 @@ pub struct SessionActive;
 
 由于 Bevy `Commands` 是 deferred 的（frame boundary commit），`wire()` 中 `driver.source = Network` 立即生效，但 `insert_resource(transport.receiver)` 要下一帧才可见，中间存在一个帧的时间窗口。
 
-解决方案：`wire()` 末尾插入 `SessionBootstrapped` marker：
+**P5/P6 约束（单 gate 修正）：`NetworkCommandSource.activated: bool` 是唯一的 readiness 真相源。**
+
+`wire()` 中`driver.source = Network` 仅表示 intent，不表示可执行。`activated` 字段初始为 false，`is_tick_ready()` 返回 `self.activated && self.relay_buffer.contains_key(&tick)`。在 `SessionBootstrapped` 提交后的下一帧，由一个 system 统一激活：
 
 ```rust
-pub struct SessionBootstrapped;
-// 在 wire() 末尾：commands.insert_resource(SessionBootstrapped);
+fn activate_network_source(mut driver: ResMut<SimulationDriver>) {
+    if let CommandSource::Network(ref mut ns) = driver.source {
+        ns.activated = true;  // 单 gate：resource visible + marker committed
+    }
+}
 ```
 
-`simulation_driver_system` 在执行 Network tick 前检查 `SessionBootstrapped` 是否存在。不存在则跳过 tick 推进（is_tick_ready 默认 false），等下一帧。
-
-此 marker 与 `SessionActive` 配合：
-- `SessionActive` 防止 bootstrap 重入（单次执行守卫）
-- `SessionBootstrapped` 防止资源不可见时 tick 提前执行（system ordering fence）
-
-**P6 约束：`driver.source` activation is gated by capability availability (not intent)。** `wire()` 中设 `driver.source = Network` 但不立即激活 `is_tick_ready()`。`NetworkCommandSource` 在收到 `SessionBootstrapped` 之前应返回 `is_tick_ready() = false`（通过内部 `activated` 字段控制）。`SessionBootstrapped` marker 提交后，driver 在下一帧才能真正开始消费 Network source。
+此 system 必须安排在 `SessionBootstrapped` 可见之后、`simulation_driver_system` 之前。这样：
+- 不依赖 ECS resource 插入 timing（宪法 §2.5.5：scheduler 应对 ECS 调度机制无感知）
+- 不存在"driver 已切 but not ready"的半激活帧
+- `activated = true` 是唯一 readiness 信号
 
 **隐含前提（P1）：Bootstrap execution is linear, single-shot, non-overlapping。** 不能并发、不能重入、不能 partial bootstrap（必须 success/fail atomic）。`SessionActive` + `one-shot ownership` 共同保证这一语义。
 
@@ -435,6 +447,7 @@ pub struct SessionBootstrapped;
 - **[connect_and_handshake vs transport protocol]** → transport.rs 有约 10 行的适配改动（GameJoined 通道），协议本身不变。设计中已明确这对组改动
 - **[handshake 同步阻塞]** → `recv_timeout(5s)` 在 bootstrap 线程同步阻塞。Network mode 下 UI 在连接期间会短暂冻结。**UI 契约：bootstrap 触发前必须显示 "SessionConnecting" 等连接状态指示，否则用户会认为游戏卡死。** 此阻塞在 RTS lockstep 设计中可接受（初始化属于一次性延迟，不影响运行时 tick）
 - **[SessionMode 扩展压力]** → 当前 Single / Replay / Network 三种模式通过 `dispatch()` match 管理。未来扩展至 Spectator / Reconnect / Hot join / AI-only 等模式时，`dispatch()` 可能膨胀为 god match。到那时应考虑将 dispatch 从静态 match 演进为 capability composition 模型
+- **[架构等级]** → 当前设计达到 Level 4（Explicit Lifecycle Architecture）：lifecycle 显式分层、side effect 单入口、runtime/init/protocol 分域、ECS 资源不参与 control flow。尚未达到 Level 5（Fully Temporal-Decoupled）：handshake 仍为同步阻塞、artifact validation 仅在文档层、`activated` 状态切换仍需 `SessionBootstrapped` 做帧间 fence。达到 Level 5 需要 handshake async 化 + artifact validation 编码实现 + control flow 完全位于 driver/state machine 而非 ECS world timing
 
 ---
 
