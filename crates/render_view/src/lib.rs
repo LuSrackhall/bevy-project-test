@@ -311,14 +311,19 @@ fn reset_game_system(
                 },
             };
             // bootstrap_session replaces the driver with NetworkCommandSource
-            // and registers transport resources via Commands
-            let _ = bevy_adapter::session::bootstrap::bootstrap_session(
+            if let Err(e) = bevy_adapter::session::bootstrap::bootstrap_session(
                 &config,
                 &mut _driver,
                 &mut commands,
                 &mut recorder,
                 &mut cmd_buf,
-            );
+            ) {
+                bevy::log::error!("Network bootstrap failed: {}", e);
+                game_active.0 = false;
+                // Return to main menu — can't play without network
+                commands.insert_resource(NextState::<GameState>::default());
+                return;
+            }
             // Network mode uses a random seed for world init (same as single player)
             // In future, seed comes from relay handshake
             commands.insert_resource(bevy_adapter::GameMode::Live);
