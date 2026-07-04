@@ -291,13 +291,80 @@ pub fn bootstrap(config: SessionConfig, ctx: &mut InitCtx) -> Result<(), String>
 
 三层各司其职：`dispatch` = registry（可扩展）；`initialize` = I/O（每种模式独立）；`wire` = 系统对接（模式无关）。
 
-### D5: Bootstrap 是唯一允许构造 CommandSource 的入口
+### D5: InitCtx — wiring 上下文
+
+```rust
+/// SessionBootstrap::wire() 的上下文。封装 bootstrap 阶段需要修改的系统资源。
+pub struct InitCtx<'a> {
+    pub driver: &'a mut SimulationDriver,
+    pub commands: Commands<'a, 'a>,
+    pub world: &'a mut SimulationWorld,
+    pub recorder: &'a mut ReplayRecorder,
+    pub cmd_buf: &'a mut CommandBuffer,
+    pub tick_clock: &'a mut TickClock,
+    pub map_size: MapSize,
+    pub seed: u64,
+    pub session_active: &'a mut bool, // bootstrap 重入守卫
+}
+```
+
+`session_active` 在 bootstrap 入口检查已激活则跳过；出口设 true。防止重入。
+
+### D6: connect_and_handshake — 传输层适配
+
+现有传输层（transport.rs）的工作方式：
+
+- `spawn_network_client()` 在后台 tokio 线程上启动 TCP 连接
+- relay 在 TCP accept 后**立即发送 `GameJoined`**（无需客户端先发送 JoinGame）
+- transport 的异步读取循环 (`run_client`) 收到 `GameJoined`，但当前只打印，不回传 player_id
+
+`connect_and_handshake()` 需要一个通道把 GameJoined 中的 player_id 从 tokio 线程带回 caller：
+
+```rust
+// transport.rs 的改动：为 spawn_network_client 增加一个参数
+// 用于接收跨线程的 GameJoined 结果
+pub fn spawn_network_client_with_game_joined(
+    relay_addr: String, game_id: u64, ruleset_version: u32,
+) -> (mpsc::Receiver<u8>, NetworkReceiver, NetworkSender, NetworkClientHandle)
+//                                          ↑ 收到 GameJoined 后发送 player_id
+
+// connect_and_handshake 包装：
+pub fn connect_and_handshake(
+    relay_addr: &str,
+) -> Result<(u8, NetworkReceiver, NetworkSender, NetworkClientHandle), String> {
+    let (game_joined_rx, rx, tx, handle) =
+        spawn_network_client_with_game_joined(relay_addr.to_string(), 1, 1);
+    let player_id = game_joined_rx
+        .recv_timeout(Duration::from_secs(5))
+        .map_err(|_| "Handshake timeout".to_string())?;
+    Ok((player_id, rx, tx, handle))
+}
+```
+
+transport.rs 改动量：约 10 行（新增 `spawn_network_client_with_game_joined` + `run_client` 中的 `game_joined_tx.send()`）。relay 协议不变。
+
+### D7: SessionActive — 重入守卫
+
+```rust
+/// 标记 bootstrap 已完成。防止 scene reload 导致 bootstrap 重入。
+pub struct SessionActive;
+```
+
+在 `wire()` 末尾通过 `commands.insert_resource(SessionActive)` 插入。`bootstrap()` 入口检查 `InitCtx.session_active`，已激活则跳过。
+
+### D8: 辅助函数与参数来源
+
+- **`game_id`**：当前所有 relay 会话使用 `game_id = 1`。未来由 relay 在 handshake 中下发（预留字段）。
+- **`load_replay(path)`**：从文件路径加载 `ReplayFile`。已有 `ReplayFile::from_ron()` / `ReplayFile::open()` 可用。路径由 SessionConfig.mode 携带。
+- **`init_world(ctx)`** / **`setup_recorder(ctx)`**：现有 `reset_game_system` 中的世界初始化和录制配置逻辑。
+
+### D9: Bootstrap 是唯一允许构造 CommandSource 的入口
 
 > **S1：SessionBootstrap 是唯一允许构造 `CommandSource`、创建 `NetworkClientHandle`、切换 Driver Source 的入口；任何其他系统不得直接修改 Driver 的 `CommandSource`。**
 
 防止 debug 系统、UI 系统或工具系统直接替换 `driver.source`，破坏初始化边界。
 
-### D6: 对局参数的来源
+### D10: 对局参数的来源
 
 - Network mode 的 **seed** 来自 relay 侧，不是本机随机生成
 - Network mode 的 **map_size** 由 relay 协商确认，UI 不提供地图选择（UI 仅输入 relay 地址和玩家数量）
@@ -311,7 +378,7 @@ pub fn bootstrap(config: SessionConfig, ctx: &mut InitCtx) -> Result<(), String>
 - **[map_size 双源]** → Network mode 下 relay authoritative，UI 值仅作为 hint
 - **[bootstrap 重入]** → `SessionActive` resource 守卫，one-shot 约束
 - **[SessionConfig lifecycle]** → 已约束为 init-only，不进入 tick 路径
-- **[Bootstrap 等待运行时事件]** → 禁止。Bootstrap 可以等待握手协议完成（JoinGame → GameJoined），但不得等待或消费 TickBatch、Disconnect 等运行时事件。
+- **[connect_and_handshake vs transport protocol]** → transport.rs 有约 10 行的适配改动（GameJoined 通道），协议本身不变。设计中已明确这组改动
 
 ---
 
@@ -321,6 +388,7 @@ pub fn bootstrap(config: SessionConfig, ctx: &mut InitCtx) -> Result<(), String>
 |------|------|
 | `crates/render_view/src/ui/network_panel.rs` | **新文件** — 联机输入面板 UI（relay 地址 + player_count） |
 | `crates/render_view/src/session.rs` | **新文件** — GameIntent enum + resolve_intent() 纯函数 |
+| `crates/bevy_adapter/src/transport.rs` | **修改** — 新增 `spawn_network_client_with_game_joined`，约 10 行 |
 | `crates/bevy_adapter/src/session.rs` | **新文件** — SessionConfig, SessionMode, SessionArtifacts, SessionBootstrap |
 | `crates/bevy_adapter/src/lib.rs` | 注册 session 模块 |
 | `crates/render_view/src/lib.rs` | reset_game_system 调用 resolve_intent + bootstrap；NeedsGameReset 消费 GameIntent |
@@ -330,6 +398,8 @@ pub fn bootstrap(config: SessionConfig, ctx: &mut InitCtx) -> Result<(), String>
 **不改动：**
 - `driver.rs` — 不变（CommandSource enum + trait 不变）
 - `network.rs` — 不变
-- `transport.rs` — 不变（GameJoined 已在 transport 运行时域中处理）
 - `relay/` — 不变
 - `simulation/` — 不变
+
+**微小改动：**
+- `transport.rs` — 新增 `spawn_network_client_with_game_joined`（约 10 行），为 bootstrap 提供 GameJoined 通道
