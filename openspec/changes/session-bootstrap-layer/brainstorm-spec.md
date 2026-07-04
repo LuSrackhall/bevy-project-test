@@ -110,21 +110,30 @@ pub struct SessionConfig {
 }
 
 pub enum SessionMode {
-    Single,
+    Single { map_size: MapSize },
     Replay { path: PathBuf },
     Network { relay_addr: String, player_count: u8 },
 }
 
-/// 初始化产物——Initializer 的返回值。
-/// 包含初始化完成后的所有依赖对象，供 SessionBootstrap 进行 wiring。
-pub struct SessionArtifacts {
-    pub source: CommandSource,
-    pub transport: Option<TransportResources>,
-    // future: replay_reader, metrics, benchmark_state
+/// 初始化产物——enum 表达不同模式的产物形态。
+/// 非 Option——每个变体精确描述该模式的资源集合。
+pub enum SessionArtifacts {
+    Live,
+    Replay { replay: ReplayFile },
+    Network(NetworkBootstrapResult),
+}
+
+/// Network initializer 返回的握手结果。
+/// 不含 CommandSource——由 wire() 统一构造。
+pub struct NetworkBootstrapResult {
+    pub player_id: u8,
+    pub receiver: NetworkReceiver,
+    pub sender: NetworkSender,
+    pub handle: NetworkClientHandle,
 }
 
 /// Initializer 创建的传输层资源。
-/// 由 SessionBootstrap 注册为 Bevy Resources，供 transport poll/flush systems 使用。
+/// 由 wire() 注册为 Bevy Resources。
 pub struct TransportResources {
     pub receiver: NetworkReceiver,
     pub sender: NetworkSender,
@@ -132,18 +141,18 @@ pub struct TransportResources {
 }
 ```
 
-### D3: resolve_intent（纯函数，在 bevy_adapter 中）
+### D3: resolve_intent（纯函数，在 render_view 中）
 
 ```rust
-// bevy_adapter/src/session.rs
+// render_view/src/session.rs
 
-/// GameIntent 是 UI 层类型（render_view）。
-/// resolve_intent() 是翻译函数（bevy_adapter）——从 UI 语义到 adapter 初始化协议。
+/// GameIntent 是 UI 层类型，resolve_intent() 是翻译函数。
+/// render_view 已依赖 bevy_adapter，因此翻译放在 render_view 避免反向依赖。
 /// 纯数据转换，无 I/O 无副作用。
 pub fn resolve_intent(intent: GameIntent) -> SessionConfig {
     match intent {
-        GameIntent::Single { .. } => SessionConfig {
-            mode: SessionMode::Single,
+        GameIntent::Single { map_size } => SessionConfig {
+            mode: SessionMode::Single { map_size },
         },
         GameIntent::Replay { path } => SessionConfig {
             mode: SessionMode::Replay { path },
@@ -208,70 +217,62 @@ pub fn initialize() -> Result<(), String> {
 
 **返回值对照：**
 
-| 模式 | initialize 返回 | dispatch 构造的 source |
-|------|----------------|----------------------|
-| Single | `()` | `LiveCommandSource` |
-| Replay | `ReplayFile` | `ReplayCommandSource { replay }` |
-| Network | `NetworkBootstrapResult` | `CommandSource::Network(ns)` |
+| 模式 | initialize 返回 | dispatch 组合 |
+|------|----------------|---------------|
+| Single | `()` | `SessionArtifacts::Live` |
+| Replay | `ReplayFile` | `SessionArtifacts::Replay { replay }` |
+| Network | `NetworkBootstrapResult` | `SessionArtifacts::Network(result)` |
 
-#### dispatch（registry + construction）
+#### dispatch（registry）
 
 ```rust
 fn dispatch(config: &SessionConfig) -> Result<SessionArtifacts, String> {
     let artifacts = match &config.mode {
-        SessionMode::Single => {
+        SessionMode::Single { .. } => {
             session::single::initialize()?;
-            SessionArtifacts::new_live()
+            SessionArtifacts::Live
         }
         SessionMode::Replay { .. } => {
             let replay = session::replay::initialize(&config)?;
-            SessionArtifacts::new_replay(replay)
+            SessionArtifacts::Replay { replay }
         }
         SessionMode::Network { .. } => {
             let result = session::network::initialize(&config)?;
-            SessionArtifacts::new_network(result)
+            SessionArtifacts::Network(result)
         }
     };
     Ok(artifacts)
 }
 ```
 
-```rust
-pub struct SessionArtifacts {
-    pub source: CommandSource,
-    pub transport: Option<TransportResources>,
-}
+#### wire（CommanSource 构造 + 资源注册）
 
-impl SessionArtifacts {
-    /// 构造方法封装 CommandSource 创建逻辑。
-    fn new_network(result: NetworkBootstrapResult) -> Self {
-        let ns = NetworkCommandSource::new(
-            1, result.player_id, 3, result.receiver, result.sender,
-        );
-        Self {
-            source: CommandSource::Network(ns),
-            transport: Some(TransportResources {
+`wire()` 按 artifact 类型分支，构造对应的 CommanSource 并注册资源。此分支是生命周期分派（artifact type dispatch），不是业务判断。
+
+```rust
+fn wire(artifacts: SessionArtifacts, ctx: &mut InitCtx) {
+    match artifacts {
+        SessionArtifacts::Live => {
+            ctx.driver.source = CommanSource::Live(LiveCommanSource);
+        }
+        SessionArtifacts::Replay { replay } => {
+            ctx.driver.source = CommanSource::Replay(ReplayCommanSource { replay });
+        }
+        SessionArtifacts::Network(result) => {
+            let ns = NetworkCommanSource::new(
+                1, result.player_id, 3,
+            );
+            ctx.driver.source = CommanSource::Network(ns);
+            ctx.insert_resource(TransportResources {
                 receiver: result.receiver,
                 sender: result.sender,
                 handle: result.handle,
-            }),
+            });
         }
     }
-
-    fn new_replay(replay: ReplayFile) -> Self {
-        Self {
-            source: CommandSource::Replay(ReplayCommandSource { replay }),
-            transport: None,
-        }
-    }
-
-    fn new_live() -> Self {
-        Self {
-            source: CommandSource::Live(LiveCommandSource),
-            transport: None,
-        }
-    }
+    ctx.driver.phase = BootstrapPhase::Wired;
 }
+```
 ```
 
 因此：
@@ -279,59 +280,11 @@ impl SessionArtifacts {
 - 不应 `Rc`/`Arc` 跨线程共享（`TransportResources` 内部的 `Arc` 是 bridge 实现细节，不属于共享 artifact 本身）
 - 不应跨 runtime 生命周期保存
 
-重入 bootstrap 会导致：双 driver source overwrite、transport resource leak（多 receiver/sender instance）。D7 的 `SessionActive` 守卫 + D4.1 的 single-consumption semantic 共同防止此问题。
+重入 bootstrap 会导致：双 driver source overwrite、transport resource leak（多 receiver/sender instance）。BootstrapPhase + D4.1 的 single-consumption semantic 共同防止此问题。
 
 此原则作用于 session-bootstrap-layer 变更引入的抽象，非全局宪法。
 
-SessionBootstrap 分两阶段：dispatch（类型安全）→ wire：
-
-```
-Phase 1: initializer.initialize(cfg)  →  SessionArtifacts
-Phase 2: SessionBootstrap::wire       → 写 driver.source、insert resources、setup world/recorder
-```
-
-```rust
-/// 注册：把 SessionMode 映射到具体 Initializer。
-/// 这是唯一需要了解所有模式的地方。
-fn dispatch(config: &SessionConfig) -> Result<SessionArtifacts, String> {
-    match &config.mode {
-        SessionMode::Single => {
-            SingleInitializer.initialize(&())?
-        }
-        SessionMode::Replay { path } => {
-            ReplayInitializer.initialize(&ReplaySessionConfig { path: path.clone() })?
-        }
-        SessionMode::Network { relay_addr, player_count } => {
-            NetworkInitializer.initialize(&NetworkSessionConfig {
-                relay_addr: relay_addr.clone(),
-                player_count: *player_count,
-            })?
-        }
-    }
-}
-
-/// Wire：把初始化产物接入 Bevy 系统资源。
-/// 纯 wiring，不知模式类型。可单测。
-fn wire(ctx: &mut InitCtx, artifacts: SessionArtifacts) {
-    ctx.driver.source = artifacts.source;
-    // 注册传输层资源（如有）
-    if let Some(t) = artifacts.transport {
-        ctx.insert_resource(t.receiver);
-        ctx.insert_resource(t.sender);
-        ctx.insert_network_handle(t.handle);
-    }
-    setup_recorder(ctx);
-    init_world(ctx);
-}
-
-pub fn bootstrap(config: SessionConfig, ctx: &mut InitCtx) -> Result<(), String> {
-    let artifacts = dispatch(&config)?;
-    wire(ctx, artifacts);
-    Ok(())
-}
-```
-
-三层各司其职：`dispatch` = registry（可扩展）；`initialize` = I/O（每种模式独立）；`wire` = 系统对接（模式无关）。
+dispatch 和 wire 的实现见 D4 中的定义（dispatch = registry, wire = 对象图装配）。
 
 ### D5: InitCtx — wiring 上下文
 
@@ -357,7 +310,7 @@ pub struct InitCtx<'a> {
 
 | 允许的操作 | 示例 |
 |-----------|------|
-| **assignment** | `driver.source = artifacts.source` |
+| **assignment** | `driver.source = ...`（由 wire 根据 artifact 类型构造） |
 | **registration** | `insert_resource(transport.receiver)` |
 | **deterministic initialization** | `init_world(ctx)`, `setup_recorder(ctx)` |
 
@@ -404,60 +357,55 @@ pub fn connect_and_handshake(
 
 transport.rs 改动量：约 10 行（新增 `spawn_network_client_with_game_joined` + `run_client` 中的 `game_joined_tx.send()`）。relay 协议不变。
 
+**实现说明：** 当前 `connect_and_handshake()` 采用同步阻塞实现（`recv_timeout(5s)`），适用于 Phase 1 bootstrap。未来可演进为异步 bootstrap 状态机（`Connecting → WaitingHandshake → Ready`），以支持 reconnect、hot join 等场景。不要在文档中将同步阻塞固化为架构不变性。
+
 **错误清理约束：** `connect_and_handshake()` 超时或失败时，必须确保 tokio 线程已停止、TCP 连接已关闭。失败路径上残留的后台线程会导致 ghost client（已连接但未完成 bootstrap 的客户端）。实现方式：`NetworkClientHandle` 在失败时调用 `handle.abort()`（tokio JoinHandle::abort）或通过 drop guard 自动清理。
 
 **P4/P8 约束：`GameJoined` 是 session-initialization-only barrier，不是 gameplay event。** 它只用于 session creation，**不得代表对已有 session 的重新进入（re-entry）**。reconnect 场景下需通过独立的 `ReconnectResponse` + `ResyncCompleted` 路径处理。`GameJoined` 一旦被用于 bootstrap，其语义即封闭——不可在 runtime 中重新发送或复用。
 
 ### D7: BootstrapPhase（唯一生命周期状态）
 
-无 `SessionActive` resource。Bootstrap 重入守卫通过 `BootstrapPhase` 实现。`wire()` 入口检查 `driver.phase == BootstrapPhase::Init`，已非 Init 则跳过（防止重入）。
+无 `SessionActive` resource。Bootstrap 重入守卫通过 `BootstrapPhase` 实现：`wire()` 入口检查 `driver.phase == Init`，已非 Init 则跳过。
 
 #### BootstrapPhase 定义
 
-消除 `SessionBootstrapped`（ECS resource）+ `NetworkCommandSource.activated`（内部字段）的双 gate，合并为 **`SimulationDriver.bootstrap_phase`**，由 driver 管理，非 deferred，不存在帧间窗口问题：
-
 ```rust
+/// Driver 的生命周期状态。由 bootstrap 控制，runtime 只读。
 pub enum BootstrapPhase {
-    /// 初始状态。bootstrap 进入前。
+    /// 初始状态。bootstrap 进入前或已结束。
     Init,
-    /// wire() 完成。driver.source 已设置，transport resources 已插入。
-    /// 但 tick loop 应等待 transport resources 下一帧可见后再开始。
-    Wired,
-    /// 激活 system 将 phase 推到此处后，tick loop 才允许运行。
-    /// 此赋值不在 deferred Commands 中——直接写 struct field。
+    /// Tick loop 可执行。wire() 完成 + transport resources 可见。
     Active,
 }
 ```
 
-`wire()` 末尾设 `driver.phase = Wired`（立即生效，非 deferred）。
+`wire()` 中设 `driver.phase = Wired`（立即写入，非 deferred），由 `check_wired` system 在下一帧推进为 `Active`。`Wired` 是 ECS timing 实现细节（Bevy Commands deferred 导致资源在一帧后才可⻅），不在生命周期语义中暴露：
 
 ```rust
+// wire() 末尾（立即生效）：
+ctx.driver.phase = BootstrapPhase::Wired;  // impl detail
+
+// 下一帧（resources 已可⻅）：
 fn check_wired(mut driver: ResMut<SimulationDriver>) {
-    match driver.phase {
-        BootstrapPhase::Wired => {
-            // SessionActive already inserted by wire() as deferred resource
-            if has_resource::<SessionActive>() {
-                driver.phase = BootstrapPhase::Active;
-            }
-        }
-        BootstrapPhase::Active => { /* operation normal */ }
-        _ => {}
+    if matches!(driver.phase, BootstrapPhase::Init) {
+        // 等待 wire() 完成
+    } else if driver.phase == BootstrapPhase::Wired
+        && has_resource::<TransportResources>()
+    {
+        driver.phase = BootstrapPhase::Active;
     }
 }
-```
 
-`simulation_driver_system` 入口检查：
-
-```rust
+// simulation_driver_system：
 fn simulation_driver_system(...) {
     if driver.phase != BootstrapPhase::Active { return; }
-    // ... normal tick loop
+    // tick loop...
 }
 ```
 
-**宪法对齐：** 消除了对 ECS resource timing 的依赖（§2.5.5 Scheduler 域盲）。driver readiness 由 driver 内部状态管理，不再依赖 `world.has(SessionBootstrapped)`。
+**宪法对齐：** 消除了对 ECS resource timing 的依赖（§2.5.5 Scheduler 域盲）。`driver.phase` 由 driver 内部状态管理。
 
-**隐含前提（P1）：Bootstrap execution is linear, single-shot, non-overlapping。** 不能并发、不能重入、不能 partial bootstrap（必须 success/fail atomic）。`SessionActive` + `one-shot ownership` 共同保证这一语义。
+**P9：Bootstrap 不得泄漏初始化对象进入 Runtime。** `SessionConfig`、`NetworkBootstrapResult`、`SessionArtifacts` 经过 wire() 后不得继续存活。真正进入 Runtime 的只能是 `SimulationDriver`、`TransportResources`、`World`、`TickClock` 等运行时组件。Bootstap 层的任何类型不应在 Playing 状态下被任何 system 访问。
 
 **隐含前提（P3）：TransportResources are session-scoped exclusive handles。** transport sender/receiver 不能跨 session reuse，否则 relay 会出现 ghost client。D4.1 的 exactly-once consumption 保证这一点——wire() 注册后 Artifacts 被释放，transport 资源绑定到当前 session 生命周期。
 
