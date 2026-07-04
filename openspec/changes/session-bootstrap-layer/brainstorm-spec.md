@@ -136,11 +136,14 @@ pub struct TransportResources {
 }
 ```
 
-### D3: resolve_intent（纯函数，在 render_view 中）
+### D3: resolve_intent（纯函数，在 bevy_adapter 中）
 
 ```rust
-// render_view/src/session.rs 或 ui/session.rs
+// bevy_adapter/src/session.rs
 
+/// UI 发出的 GameIntent → Driver 的 SessionConfig。
+/// 纯数据转换，无 I/O 无副作用。
+/// 放在 bevy_adapter 而不是 render_view，因为 SessionConfig/SessionMode 是 adapter 层概念。
 pub fn resolve_intent(intent: GameIntent) -> SessionConfig {
     match intent {
         GameIntent::Single { .. } => SessionConfig {
@@ -156,96 +159,137 @@ pub fn resolve_intent(intent: GameIntent) -> SessionConfig {
 }
 ```
 
-- **不填充 player_id** — 由 relay 在 handshake 时分配，通过 GameJoined 事件写入
-- **不填充 input_delay** — 属于网络 policy，bootstrap 层提供默认值
-- **不填充 seed** — relay authoritative
-- 100% 纯函数，无 I/O 无副作用无 network access
+语义翻译属于目标层（adapter），不属于源层（UI）。`GameIntent` 是 UI semantic，`SessionConfig` 是 driver semantic。转换逻辑在 adapter 中，UI 只产生 intent，不触碰 adapter 的初始化协议。
 
-### D4: SessionInitializer trait（开放-封闭原则）
+### D4: 模块化 Initializer（非 trait）
 
-每种 SessionMode 对应一个 Initializer。每个 Initializer 通过关联类型 `Config` 声明自己需要的配置，编译期保证类型匹配，不需要运行时 match。
+对于 3 种 SessionMode，直接用模块级函数而非 trait，等模式扩展到 5-6 个以上再引入抽象。
 
 ```rust
-// 每种模式自己的 config 类型
-pub struct ReplaySessionConfig { pub path: PathBuf }
-pub struct NetworkSessionConfig {
-    pub relay_addr: String,
-    pub player_count: u8,
-}
-// SingleInitializer 使用 () 作为 Config——无配置本身也表达"无需参数"
+// bevy_adapter/src/session/network.rs
 
-/// SessionInitializer 仅负责产生初始化产物。
-/// 不接触 SimulationWorld、Driver、Recorder、cmd_buf。
-pub trait SessionInitializer {
-    type Config;
-    fn initialize(&self, cfg: &Self::Config) -> Result<SessionArtifacts, String>;
+/// NetworkInitializer 只返回握手结果，不构造 CommandSource。
+/// CommandSource 由 dispatch() 统一构建。
+pub struct NetworkBootstrapResult {
+    pub player_id: u8,
+    pub receiver: NetworkReceiver,
+    pub sender: NetworkSender,
+    pub handle: NetworkClientHandle,
+}
+
+/// 建立连接、完成握手、返回 bootstrap facts。
+/// I/O 层，唯一 side effect。
+pub fn initialize(cfg: &SessionConfig) -> Result<NetworkBootstrapResult, String> {
+    let relay_addr = match &cfg.mode {
+        SessionMode::Network { relay_addr, .. } => relay_addr,
+        _ => return Err("Not a Network session".into()),
+    };
+    let player_id = connect_and_handshake(relay_addr)?;
+    Ok(NetworkBootstrapResult { player_id, receiver: ..., sender: ..., handle: ... })
 }
 ```
 
-每种 Initializer 只知道自己的 config：
+```rust
+// bevy_adapter/src/session/replay.rs
+
+pub fn initialize(cfg: &SessionConfig) -> Result<ReplayFile, String> {
+    let path = match &cfg.mode {
+        SessionMode::Replay { path } => path,
+        _ => return Err("Not a Replay session".into()),
+    };
+    let replay = load_replay(path)?;
+    Ok(replay)
+}
+```
 
 ```rust
-struct NetworkInitializer;
-impl SessionInitializer for NetworkInitializer {
-    type Config = NetworkSessionConfig;
-    fn initialize(&self, cfg: &NetworkSessionConfig) -> Result<SessionArtifacts, String> {
-        let input_delay = 3;
-        let (player_id, rx, tx, handle) = connect_and_handshake(&cfg.relay_addr)?;
-        let ns = NetworkCommandSource::new(1, player_id, input_delay);
-        Ok(SessionArtifacts {
+// bevy_adapter/src/session/single.rs
+
+pub fn initialize() -> Result<(), String> {
+    Ok(()) // LiveCommandSource 无参数
+}
+```
+
+**返回值对照：**
+
+| 模式 | initialize 返回 | dispatch 构造的 source |
+|------|----------------|----------------------|
+| Single | `()` | `LiveCommandSource` |
+| Replay | `ReplayFile` | `ReplayCommandSource { replay }` |
+| Network | `NetworkBootstrapResult` | `CommandSource::Network(ns)` |
+
+#### dispatch（registry + construction）
+
+```rust
+fn dispatch(config: &SessionConfig) -> Result<SessionArtifacts, String> {
+    let artifacts = match &config.mode {
+        SessionMode::Single => {
+            session::single::initialize()?;
+            SessionArtifacts::new_live()
+        }
+        SessionMode::Replay { .. } => {
+            let replay = session::replay::initialize(&config)?;
+            SessionArtifacts::new_replay(replay)
+        }
+        SessionMode::Network { .. } => {
+            let result = session::network::initialize(&config)?;
+            SessionArtifacts::new_network(result)
+        }
+    };
+    artifacts.validate()?;
+    Ok(artifacts)
+}
+```
+
+```rust
+pub struct SessionArtifacts {
+    pub source: CommandSource,
+    pub transport: Option<TransportResources>,
+}
+
+impl SessionArtifacts {
+    /// 构造方法封装 CommandSource 创建逻辑。
+    fn new_network(result: NetworkBootstrapResult) -> Self {
+        let ns = NetworkCommandSource::new(
+            1, result.player_id, 3, result.receiver, result.sender,
+        );
+        Self {
             source: CommandSource::Network(ns),
             transport: Some(TransportResources {
-                receiver: rx,
-                sender: tx,
-                handle,
+                receiver: result.receiver,
+                sender: result.sender,
+                handle: result.handle,
             }),
-        })
+        }
     }
-}
 
-struct SingleInitializer;
-impl SessionInitializer for SingleInitializer {
-    type Config = ();
-    fn initialize(&self, _cfg: &()) -> Result<SessionArtifacts, String> {
-        Ok(SessionArtifacts {
-            source: CommandSource::Live(LiveCommandSource),
-            transport: None,
-        })
-    }
-}
-
-struct ReplayInitializer;
-impl SessionInitializer for ReplayInitializer {
-    type Config = ReplaySessionConfig;
-    fn initialize(&self, cfg: &ReplaySessionConfig) -> Result<SessionArtifacts, String> {
-        let replay = load_replay(&cfg.path)?;
-        Ok(SessionArtifacts {
+    fn new_replay(replay: ReplayFile) -> Self {
+        Self {
             source: CommandSource::Replay(ReplayCommandSource { replay }),
             transport: None,
-        })
+        }
+    }
+
+    fn new_live() -> Self {
+        Self {
+            source: CommandSource::Live(LiveCommandSource),
+            transport: None,
+        }
+    }
+
+    /// D4.1c: artifact 不变量检查。
+    /// 不依赖 SessionMode，只校验类型一致性约束。
+    pub fn validate(&self) -> Result<(), String> {
+        match &self.source {
+            CommandSource::Network(_) if self.transport.is_none() =>
+                Err("Network source requires transport resources".into()),
+            CommandSource::Replay(_) if self.transport.is_some() =>
+                Err("Replay source must not have transport resources".into()),
+            _ => Ok(()),
+        }
     }
 }
 ```
-
-### D4.1 SessionArtifacts Ownership
-
-`SessionArtifacts` 是初始化阶段的一次性所有权对象（one-shot ownership），**必须被恰好消费一次（consumed exactly once）**：
-
-- **Initializer 创建它**
-- **`wire()` 必须在一个 pass 内完全分解它（fully deconstruct in one pass）**——将内部资源分别注册到 Driver、Bevy Resources、Recorder，不允许 deferred injection 或 lazy registration
-- **`wire()` 完成后，`SessionArtifacts` 不再存在**
-
-**D4.1b：`SessionArtifacts` 是 schema closure invariant（模式闭合不变量）。** 任何新增/修改字段必须经过 initializer + dispatch 通道，不允许在 `wire()` 层扩展 artifact 结构。`wire()` 只消费已存在的字段，不增补、不演化 artifact schema。此约束保证：artifact 的演化路径在 dispatch 和 initializer 中可见，不会出现 wire 层悄悄新增资源注册路径而不被 dispatch 感知。
-
-**D4.1c：artifact validation boundary。** `dispatch()` 在将 artifacts 交给 `wire()` 之前应调用 `validate_artifacts()` 做 invariants 检查。此函数不依赖 SessionMode，只校验类型一致性约束：
-
-| 约束 | 检查 |
-|------|------|
-| Network mode | `transport.is_some()` |
-| Replay/Single mode | `transport.is_none()` |
-| 所有 mode | `source` 字段非空，与 SessionMode 语义一致 |
-
-`validate_artifacts()` 在 dispatch 中作为最后一步调用。若失败，bootstrap 终止并返回错误。这是「initializer → dispatch → wire」管道的最后一道静态收口。
 
 因此：
 - 不应 `Clone`
@@ -379,16 +423,11 @@ transport.rs 改动量：约 10 行（新增 `spawn_network_client_with_game_joi
 
 **P4/P8 约束：`GameJoined` 是 session-initialization-only barrier，不是 gameplay event。** 它只用于 session creation，**不得代表对已有 session 的重新进入（re-entry）**。reconnect 场景下需通过独立的 `ReconnectResponse` + `ResyncCompleted` 路径处理。`GameJoined` 一旦被用于 bootstrap，其语义即封闭——不可在 runtime 中重新发送或复用。
 
-### D7: BootstrapPhase + SessionActive
+### D7: BootstrapPhase（唯一生命周期状态）
 
-```rust
-/// 标记 bootstrap 已开始。防止 scene reload 导致 bootstrap 重入。
-pub struct SessionActive;
-```
+无 `SessionActive` resource。Bootstrap 重入守卫通过 `BootstrapPhase` 实现。`wire()` 入口检查 `driver.phase == BootstrapPhase::Init`，已非 Init 则跳过（防止重入）。
 
-在 `wire()` 末尾通过 `commands.insert_resource(SessionActive)` 插入。`bootstrap()` 入口通过检查 `BootstrapPhase`（`driver.phase == BootstrapPhase::Init`）防止重入。
-
-#### BootstrapPhase
+#### BootstrapPhase 定义
 
 消除 `SessionBootstrapped`（ECS resource）+ `NetworkCommandSource.activated`（内部字段）的双 gate，合并为 **`SimulationDriver.bootstrap_phase`**，由 driver 管理，非 deferred，不存在帧间窗口问题：
 
