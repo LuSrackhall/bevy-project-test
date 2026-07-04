@@ -92,6 +92,7 @@ impl Plugin for BevyAdapterPlugin {
             .add_systems(
                 Update,
                 (
+                    crate::driver::check_wired_system.before(SimulationTickSet),
                     crate::driver::simulation_driver_system.in_set(SimulationTickSet),
                     crate::lifecycle::sync_entities_system.in_set(crate::lifecycle::SyncEntitiesSet),
                 )

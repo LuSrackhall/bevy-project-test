@@ -9,29 +9,30 @@
 
 ## 2. 数据结构定义
 
-- [ ] 2.1 定义 `GameIntent` enum（Single/Replay/Network，在 render_view）
-- [ ] 2.2 定义 `SessionConfig` + `SessionMode`（在 bevy_adapter）
-- [ ] 2.3 定义 `SessionArtifacts` enum（Live/Replay/Network）
-- [ ] 2.4 定义 `NetworkBootstrapResult` + `TransportResources`
-- [ ] 2.5 定义 `BootstrapPhase`（Init/Wired/Active）
-- [ ] 2.6 新增 `bootstrap_phase: BootstrapPhase` 到 SimulationDriver
+- [x] 2.1 定义 `GameIntent` enum（Single/Replay/Network，在 render_view）
+- [x] 2.2 定义 `SessionConfig` + `SessionMode`（在 bevy_adapter）
+- [x] 2.3 定义 `SessionArtifacts` enum（Live/Replay/Network）
+- [x] 2.4 定义 `NetworkBootstrapResult` + `TransportResources`
+- [x] 2.5 定义 `BootstrapPhase`（Init/Wired/Active）
+- [x] 2.6 新增 `bootstrap_phase: BootstrapPhase` 到 SimulationDriver
 
 ## 3. 初始化器实现
 
-- [ ] 3.1 实现 `session::single::initialize()`（无参数，返回 ()）
-- [ ] 3.2 实现 `session::replay::initialize()`（加载 ReplayFile）
-- [ ] 3.3 实现 `session::network::initialize()`（connect_and_handshake）
-- [ ] 3.4 实现 `connect_and_handshake()`（spawn_network_client_with_game_joined + recv_timeout + 错误清理）
+- [x] 3.1 实现 `session::single::initialize()`（无参数，返回 ()）
+- [x] 3.2 实现 `session::replay::initialize()`（加载 ReplayFile）
+- [x] 3.3 实现 `session::network::initialize()`（connect_and_handshake）
+- [x] 3.4 实现 `connect_and_handshake()`（spawn_network_client_with_game_joined + recv_timeout + 错误清理）
 
 ## 4. Bootstrap 管道
 
-- [ ] 4.1 实现 `resolve_intent()`（GameIntent → SessionConfig，render_view）
-- [ ] 4.2 实现 `dispatch()`（根据 SessionMode 调用对应 initializer）
-- [ ] 4.3 实现 `wire()`（按 artifact 类型构造 CommandSource + 注册资源 + 固定写入顺序）
-- [ ] 4.4 实现 `SessionArtifacts::D4.1` move-only 约束（无 Clone, 无 Arc）
-- [ ] 4.5 实现 BootstrapPhase 重入守卫（检查 phase == Init）
-- [ ] 4.6 实现 P10：commit 顺序（init_world → recorder → resources → driver.source → phase = Wired）
-- [ ] 4.7 实现 transition: check_wired system（Wired → Active）
+- [x] 4.1 实现 `resolve_intent()`（GameIntent → SessionConfig，render_view）
+- [x] 4.2 实现 `dispatch()`（根据 SessionMode 调用对应 initializer）
+- [x] 4.3 实现 `wire()`（按 artifact 类型构造 CommandSource + 注册资源 + 固定写入顺序）
+- [x] 4.4 实现 `SessionArtifacts::D4.1` move-only 约束（无 Clone, 无 Arc）
+- [x] 4.5 实现 BootstrapPhase 重入守卫（检查 phase == Init）
+- [x] 4.6 实现 P10：commit 顺序（init_world → recorder → resources → driver.source → phase = Wired）
+- [x] 4.7 实现 transition: check_wired system（Wired → Active）
+- [x] 4.8 集成 check_wired system 到 BevyPlugin 的 system set（位于 simulation_driver_system 之前）
 
 ## 5. UI 入口
 
@@ -42,8 +43,8 @@
 
 ## 6. transport 适配
 
-- [ ] 6.1 transport.rs 新增 `spawn_network_client_with_game_joined`（含 GameJoined 通道）
-- [ ] 6.2 transport.rs 新增错误清理（失败时 abort tokio 线程）
+- [x] 6.1 transport.rs 新增 `spawn_with_game_joined`（含 GameJoined 通道）
+- [x] 6.2 transport.rs 新增错误清理（失败时 abort tokio 线程，abort() 方法）
 
 ## 7. 测试
 

@@ -233,6 +233,23 @@ fn world_fingerprint(sim_world: &mut SimulationWorld) -> u64 {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// check_wired_system — BootstrapPhase Wired → Active
+// ═══════════════════════════════════════════════════════════════
+
+/// Check if transport resources are available and transition to Active.
+/// Runs BEFORE simulation_driver_system.
+pub fn check_wired_system(
+    mut driver: ResMut<SimulationDriver>,
+    transport_exists: Option<Res<crate::transport::NetworkReceiver>>,
+) {
+    if driver.bootstrap_phase == crate::session::bootstrap::BootstrapPhase::Wired
+        && transport_exists.is_some()
+    {
+        driver.bootstrap_phase = crate::session::bootstrap::BootstrapPhase::Active;
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
 // simulation_driver_system — 统一驱动系统
 // ═══════════════════════════════════════════════════════════════
 
@@ -259,6 +276,13 @@ pub fn simulation_driver_system(
     if driver.scheduler.async_seek {
         let ctx = DriverContext { bevy_cmds: &cmd_buf };
         handle_seek(&mut driver, &mut sim_world, &ctx);
+        return;
+    }
+
+    // D7: Only advance ticks during Active phase.
+    // Wired means bootstrap wire() completed but transport resources
+    // may not yet be visible (deferred Commits).
+    if driver.bootstrap_phase != crate::session::bootstrap::BootstrapPhase::Active {
         return;
     }
 
