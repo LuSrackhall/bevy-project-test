@@ -319,11 +319,10 @@ pub struct InitCtx<'a> {
     pub tick_clock: &'a mut TickClock,
     pub map_size: MapSize,
     pub seed: u64,
-    pub session_active: &'a mut bool, // bootstrap 重入守卫
 }
 ```
 
-`session_active` 在 bootstrap 入口检查已激活则跳过；出口设 true。防止重入。
+`wire()` 末尾设 `driver.phase = BootstrapPhase::Wired`（立即写入，非 deferred ECS Commands）。
 
 ### D5.1 wire() invariant
 
@@ -380,35 +379,59 @@ transport.rs 改动量：约 10 行（新增 `spawn_network_client_with_game_joi
 
 **P4/P8 约束：`GameJoined` 是 session-initialization-only barrier，不是 gameplay event。** 它只用于 session creation，**不得代表对已有 session 的重新进入（re-entry）**。reconnect 场景下需通过独立的 `ReconnectResponse` + `ResyncCompleted` 路径处理。`GameJoined` 一旦被用于 bootstrap，其语义即封闭——不可在 runtime 中重新发送或复用。
 
-### D7: SessionActive — 重入守卫
+### D7: BootstrapPhase + SessionActive
 
 ```rust
-/// 标记 bootstrap 已完成。防止 scene reload 导致 bootstrap 重入。
+/// 标记 bootstrap 已开始。防止 scene reload 导致 bootstrap 重入。
 pub struct SessionActive;
 ```
 
-在 `wire()` 末尾通过 `commands.insert_resource(SessionActive)` 插入。`bootstrap()` 入口检查 `InitCtx.session_active`，已激活则跳过。
+在 `wire()` 末尾通过 `commands.insert_resource(SessionActive)` 插入。`bootstrap()` 入口通过检查 `BootstrapPhase`（`driver.phase == BootstrapPhase::Init`）防止重入。
 
-**P5 约束（Bevy ordering fence）：Bootstrap 完成后需要二次 commit 信号。**
+#### BootstrapPhase
 
-由于 Bevy `Commands` 是 deferred 的（frame boundary commit），`wire()` 中 `driver.source = Network` 立即生效，但 `insert_resource(transport.receiver)` 要下一帧才可见，中间存在一个帧的时间窗口。
-
-**P5/P6 约束（单 gate 修正）：`NetworkCommandSource.activated: bool` 是唯一的 readiness 真相源。**
-
-`wire()` 中`driver.source = Network` 仅表示 intent，不表示可执行。`activated` 字段初始为 false，`is_tick_ready()` 返回 `self.activated && self.relay_buffer.contains_key(&tick)`。在 `SessionBootstrapped` 提交后的下一帧，由一个 system 统一激活：
+消除 `SessionBootstrapped`（ECS resource）+ `NetworkCommandSource.activated`（内部字段）的双 gate，合并为 **`SimulationDriver.bootstrap_phase`**，由 driver 管理，非 deferred，不存在帧间窗口问题：
 
 ```rust
-fn activate_network_source(mut driver: ResMut<SimulationDriver>) {
-    if let CommandSource::Network(ref mut ns) = driver.source {
-        ns.activated = true;  // 单 gate：resource visible + marker committed
+pub enum BootstrapPhase {
+    /// 初始状态。bootstrap 进入前。
+    Init,
+    /// wire() 完成。driver.source 已设置，transport resources 已插入。
+    /// 但 tick loop 应等待 transport resources 下一帧可见后再开始。
+    Wired,
+    /// 激活 system 将 phase 推到此处后，tick loop 才允许运行。
+    /// 此赋值不在 deferred Commands 中——直接写 struct field。
+    Active,
+}
+```
+
+`wire()` 末尾设 `driver.phase = Wired`（立即生效，非 deferred）。
+
+```rust
+fn check_wired(mut driver: ResMut<SimulationDriver>) {
+    match driver.phase {
+        BootstrapPhase::Wired => {
+            // SessionActive already inserted by wire() as deferred resource
+            if has_resource::<SessionActive>() {
+                driver.phase = BootstrapPhase::Active;
+            }
+        }
+        BootstrapPhase::Active => { /* operation normal */ }
+        _ => {}
     }
 }
 ```
 
-此 system 必须安排在 `SessionBootstrapped` 可见之后、`simulation_driver_system` 之前。这样：
-- 不依赖 ECS resource 插入 timing（宪法 §2.5.5：scheduler 应对 ECS 调度机制无感知）
-- 不存在"driver 已切 but not ready"的半激活帧
-- `activated = true` 是唯一 readiness 信号
+`simulation_driver_system` 入口检查：
+
+```rust
+fn simulation_driver_system(...) {
+    if driver.phase != BootstrapPhase::Active { return; }
+    // ... normal tick loop
+}
+```
+
+**宪法对齐：** 消除了对 ECS resource timing 的依赖（§2.5.5 Scheduler 域盲）。driver readiness 由 driver 内部状态管理，不再依赖 `world.has(SessionBootstrapped)`。
 
 **隐含前提（P1）：Bootstrap execution is linear, single-shot, non-overlapping。** 不能并发、不能重入、不能 partial bootstrap（必须 success/fail atomic）。`SessionActive` + `one-shot ownership` 共同保证这一语义。
 
@@ -447,7 +470,7 @@ fn activate_network_source(mut driver: ResMut<SimulationDriver>) {
 - **[connect_and_handshake vs transport protocol]** → transport.rs 有约 10 行的适配改动（GameJoined 通道），协议本身不变。设计中已明确这对组改动
 - **[handshake 同步阻塞]** → `recv_timeout(5s)` 在 bootstrap 线程同步阻塞。Network mode 下 UI 在连接期间会短暂冻结。**UI 契约：bootstrap 触发前必须显示 "SessionConnecting" 等连接状态指示，否则用户会认为游戏卡死。** 此阻塞在 RTS lockstep 设计中可接受（初始化属于一次性延迟，不影响运行时 tick）
 - **[SessionMode 扩展压力]** → 当前 Single / Replay / Network 三种模式通过 `dispatch()` match 管理。未来扩展至 Spectator / Reconnect / Hot join / AI-only 等模式时，`dispatch()` 可能膨胀为 god match。到那时应考虑将 dispatch 从静态 match 演进为 capability composition 模型
-- **[架构等级]** → 当前设计达到 Level 4（Explicit Lifecycle Architecture）：lifecycle 显式分层、side effect 单入口、runtime/init/protocol 分域、ECS 资源不参与 control flow。尚未达到 Level 5（Fully Temporal-Decoupled）：handshake 仍为同步阻塞、artifact validation 仅在文档层、`activated` 状态切换仍需 `SessionBootstrapped` 做帧间 fence。达到 Level 5 需要 handshake async 化 + artifact validation 编码实现 + control flow 完全位于 driver/state machine 而非 ECS world timing
+- **[架构等级]** → 当前设计达到 Level 4（Explicit Lifecycle Architecture）：lifecycle 显式分层、side effect 单入口、runtime/init/protocol 分域、ECS 资源不参与 control flow。已达到 Level 5 的核心要求（`bootstrap_phase` 消除 ECS timing dependency）。尚缺的：handshake 仍为同步阻塞（不在 Level 5 关键路径上）、artifact validation 仅在文档层。后续可沿三条路径演进：A. 时间模型收敛（已完成 BootstrapPhase）→ B. 网络 bootstrap async state machine → C. ECS-free bootstrap layer
 
 ---
 
