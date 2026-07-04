@@ -331,6 +331,8 @@ pub struct InitCtx<'a> {
 
 此约束防止 `wire()` 退化为"第二个 `reset_game_system`"。
 
+**实现层标记：** Bevy `Commands` 是 deferred 的（frame boundary commit）。`wire()` 插入的 Resources（如 `TransportResources`）在下一帧的 system 中才能可见。因此任何在 bootstrap 后立即发生的操作不得依赖当前帧内就绪的 transport resource。
+
 ### D6: connect_and_handshake — 传输层适配
 
 现有传输层（transport.rs）的工作方式：
@@ -373,6 +375,10 @@ pub struct SessionActive;
 
 在 `wire()` 末尾通过 `commands.insert_resource(SessionActive)` 插入。`bootstrap()` 入口检查 `InitCtx.session_active`，已激活则跳过。
 
+**隐含前提（P1）：Bootstrap execution is linear, single-shot, non-overlapping。** 不能并发、不能重入、不能 partial bootstrap（必须 success/fail atomic）。`SessionActive` + `one-shot ownership` 共同保证这一语义。
+
+**隐含前提（P3）：TransportResources are session-scoped exclusive handles。** transport sender/receiver 不能跨 session reuse，否则 relay 会出现 ghost client。D4.1 的 exactly-once consumption 保证这一点——wire() 注册后 Artifacts 被释放，transport 资源绑定到当前 session 生命周期。
+
 ### D8: 辅助函数与参数来源
 
 - **`game_id`**：当前所有 relay 会话使用 `game_id = 1`。未来由 relay 在 handshake 中下发（预留字段）。
@@ -384,6 +390,8 @@ pub struct SessionActive;
 > **S1：SessionBootstrap 是唯一允许构造 `CommandSource`、创建 `NetworkClientHandle`、切换 Driver Source 的入口；任何其他系统不得直接修改 Driver 的 `CommandSource`。**
 
 防止 debug 系统、UI 系统或工具系统直接替换 `driver.source`，破坏初始化边界。
+
+**隐含前提（P2）：`driver.source` 替换只能在 pre-tick 阶段发生（CommandSource swap is only valid in pre-tick phase boundary）。** 进入 Playing 状态后（tick loop 已运行），不应切换 source。未来的 pause → reload session 或 replay seek → restart 路径也必须遵守此边界，否则 Network/Replay 混用会出现 tick skew。
 
 ### D10: 对局参数的来源
 
@@ -399,7 +407,9 @@ pub struct SessionActive;
 - **[map_size 双源]** → Network mode 下 relay authoritative，UI 值仅作为 hint
 - **[bootstrap 重入]** → `SessionActive` resource 守卫，one-shot 约束
 - **[SessionConfig lifecycle]** → bootstrap 调用后即失效，不得在 runtime tick 路径中访问
-- **[connect_and_handshake vs transport protocol]** → transport.rs 有约 10 行的适配改动（GameJoined 通道），协议本身不变。设计中已明确这组改动
+- **[connect_and_handshake vs transport protocol]** → transport.rs 有约 10 行的适配改动（GameJoined 通道），协议本身不变。设计中已明确这对组改动
+- **[handshake 同步阻塞]** → `recv_timeout(5s)` 在 bootstrap 线程同步阻塞。Network mode 下 bootstrap 期间 UI 会短暂冻结（loading screen 可缓解）。此为 RTS lockstep 的合理 tradeoff——初始化过程中不允许并发连接操作
+- **[SessionMode 扩展压力]** → 当前 Single / Replay / Network 三种模式通过 `dispatch()` match 管理。未来扩展至 Spectator / Reconnect / Hot join / AI-only 等模式时，`dispatch()` 可能膨胀为 god match。到那时应考虑将 dispatch 从静态 match 演进为 capability composition 模型
 
 ---
 
