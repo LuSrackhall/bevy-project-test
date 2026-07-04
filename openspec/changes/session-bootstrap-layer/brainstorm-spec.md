@@ -147,8 +147,8 @@ pub struct TransportResources {
 // render_view/src/session.rs
 
 /// GameIntent 是 UI 层类型，resolve_intent() 是翻译函数。
-/// render_view 已依赖 bevy_adapter，因此翻译放在 render_view 避免反向依赖。
-/// 纯数据转换，无 I/O 无副作用。
+/// render_view 已依赖 bevy_adapter（用于 SessionConfig），
+/// 因此翻译放在 render_view 不会产生反向依赖。
 pub fn resolve_intent(intent: GameIntent) -> SessionConfig {
     match intent {
         GameIntent::Single { map_size } => SessionConfig {
@@ -273,17 +273,24 @@ fn wire(artifacts: SessionArtifacts, ctx: &mut InitCtx) {
     ctx.driver.phase = BootstrapPhase::Wired;
 }
 ```
-```
+
+### D4.1 SessionArtifacts Ownership（Move-Only）
+
+`SessionArtifacts` 是初始化阶段的一次性所有权对象（one-shot ownership），**必须由 `wire()` 以 move 方式消费**：
+
+- Initializer 创建 → **ownership 转移到 dispatch**
+- dispatch → **move 到 wire**
+- wire 分解 → **分配到 Driver、World、Resources**
+- wire 完成后 → **`SessionArtifacts` 立即 drop，不得进入 runtime**
 
 因此：
-- 不应 `Clone`
-- 不应 `Rc`/`Arc` 跨线程共享（`TransportResources` 内部的 `Arc` 是 bridge 实现细节，不属于共享 artifact 本身）
-- 不应跨 runtime 生命周期保存
+- 必须通过 move 传递，不允许 `Clone`
+- 不允许 `Rc`/`Arc`（`TransportResources` 内部的 `Arc` 是 bridge 实现细节，不属于 artifact 的共享）
+- 不允许跨 runtime 生命周期保存
 
 重入 bootstrap 会导致：双 driver source overwrite、transport resource leak（多 receiver/sender instance）。BootstrapPhase + D4.1 的 single-consumption semantic 共同防止此问题。
 
 此原则作用于 session-bootstrap-layer 变更引入的抽象，非全局宪法。
-
 dispatch 和 wire 的实现见 D4 中的定义（dispatch = registry, wire = 对象图装配）。
 
 ### D5: InitCtx — wiring 上下文
@@ -316,9 +323,9 @@ pub struct InitCtx<'a> {
 
 **禁止：**
 - 协议处理（解析或依赖 GameCommand）
-- 基于 SessionMode 的条件分支
 - I/O（文件读写、网络请求）
-- 业务决策（if mode == Network 做不同 setup）
+- 基于业务语义的决策（依据游戏规则做条件分支）
+- **允许：** 按 `SessionArtifacts` 变体的分支（`match artifacts { Live / Replay / Network }`）——这属于生命周期分派（对象图装配），不是业务判断
 
 此约束防止 `wire()` 退化为"第二个 `reset_game_system`"。
 
@@ -365,7 +372,7 @@ transport.rs 改动量：约 10 行（新增 `spawn_network_client_with_game_joi
 
 ### D7: BootstrapPhase（唯一生命周期状态）
 
-无 `SessionActive` resource。Bootstrap 重入守卫通过 `BootstrapPhase` 实现：`wire()` 入口检查 `driver.phase == Init`，已非 Init 则跳过。
+Bootstrap 重入守卫通过 `BootstrapPhase` 实现：`wire()` 入口检查 `driver.phase == Init`，已非 Init 则跳过。
 
 #### BootstrapPhase 定义
 
@@ -374,29 +381,18 @@ transport.rs 改动量：约 10 行（新增 `spawn_network_client_with_game_joi
 pub enum BootstrapPhase {
     /// 初始状态。bootstrap 进入前或已结束。
     Init,
-    /// Tick loop 可执行。wire() 完成 + transport resources 可见。
+    /// wire() 完成，transport resources 已通过 deferred Commands 插入。
+    /// 下一帧 check_wired 系统推进到 Active。
+    /// 属于 implementation detail——因 Bevy Commands 是 deferred 的。
+    Wired,
+    /// Tick loop 可执行。wire() 完成且 resources 已可见。
     Active,
 }
 ```
 
-`wire()` 中设 `driver.phase = Wired`（立即写入，非 deferred），由 `check_wired` system 在下一帧推进为 `Active`。`Wired` 是 ECS timing 实现细节（Bevy Commands deferred 导致资源在一帧后才可⻅），不在生命周期语义中暴露：
+`wire()` 末尾设 `driver.phase = Wired`（立即写入）。下一帧由 `check_wired` 系统推进到 `Active`。`simulation_driver_system` 检查 `driver.phase != Active` 则跳过 tick。
 
 ```rust
-// wire() 末尾（立即生效）：
-ctx.driver.phase = BootstrapPhase::Wired;  // impl detail
-
-// 下一帧（resources 已可⻅）：
-fn check_wired(mut driver: ResMut<SimulationDriver>) {
-    if matches!(driver.phase, BootstrapPhase::Init) {
-        // 等待 wire() 完成
-    } else if driver.phase == BootstrapPhase::Wired
-        && has_resource::<TransportResources>()
-    {
-        driver.phase = BootstrapPhase::Active;
-    }
-}
-
-// simulation_driver_system：
 fn simulation_driver_system(...) {
     if driver.phase != BootstrapPhase::Active { return; }
     // tick loop...
@@ -405,7 +401,7 @@ fn simulation_driver_system(...) {
 
 **宪法对齐：** 消除了对 ECS resource timing 的依赖（§2.5.5 Scheduler 域盲）。`driver.phase` 由 driver 内部状态管理。
 
-**P9：Bootstrap 不得泄漏初始化对象进入 Runtime。** `SessionConfig`、`NetworkBootstrapResult`、`SessionArtifacts` 经过 wire() 后不得继续存活。真正进入 Runtime 的只能是 `SimulationDriver`、`TransportResources`、`World`、`TickClock` 等运行时组件。Bootstap 层的任何类型不应在 Playing 状态下被任何 system 访问。
+**P10：Bootstrap Atomicity。** Bootstrap 必须是原子的：要么完整完成（所有资源注册、source 切换、world init、recorder setup 全部成功），要么完整退回 Init（不残留部分初始化状态——如 `source` 已切但 world 未 init）。实现方式：`wire()` 以 `SessionArtifacts` 为整体输入、整体输出。任何中间阶段失败时，wire 不应修改 `driver.phase`（保持在 Init），让调用者决定重试或中止。不允许出现 `phase != Init` 但部分字段未初始化的状态。
 
 **隐含前提（P3）：TransportResources are session-scoped exclusive handles。** transport sender/receiver 不能跨 session reuse，否则 relay 会出现 ghost client。D4.1 的 exactly-once consumption 保证这一点——wire() 注册后 Artifacts 被释放，transport 资源绑定到当前 session 生命周期。
 
