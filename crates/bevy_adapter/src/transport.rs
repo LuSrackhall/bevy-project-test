@@ -3,8 +3,6 @@
 //! Cross-thread bridge between Bevy's main thread and a tokio async network runtime.
 
 use bevy::prelude::*;
-use bevy::ecs::system::Res;
-use bevy::ecs::system::ResMut;
 
 use crate::driver::{CommandSource};
 use crate::network::{
@@ -81,9 +79,13 @@ impl NetworkSender {
 /// Poll the NetworkReceiver and push incoming BroadcastFrames to the active
 /// NetworkCommandSource's relay_buffer. Must run BEFORE SimulationTickSet.
 pub fn network_poll_system(
-    receiver: Res<NetworkReceiver>,
+    receiver: Option<Res<NetworkReceiver>>,
     mut driver: ResMut<crate::driver::SimulationDriver>,
 ) {
+    let receiver = match receiver {
+        Some(r) => r,
+        None => return, // Not in Network mode — no transport resources
+    };
     let frames = receiver.drain_all();
     if frames.is_empty() {
         return;
@@ -99,10 +101,14 @@ pub fn network_poll_system(
 /// This reads commands targeting the next input_delay'd tick and enqueues
 /// them for transit to the relay.
 pub fn network_flush_system(
-    sender: Res<NetworkSender>,
+    sender: Option<Res<NetworkSender>>,
     driver: Res<crate::driver::SimulationDriver>,
     cmd_buf: Res<CommandBuffer>,
 ) {
+    let sender = match sender {
+        Some(s) => s,
+        None => return,
+    };
     if let CommandSource::Network(ref ns) = driver.source {
         let current_tick = driver.clock.current_tick;
         let target_tick = ns.delayed_tick(current_tick);
