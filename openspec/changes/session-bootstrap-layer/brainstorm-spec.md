@@ -85,8 +85,6 @@ transport runtime (TickBatch, Disconnect, ...)
 
 ### D2: 数据结构
 
-### D2: 数据结构
-
 ```rust
 // render_view 层
 
@@ -160,39 +158,17 @@ pub fn resolve_intent(intent: GameIntent) -> SessionConfig {
 
 ### D4: SessionInitializer trait（开放-封闭原则）
 
-每种 SessionMode 对应一个 Initializer，实现相同 trait：
+每种 SessionMode 对应一个 Initializer，职责是**导出初始化产物（CommandSourceBundle）**，不接触 SimulationWorld、Driver、Recorder 等世界初始化上下文。
 
 ```rust
+/// SessionInitializer 仅负责产生初始化产物。
+/// 不接触 SimulationWorld、Driver、Recorder、cmd_buf。
+/// 这些由 SessionBootstrap 在第二阶段（wiring）处理。
 pub trait SessionInitializer {
-    /// 执行一次会话初始化。
-    /// - 可执行 I/O（文件读取、TCP 握手）
-    /// - 必须返回完整 CommandSource 对象
-    /// - 不得留下半初始化状态
     fn initialize(
         &self,
         config: &SessionConfig,
-        world: &mut SimulationWorld,
-        driver: &mut SimulationDriver,
-        recorder: &mut ReplayRecorder,
-        cmd_buf: &mut CommandBuffer,
-        map_size: MapSize,
-        seed: u64,
     ) -> Result<CommandSourceBundle, String>;
-}
-```
-
-SessionBootstrap 退化为纯调度器：
-
-```rust
-pub fn bootstrap(...) -> Result<(), String> {
-    let initializer: Box<dyn SessionInitializer> = match &config.mode {
-        SessionMode::Single => Box::new(SingleInitializer),
-        SessionMode::Replay { .. } => Box::new(ReplayInitializer),
-        SessionMode::Network { .. } => Box::new(NetworkInitializer),
-    };
-    let bundle = initializer.initialize(config, &mut ctx)?;
-    ctx.driver.source = bundle.source;
-    Ok(())
 }
 ```
 
@@ -202,11 +178,14 @@ pub fn bootstrap(...) -> Result<(), String> {
 struct NetworkInitializer;
 
 impl SessionInitializer for NetworkInitializer {
-    fn initialize(...) -> Result<CommandSourceBundle, String> {
+    fn initialize(&self, config: &SessionConfig) -> Result<CommandSourceBundle, String> {
+        let relay_addr = match &config.mode {
+            SessionMode::Network { relay_addr, .. } => relay_addr,
+            _ => return Err("Not a Network session".into()),
+        };
         let input_delay = 3; // policy 默认值
         // 握手协议（非运行时域）：
-        let (player_id, rx, tx, handle) = connect_and_handshake(&relay_addr)?;
-        // ↑ 阻塞等待 GameJoined，返回 relay 分配的 player_id
+        let (player_id, rx, tx, handle) = connect_and_handshake(relay_addr)?;
         // 此时 NetworkCommandSource 是完整对象，无占位符：
         let ns = NetworkCommandSource::new(game_id, player_id, input_delay);
         Ok(CommandSourceBundle {
@@ -217,7 +196,33 @@ impl SessionInitializer for NetworkInitializer {
 }
 ```
 
-**关于 player_id：** `connect_and_handshake` 在 `driver.source` 赋值之前执行，属于**握手协议域**而非运行时域。生命周期的分界是"driver.source 赋值前 = 握手协议，赋值后 = 运行时"。GameJoined 是连接握手的一部分，与 TickBatch/Disconnect 性质不同。
+SessionBootstrap 分两阶段：
+
+```
+Phase 1: initializer.initialize(config)  →  CommandSourceBundle
+Phase 2: SessionBootstrap::wire(bundle)  → 写 driver.source、insert resources、setup world/recorder
+```
+
+```rust
+pub fn bootstrap(...) -> Result<(), String> {
+    // Phase 1: 产生初始化产物（由具体 Initializer 实现）
+    let initializer: Box<dyn SessionInitializer> = match &config.mode {
+        SessionMode::Single => Box::new(SingleInitializer),
+        SessionMode::Replay { .. } => Box::new(ReplayInitializer),
+        SessionMode::Network { .. } => Box::new(NetworkInitializer),
+    };
+    let bundle = initializer.initialize(config)?;
+
+    // Phase 2: wiring（与模式无关的通用流程）
+    insert_network_resources(&bundle);
+    ctx.driver.source = bundle.source;
+    setup_recorder(...);
+    init_world(...);
+    Ok(())
+}
+```
+
+通过 SessionActive resource 守卫，防止重入。
 
 ### D5: Bootstrap 是唯一允许构造 CommandSource 的入口
 
@@ -239,7 +244,7 @@ impl SessionInitializer for NetworkInitializer {
 - **[map_size 双源]** → Network mode 下 relay authoritative，UI 值仅作为 hint
 - **[bootstrap 重入]** → `SessionActive` resource 守卫，one-shot 约束
 - **[SessionConfig lifecycle]** → 已约束为 init-only，不进入 tick 路径
-- **[Bootstrap 等待网络事件]** → 禁止。Bootstrap 仅初始化，不消费运行时事件
+- **[Bootstrap 等待运行时事件]** → 禁止。Bootstrap 可以等待握手协议完成（JoinGame → GameJoined），但不得等待或消费 TickBatch、Disconnect 等运行时事件。
 
 ---
 
