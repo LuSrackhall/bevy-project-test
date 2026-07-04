@@ -201,7 +201,8 @@ fn reset_game_system(
         NeedsGameReset::NewGame(size) => (Some(size), None, None),
         NeedsGameReset::Replay(replay) => (Some(replay.map_size), Some(replay), None),
         NeedsGameReset::Network { relay_addr, player_count } => {
-            (None, None, Some((relay_addr, player_count)))
+            // Phase 1: use "中" map as default for Network mode; future: relay authoritative
+            (Some(simulation::map::MapSize::Medium), None, Some((relay_addr, player_count)))
         }
     };
 
