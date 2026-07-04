@@ -4,6 +4,7 @@
 //! wire:     consume SessionArtifacts → setup Driver/World/Resources
 //! BootstrapPhase: 生命周期状态（Init → Wired → Active）
 
+use bevy::ecs::system::Commands;
 use crate::driver::{CommandSource, SimulationDriver};
 use crate::session::{SessionConfig, SessionMode};
 use crate::network::NetworkCommandSource;
@@ -65,10 +66,11 @@ pub fn dispatch(config: &SessionConfig) -> Result<SessionArtifacts, String> {
 // wire — 消费 artifact，写入 Driver/World/Resources
 // ═══════════════════════════════════════════════════════════════
 
-pub struct BootstrapCtx<'a> {
-    pub driver: &'a mut SimulationDriver,
-    pub recorder: &'a mut crate::replay::ReplayRecorder,
-    pub cmd_buf: &'a mut simulation::command::CommandBuffer,
+pub struct BootstrapCtx<'w, 's> {
+    pub driver: &'w mut SimulationDriver,
+    pub commands: Commands<'w, 's>,
+    pub recorder: &'w mut crate::replay::ReplayRecorder,
+    pub cmd_buf: &'w mut simulation::command::CommandBuffer,
 }
 
 /// 固定写入顺序：
@@ -77,7 +79,13 @@ pub struct BootstrapCtx<'a> {
 /// 3. insert_resource（transport 资源）
 /// 4. driver.source（赋值）
 /// 5. driver.phase = Wired
+///
+/// P1: wire() 入口检查 phase == Init，已非 Init 则返回（防重入）。
 pub fn wire(ctx: &mut BootstrapCtx, artifacts: SessionArtifacts) {
+    // P1 one-shot guard
+    if ctx.driver.bootstrap_phase != BootstrapPhase::Init {
+        return;
+    }
     match artifacts {
         SessionArtifacts::Live => {
             ctx.driver.source = CommandSource::Live(crate::driver::LiveCommandSource);
@@ -88,10 +96,34 @@ pub fn wire(ctx: &mut BootstrapCtx, artifacts: SessionArtifacts) {
         SessionArtifacts::Network(result) => {
             let ns = NetworkCommandSource::new(1, result.player_id, 3);
             ctx.driver.source = CommandSource::Network(ns);
-            // Transport resources are registered via BootstrapCtx
-            // receiver/sender/handle stored as Bevy Resources
+            // Register transport resources as Bevy resources (handle excluded — managed by caller)
+            ctx.commands.insert_resource(result.receiver);
+            ctx.commands.insert_resource(result.sender);
         }
     }
-    // Commit final step: driver.source + phase already set above
     ctx.driver.bootstrap_phase = BootstrapPhase::Wired;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// bootstrap_session — 完整启动入口
+// ═══════════════════════════════════════════════════════════════
+
+/// SessionConfig → dispatch → wire 一站式函数。
+/// 供 reset_game_system 调用。Network 模式的 transport 资源通过 wire() 注册为 Bevy Resources。
+pub fn bootstrap_session(
+    config: &SessionConfig,
+    driver: &mut SimulationDriver,
+    commands: &mut bevy::ecs::system::Commands,
+    recorder: &mut crate::replay::ReplayRecorder,
+    cmd_buf: &mut simulation::command::CommandBuffer,
+) -> Result<(), String> {
+    let artifacts = dispatch(config)?;
+    let mut ctx = BootstrapCtx {
+        driver,
+        commands: commands.reborrow(),
+        recorder,
+        cmd_buf,
+    };
+    wire(&mut ctx, artifacts);
+    Ok(())
 }

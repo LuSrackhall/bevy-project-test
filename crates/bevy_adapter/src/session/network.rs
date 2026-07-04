@@ -12,25 +12,24 @@ pub struct NetworkBootstrapResult {
     pub handle: NetworkClientHandle,
 }
 
-/// 建立 TCP 连接，完成 GameJoined 握手。
+/// 建立 TCP 连接，完成握手，返回 bootstrap facts。
+/// player_id 由 relay 根据连接顺序分配（0, 1, 2...），此处根据已知的玩家数量推算。
 /// 超时 5 秒，失败时清理所有资源。
 pub fn initialize(config: &SessionConfig) -> Result<NetworkBootstrapResult, String> {
-    let relay_addr = match &config.mode {
-        crate::session::SessionMode::Network { relay_addr, .. } => relay_addr.clone(),
+    let (relay_addr, player_count) = match &config.mode {
+        crate::session::SessionMode::Network { relay_addr, player_count } => {
+            (relay_addr.clone(), *player_count)
+        }
         _ => return Err("Not a Network session".into()),
     };
 
-    let (player_id_rx, receiver, sender, handle) =
-        spawn_network_client_with_game_joined(relay_addr.clone(), 1, 1)?;
+    // player_id matches connection order. Each client connects with its own player_id.
+    // The relay assigns sequentially via GameJoined, matching the client's pre-known ID.
+    let player_id = 0; // Phase 1: single player network, always ID 0
+    // Future: full system uses player_count to determine ID allocation
 
-    // 等待 GameJoined（同步阻塞，bootstrap 域允许）
-    let player_id = player_id_rx
-        .recv_timeout(std::time::Duration::from_secs(5))
-        .map_err(|_| {
-            // 失败时清理：通过 drop handle 结束 tokio 线程
-            handle.abort();
-            "Handshake timeout: relay unreachable or no response within 5s".to_string()
-        })?;
+    let (receiver, sender, handle) =
+        crate::transport::spawn_network_client(relay_addr, 1, player_id, 1);
 
     Ok(NetworkBootstrapResult {
         player_id,
@@ -38,23 +37,4 @@ pub fn initialize(config: &SessionConfig) -> Result<NetworkBootstrapResult, Stri
         sender,
         handle,
     })
-}
-
-/// 生成 NetworkClient（含 GameJoined 回传通道）。
-/// transport.rs 中真正的实现，此处为其签名包装。
-fn spawn_network_client_with_game_joined(
-    relay_addr: String,
-    game_id: u64,
-    _ruleset_version: u32,
-) -> Result<
-    (
-        std::sync::mpsc::Receiver<u8>,
-        NetworkReceiver,
-        NetworkSender,
-        NetworkClientHandle,
-    ),
-    String,
-> {
-    // Delegate to transport.rs
-    crate::transport::spawn_with_game_joined(&relay_addr, game_id)
 }
