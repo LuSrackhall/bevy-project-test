@@ -106,7 +106,8 @@ pub enum GameIntent {
 // bevy_adapter/src/session.rs
 
 /// Session 配置，由 resolve_intent() 从 intent 转换而来。
-/// 生命周期 = init only，不进入 runtime tick 路径。
+/// 生命周期 = bootstrap 调用后即失效（compile-time irrelevant after bootstrap invocation）。
+/// 不得在 runtime tick 路径中访问。
 /// 不含 player_id、input_delay、seed——这些属于运行时域或 policy。
 pub struct SessionConfig {
     pub mode: SessionMode,
@@ -228,7 +229,7 @@ impl SessionInitializer for ReplayInitializer {
 
 ### D4.1 SessionArtifacts Ownership
 
-`SessionArtifacts` 是初始化阶段的一次性所有权对象（one-shot ownership）：
+`SessionArtifacts` 是初始化阶段的一次性所有权对象（one-shot ownership），**必须被恰好消费一次（consumed exactly once）**：
 
 - **Initializer 创建它**
 - **`wire()` 消费它**——将内部资源分别注册到 Driver、Bevy Resources、Recorder
@@ -236,8 +237,10 @@ impl SessionInitializer for ReplayInitializer {
 
 因此：
 - 不应 `Clone`
-- 不应 `Rc`/`Arc` 跨线程共享
+- 不应 `Rc`/`Arc` 跨线程共享（`TransportResources` 内部的 `Arc` 是 bridge 实现细节，不属于共享 artifact 本身）
 - 不应跨 runtime 生命周期保存
+
+重入 bootstrap 会导致：双 driver source overwrite、transport resource leak（多 receiver/sender instance）。D7 的 `SessionActive` 守卫 + D4.1 的 single-consumption semantic 共同防止此问题。
 
 此原则作用于 session-bootstrap-layer 变更引入的抽象，非全局宪法。
 
@@ -291,13 +294,6 @@ pub fn bootstrap(config: SessionConfig, ctx: &mut InitCtx) -> Result<(), String>
 
 三层各司其职：`dispatch` = registry（可扩展）；`initialize` = I/O（每种模式独立）；`wire` = 系统对接（模式无关）。
 
-**`wire()` 约束：必须保持纯结构性对接（pure structural binding）。** 
-- 不允许业务判断（if mode == Network）
-- 不允许协议逻辑（解析 GameCommand）
-- 不允许条件分支（根据 mode 做不同 setup）
-- 只做：`driver.source = artifacts.source`、`insert_resource()`、`init_world()`、`setup_recorder()` 等绑定操作。
-- 防止 `wire()` 退化为"第二个 `reset_game_system`"。
-
 ### D5: InitCtx — wiring 上下文
 
 ```rust
@@ -316,6 +312,24 @@ pub struct InitCtx<'a> {
 ```
 
 `session_active` 在 bootstrap 入口检查已激活则跳过；出口设 true。防止重入。
+
+### D5.1 wire() invariant
+
+`wire()` 本质是对象图装配阶段（object graph hydration step），不是逻辑函数。只允许执行三类操作：
+
+| 允许的操作 | 示例 |
+|-----------|------|
+| **assignment** | `driver.source = artifacts.source` |
+| **registration** | `insert_resource(transport.receiver)` |
+| **deterministic initialization** | `init_world(ctx)`, `setup_recorder(ctx)` |
+
+**禁止：**
+- 协议处理（解析或依赖 GameCommand）
+- 基于 SessionMode 的条件分支
+- I/O（文件读写、网络请求）
+- 业务决策（if mode == Network 做不同 setup）
+
+此约束防止 `wire()` 退化为"第二个 `reset_game_system`"。
 
 ### D6: connect_and_handshake — 传输层适配
 
@@ -384,7 +398,7 @@ pub struct SessionActive;
 - **[reset_game_system 过载]** → 拆为 intent + resolver + bootstrap，每层单一职责
 - **[map_size 双源]** → Network mode 下 relay authoritative，UI 值仅作为 hint
 - **[bootstrap 重入]** → `SessionActive` resource 守卫，one-shot 约束
-- **[SessionConfig lifecycle]** → 已约束为 init-only，不进入 tick 路径
+- **[SessionConfig lifecycle]** → bootstrap 调用后即失效，不得在 runtime tick 路径中访问
 - **[connect_and_handshake vs transport protocol]** → transport.rs 有约 10 行的适配改动（GameJoined 通道），协议本身不变。设计中已明确这组改动
 
 ---
