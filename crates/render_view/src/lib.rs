@@ -35,7 +35,7 @@ pub enum NeedsGameReset {
     /// Load a replay file
     Replay(simulation::replay::ReplayFile),
     /// Start a network game
-    Network { relay_addr: String, player_count: u8 },
+    Network { relay_addr: String, player_count: u8, player_id: u8 },
 }
 
 /// Whether to auto-record replays. Defaults to true.
@@ -200,9 +200,9 @@ fn reset_game_system(
         NeedsGameReset::SameSize => (Some(current_map_size.0), None, None),
         NeedsGameReset::NewGame(size) => (Some(size), None, None),
         NeedsGameReset::Replay(replay) => (Some(replay.map_size), Some(replay), None),
-        NeedsGameReset::Network { relay_addr, player_count } => {
-            // Phase 1: use "中" map as default for Network mode; future: relay authoritative
-            (Some(simulation::map::MapSize::Medium), None, Some((relay_addr, player_count)))
+        NeedsGameReset::Network { relay_addr, player_count, player_id } => {
+            // Phase 1: use default map size for Network mode; future: relay authoritative
+            (Some(simulation::map::MapSize::Medium), None, Some((relay_addr, player_count, player_id)))
         }
     };
 
@@ -302,11 +302,12 @@ fn reset_game_system(
         }
 
         // If starting a network game, use bootstrap pipeline
-        if let Some((relay_addr, player_count)) = network_config {
+        if let Some((relay_addr, player_count, player_id)) = network_config {
             let config = bevy_adapter::session::SessionConfig {
                 mode: bevy_adapter::session::SessionMode::Network {
                     relay_addr,
                     player_count,
+                    player_id,
                 },
             };
             // bootstrap_session replaces the driver with NetworkCommandSource

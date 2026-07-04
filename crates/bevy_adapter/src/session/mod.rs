@@ -23,5 +23,5 @@ pub struct SessionConfig {
 pub enum SessionMode {
     Single { map_size: MapSize },
     Replay { path: PathBuf },
-    Network { relay_addr: String, player_count: u8 },
+    Network { relay_addr: String, player_count: u8, player_id: u8 },
 }

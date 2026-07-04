@@ -23,6 +23,9 @@ pub struct NetworkRelayAddrInput(pub String);
 #[derive(Component)]
 pub struct NetworkPlayerCount(pub u8);
 
+#[derive(Component)]
+pub struct NetworkPlayerId(pub u8);
+
 #[derive(Component, Clone, Copy)]
 pub enum MapSizeBtn {
     Small,
@@ -121,6 +124,11 @@ pub fn setup_main_menu(
                     NetworkPlayerCount(2u8), ButtonTheme::dark(), Hovered::default(),
                     BorderColor::all(Color::srgba(0.35, 0.35, 0.40, 1.0))))
                     .with_child((Text::new("2"), TextFont { font: font.clone().into(), font_size: FontSize::Px(14.0), ..default() }));
+                row.spawn((Text::new("  ID:"), TextFont { font: font.clone().into(), font_size: FontSize::Px(16.0), ..default() }));
+                row.spawn((WidgetButton, Node { padding: UiRect::all(Val::Px(10.0)), border: UiRect::all(Val::Px(2.0)), min_width: Val::Px(30.0), ..default() },
+                    NetworkPlayerId(0u8), ButtonTheme::dark(), Hovered::default(),
+                    BorderColor::all(Color::srgba(0.35, 0.35, 0.40, 1.0))))
+                    .with_child((Text::new("0"), TextFont { font: font.clone().into(), font_size: FontSize::Px(14.0), ..default() }));
             });
         parent.spawn(Node { flex_direction: FlexDirection::Row, margin: UiRect::top(Val::Px(10.0)), ..default() })
             .with_children(|row| {
@@ -129,16 +137,17 @@ pub fn setup_main_menu(
                     BorderColor::all(Color::srgba(0.35, 0.35, 0.40, 1.0))))
                     .with_child((Text::new("开始联机"), TextFont { font: font.clone().into(), font_size: FontSize::Px(16.0), ..default() }))
                     .observe(|_ev: On<Activate>,
-                        q: Query<(&NetworkRelayAddrInput, &NetworkPlayerCount)>,
+                        q: Query<(&NetworkRelayAddrInput, &NetworkPlayerCount, &NetworkPlayerId)>,
                         mut next: ResMut<NextState<crate::GameState>>,
                         mut needs_reset: ResMut<crate::NeedsGameReset>| {
-                        let (addr, count) = match q.iter().next() {
-                            Some((addr, count)) => (addr.0.clone(), count.0),
-                            None => ("127.0.0.1:9876".to_string(), 2),
+                        let (addr, count, id) = match q.iter().next() {
+                            Some((addr, count, id)) => (addr.0.clone(), count.0, id.0),
+                            None => ("127.0.0.1:9876".to_string(), 2, 0),
                         };
                         *needs_reset = crate::NeedsGameReset::Network {
                             relay_addr: addr,
                             player_count: count,
+                            player_id: id,
                         };
                         next.set(crate::GameState::Playing);
                     });

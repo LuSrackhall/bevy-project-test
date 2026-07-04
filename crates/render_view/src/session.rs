@@ -25,7 +25,7 @@ pub fn resolve_intent(intent: GameIntent) -> bevy_adapter::session::SessionConfi
         GameKind::Single { map_size } => SessionMode::Single { map_size },
         GameKind::Replay { path } => SessionMode::Replay { path },
         GameKind::Network { relay_addr, player_count } => {
-            SessionMode::Network { relay_addr, player_count }
+            SessionMode::Network { relay_addr, player_count, player_id: 0 }
         }
     };
     bevy_adapter::session::SessionConfig { mode }
