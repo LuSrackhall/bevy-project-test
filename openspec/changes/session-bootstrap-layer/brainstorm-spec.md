@@ -235,7 +235,7 @@ impl SessionInitializer for ReplayInitializer {
 - **`wire()` 必须在一个 pass 内完全分解它（fully deconstruct in one pass）**——将内部资源分别注册到 Driver、Bevy Resources、Recorder，不允许 deferred injection 或 lazy registration
 - **`wire()` 完成后，`SessionArtifacts` 不再存在**
 
-**D4.1b：`SessionArtifacts` 在结构上是终止的（structurally terminal）。** 任何新增字段必须经过 initializer + dispatch，不允许在 `wire()` 中补字段。`wire()` 只消费已存在的字段，不扩展 artifact 的结构。
+**D4.1b：`SessionArtifacts` 是 schema closure invariant（模式闭合不变量）。** 任何新增/修改字段必须经过 initializer + dispatch 通道，不允许在 `wire()` 层扩展 artifact 结构。`wire()` 只消费已存在的字段，不增补、不演化 artifact schema。此约束保证：artifact 的演化路径在 dispatch 和 initializer 中可见，不会出现 wire 层悄悄新增资源注册路径而不被 dispatch 感知。
 
 因此：
 - 不应 `Clone`
@@ -368,7 +368,7 @@ pub fn connect_and_handshake(
 
 transport.rs 改动量：约 10 行（新增 `spawn_network_client_with_game_joined` + `run_client` 中的 `game_joined_tx.send()`）。relay 协议不变。
 
-**P4 约束：`GameJoined` 是 bootstrap-only synchronization signal，不是 gameplay event。** 它只用于 session establishment barrier，运行时不得重新发送。reconnect 场景下需通过独立的 `ReconnectResponse` 路径处理，不得复用 `GameJoined` 语义。
+**P4/P8 约束：`GameJoined` 是 session-initialization-only barrier，不是 gameplay event。** 它只用于 session creation，**不得代表对已有 session 的重新进入（re-entry）**。reconnect 场景下需通过独立的 `ReconnectResponse` + `ResyncCompleted` 路径处理。`GameJoined` 一旦被用于 bootstrap，其语义即封闭——不可在 runtime 中重新发送或复用。
 
 ### D7: SessionActive — 重入守卫
 
@@ -396,6 +396,8 @@ pub struct SessionBootstrapped;
 - `SessionActive` 防止 bootstrap 重入（单次执行守卫）
 - `SessionBootstrapped` 防止资源不可见时 tick 提前执行（system ordering fence）
 
+**P6 约束：`driver.source` activation is gated by capability availability (not intent)。** `wire()` 中设 `driver.source = Network` 但不立即激活 `is_tick_ready()`。`NetworkCommandSource` 在收到 `SessionBootstrapped` 之前应返回 `is_tick_ready() = false`（通过内部 `activated` 字段控制）。`SessionBootstrapped` marker 提交后，driver 在下一帧才能真正开始消费 Network source。
+
 **隐含前提（P1）：Bootstrap execution is linear, single-shot, non-overlapping。** 不能并发、不能重入、不能 partial bootstrap（必须 success/fail atomic）。`SessionActive` + `one-shot ownership` 共同保证这一语义。
 
 **隐含前提（P3）：TransportResources are session-scoped exclusive handles。** transport sender/receiver 不能跨 session reuse，否则 relay 会出现 ghost client。D4.1 的 exactly-once consumption 保证这一点——wire() 注册后 Artifacts 被释放，transport 资源绑定到当前 session 生命周期。
@@ -411,6 +413,8 @@ pub struct SessionBootstrapped;
 > **S1：SessionBootstrap 是唯一允许构造 `CommandSource`、创建 `NetworkClientHandle`、切换 Driver Source 的入口；任何其他系统不得直接修改 Driver 的 `CommandSource`。**
 
 防止 debug 系统、UI 系统或工具系统直接替换 `driver.source`，破坏初始化边界。
+
+**P7 约束：`driver.source` mutation is exclusive to bootstrap phase (pre-world schedule)。** 运行时（Playing 状态）禁止任何 ECS system 写 `driver.source`，包括 replay restore、debug override、rollback。所有 source 切换必须通过 `SessionBootstrap` 重新进入，回到 init 域再执行。这不只是权限约束，更是生命周期边界——任何 runtime 写 driver.source 都会导致 tick skew 或 replay divergence。
 
 **隐含前提（P2）：`driver.source` 替换只能在 pre-tick 阶段发生（CommandSource swap is only valid in pre-tick phase boundary）。** 进入 Playing 状态后（tick loop 已运行），不应切换 source。未来的 pause → reload session 或 replay seek → restart 路径也必须遵守此边界，否则 Network/Replay 混用会出现 tick skew。
 
