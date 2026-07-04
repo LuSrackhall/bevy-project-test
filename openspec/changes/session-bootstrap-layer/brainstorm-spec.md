@@ -31,11 +31,11 @@ Playing (simulation_driver_system)
 ## Goals / Non-Goals
 
 **Goals:**
-1. 主菜单增加"联机"入口——输入 relay 地址 + 玩家数量
+1. 主菜单增加联机入口——输入 relay 地址；对局参数（map_size 等）由 Relay 协商确定。
 2. 新增 GameIntent → SessionConfig → CommandSource 管道
-3. 联机模式下通过 spawn_network_client() 连接 relay、启动 tick loop
+3. 联机模式下通过 connect_and_handshake() 建立连接、分配 player_id、启动 tick loop
 4. 联机对局自动录制回放（复用 ReplayRecorder）
-5. GameIntentResolver 作为纯数据转换层，不产生副作用
+5. resolve_intent() 作为纯数据转换层，不产生副作用
 6. SessionBootstrap 作为唯一副作用函数（one-shot，guarded）
 
 **Non-Goals:**
@@ -93,7 +93,7 @@ pub enum GameIntent {
     Network {
         relay_addr: String,
         player_count: u8,
-        map_size: MapSize,  // UI hint; relay 侧 seed 为 authoritative
+        // 无 map_size——对局参数由 Relay 协商确认
     },
 }
 ```
@@ -140,7 +140,7 @@ pub fn resolve_intent(intent: GameIntent) -> SessionConfig {
         GameIntent::Replay { path } => SessionConfig {
             mode: SessionMode::Replay { path },
         },
-        GameIntent::Network { relay_addr, player_count, .. } => SessionConfig {
+        GameIntent::Network { relay_addr, player_count } => SessionConfig {
             mode: SessionMode::Network { relay_addr, player_count },
         },
     }
@@ -158,7 +158,8 @@ pub fn resolve_intent(intent: GameIntent) -> SessionConfig {
 // bevy_adapter/src/session.rs
 
 /// 仅做初始化工件，不消费运行时网络事件。
-/// 不等待 GameJoined——player_id 在 transport poll 中由 GameJoined 事件设置。
+/// 连接握手（GameJoined）属于初始化域——它是"连接是否建立"的确认，不是游戏运行时事件。
+/// NetworkCommandSource 从创建起就是完整对象（player_id 是构造参数，不是可变字段）。
 pub fn bootstrap(
     config: SessionConfig,
     sim_world: &mut SimulationWorld,
@@ -167,33 +168,36 @@ pub fn bootstrap(
     cmd_buf: &mut CommandBuffer,
     map_size: MapSize,
     seed: u64,
-) -> Option<NetworkClientHandle> {
+) -> Result<(), String> {
     match config.mode {
         SessionMode::Single => {
             driver.source = CommandSource::Live(LiveCommandSource);
-            None
+            Ok(())
         }
         SessionMode::Replay { path } => {
-            let replay = load_replay(path);
+            let replay = load_replay(path)?;
             driver.source = CommandSource::Replay(ReplayCommandSource { replay });
-            None
+            Ok(())
         }
         SessionMode::Network { relay_addr, player_count } => {
             let input_delay = 3; // 网络 policy 默认值
-            let mut ns = NetworkCommandSource::new(1, 0, input_delay);
-            // player_id = 0 placeholder; GameJoined 事件会在 transport poll 中更新
-            let (rx, tx, handle) = spawn_network_client(
-                relay_addr, 1, 0, 1,
-            );
+            let (rx, tx, handle) = spawn_network_client(relay_addr, 1, 0, 1)?;
+            // ↑ spawn_network_client 内部阻塞等待 GameJoined 握手完成
+            //   返回时连接已建立、player_id 已分配
+            //   player_id 通过 GameJoined 消息从 relay 获取，不是占位符
+            let ns = NetworkCommandSource::new(1, player_id, input_delay);
             // rx/tx 作为 Bevy Resource 插入，供 transport poll/flush systems 使用
+            insert_resource(rx);
+            insert_resource(tx);
+            insert_resource(handle);
             driver.source = CommandSource::Network(ns);
-            Some(handle)
+            Ok(())
         }
     }
 }
 ```
 
-**关于 player_id：** Bootstrap 以 placeholder `player_id = 0` 启动。实际的 `player_id` 由 relay 在 handshake 时分配（`GameJoined` 消息）。transport 层的 `network_poll_system` 在收到 `GameJoined` 后更新 `NetworkCommandSource.player_id`。这属于运行时域，不污染 bootstrap 的初始化生命周期。
+**关于 player_id：** NetworkCommandSource 从创建起就是完整对象。`player_id` 通过阻塞式连接握手（`connect_and_handshake`）从 relay 的 `GameJoined` 响应中获取，不是占位符。这使得 `NetworkCommandSource.player_id` 成为不可变的构造参数，而非运行时可变字段。
 
 ### D5: Bootstrap 是唯一允许构造 CommandSource 的入口
 
@@ -201,11 +205,11 @@ pub fn bootstrap(
 
 防止 debug 系统、UI 系统或工具系统直接替换 `driver.source`，破坏初始化边界。
 
-### D6: map_size / seed 来源
+### D6: 对局参数的来源
 
-- Network mode 的 **seed 来自 relay handshake，不是本地生成**
-- Network mode 的 **map_size 仅作 UI 展示**，不参与 simulation init。Relay 侧是 authoritative（handshake 时下发 map_spec_hash）
-- Single/Replay 模式的 seed 和 map_size 逻辑不变（当前是 UI 选择 + 本地随机 seed）
+- Network mode 的 **seed** 来自 relay 侧，不是本机随机生成
+- Network mode 的 **map_size** 由 relay 协商确认，UI 不提供地图选择（UI 仅输入 relay 地址和玩家数量）
+- Single/Replay 模式的 seed 和 map_size 逻辑不变（当前是 UI 选择 + 本机随机 seed）
 
 ---
 
