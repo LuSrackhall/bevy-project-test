@@ -154,21 +154,22 @@ pub fn resolve_intent(intent: GameIntent) -> SessionConfig {
 
 ### D4: SessionInitializer trait（开放-封闭原则）
 
-每种 SessionMode 对应一个 Initializer。每个 Initializer 只知道自己对应的 config 类型，不需要在运行时 match 检查模式。
+每种 SessionMode 对应一个 Initializer。每个 Initializer 通过关联类型 `Config` 声明自己需要的配置，编译期保证类型匹配，不需要运行时 match。
 
 ```rust
 // 每种模式自己的 config 类型
-pub struct SingleSessionConfig;  // 空配置，仅占位
 pub struct ReplaySessionConfig { pub path: PathBuf }
 pub struct NetworkSessionConfig {
     pub relay_addr: String,
     pub player_count: u8,
 }
+// SingleInitializer 使用 () 作为 Config——无配置本身也表达"无需参数"
 
 /// SessionInitializer 仅负责产生初始化产物。
 /// 不接触 SimulationWorld、Driver、Recorder、cmd_buf。
-pub trait SessionInitializer<Cfg> {
-    fn initialize(&self, cfg: &Cfg) -> Result<SessionArtifacts, String>;
+pub trait SessionInitializer {
+    type Config;
+    fn initialize(&self, cfg: &Self::Config) -> Result<SessionArtifacts, String>;
 }
 ```
 
@@ -176,11 +177,10 @@ pub trait SessionInitializer<Cfg> {
 
 ```rust
 struct NetworkInitializer;
-impl SessionInitializer<NetworkSessionConfig> for NetworkInitializer {
+impl SessionInitializer for NetworkInitializer {
+    type Config = NetworkSessionConfig;
     fn initialize(&self, cfg: &NetworkSessionConfig) -> Result<SessionArtifacts, String> {
-        let input_delay = 3; // policy 默认值
-        // 握手协议（非运行时域）：connect_and_handshake 阻塞等待 GameJoined，
-        // 返回 relay 分配的 player_id。此时 NetworkCommandSource 是完整对象。
+        let input_delay = 3;
         let (player_id, rx, tx, handle) = connect_and_handshake(&cfg.relay_addr)?;
         let ns = NetworkCommandSource::new(1, player_id, input_delay);
         Ok(SessionArtifacts {
@@ -191,14 +191,19 @@ impl SessionInitializer<NetworkSessionConfig> for NetworkInitializer {
 }
 
 struct SingleInitializer;
-impl SessionInitializer<SingleSessionConfig> for SingleInitializer {
-    fn initialize(&self, _cfg: &SingleSessionConfig) -> Result<SessionArtifacts, String> {
-        Ok(SessionArtifacts { source: CommandSource::Live(LiveCommandSource), network_handle: None })
+impl SessionInitializer for SingleInitializer {
+    type Config = ();
+    fn initialize(&self, _cfg: &()) -> Result<SessionArtifacts, String> {
+        Ok(SessionArtifacts {
+            source: CommandSource::Live(LiveCommandSource),
+            network_handle: None,
+        })
     }
 }
 
 struct ReplayInitializer;
-impl SessionInitializer<ReplaySessionConfig> for ReplayInitializer {
+impl SessionInitializer for ReplayInitializer {
+    type Config = ReplaySessionConfig;
     fn initialize(&self, cfg: &ReplaySessionConfig) -> Result<SessionArtifacts, String> {
         let replay = load_replay(&cfg.path)?;
         Ok(SessionArtifacts {
@@ -221,7 +226,7 @@ pub fn bootstrap(...) -> Result<(), String> {
     // Phase 1: dispatch to typed initializer
     let artifacts = match &config.mode {
         SessionMode::Single => {
-            SingleInitializer.initialize(&SingleSessionConfig)?
+            SingleInitializer.initialize(&())?
         }
         SessionMode::Replay { path } => {
             ReplayInitializer.initialize(&ReplaySessionConfig { path: path.clone() })?
@@ -275,7 +280,7 @@ pub fn bootstrap(...) -> Result<(), String> {
 |------|------|
 | `crates/render_view/src/ui/network_panel.rs` | **新文件** — 联机输入面板 UI（relay 地址 + player_count） |
 | `crates/render_view/src/session.rs` | **新文件** — GameIntent enum + resolve_intent() 纯函数 |
-| `crates/bevy_adapter/src/session.rs` | **新文件** — SessionConfig, SessionMode, CommandSourceBundle, SessionBootstrap::bootstrap() |
+| `crates/bevy_adapter/src/session.rs` | **新文件** — SessionConfig, SessionMode, SessionArtifacts, SessionBootstrap |
 | `crates/bevy_adapter/src/lib.rs` | 注册 session 模块 |
 | `crates/render_view/src/lib.rs` | reset_game_system 调用 resolve_intent + bootstrap；NeedsGameReset 消费 GameIntent |
 | `crates/render_view/src/ui/menu.rs` | 主菜单添加"联机"区域 |
