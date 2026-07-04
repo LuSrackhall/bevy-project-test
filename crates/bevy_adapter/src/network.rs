@@ -167,6 +167,16 @@ pub struct NetworkCommandSource {
 }
 
 impl NetworkCommandSource {
+    /// Create a new NetworkCommandSource.
+    pub fn new(game_id: u64, player_id: u8, input_delay: u32) -> Self {
+        Self {
+            game_id,
+            player_id,
+            input_delay,
+            ..Default::default()
+        }
+    }
+
     /// Check whether this source has received a finalized batch for the given tick.
     pub fn is_tick_ready(&self, tick: u32) -> bool {
         self.relay_buffer.contains_key(&tick)

@@ -202,6 +202,39 @@ pub fn spawn_network_client(
     (receiver, sender, handle)
 }
 
+/// Spawn network client with GameJoined return channel for bootstrap handshake.
+pub fn spawn_with_game_joined(
+    relay_addr: &str,
+    game_id: u64,
+) -> Result<
+    (
+        std::sync::mpsc::Receiver<u8>,
+        NetworkReceiver,
+        NetworkSender,
+        NetworkClientHandle,
+    ),
+    String,
+> {
+    // For Phase 1, delegate to the standard spawn and return a dummy channel.
+    // The GameJoined player_id is currently assigned sequentially by the relay
+    // and known to the client via spawn order. A full implementation would
+    // extract the player_id from the transport's GameJoined message.
+    let player_id = 0; // placeholder; real value comes from relay handshake
+    let (rx, tx, handle) = spawn_network_client(
+        relay_addr.to_string(),
+        game_id,
+        player_id,
+        1,
+    );
+    // Use oneshot channel for GameJoined delivery
+    let (game_joined_tx, game_joined_rx) = std::sync::mpsc::channel();
+    // In a full implementation, transport's run_client would send() on
+    // game_joined_tx when GameJoined is received. For Phase 1, send once
+    // we know the connection succeeded.
+    let _ = game_joined_tx.send(player_id);
+    Ok((game_joined_rx, rx, tx, handle))
+}
+
 /// Run a single client connection session. Returns true on clean disconnect.
 async fn run_client(
     addr: &str,
@@ -299,6 +332,13 @@ async fn run_client(
 pub struct NetworkClientHandle {
     thread: Option<std::thread::JoinHandle<()>>,
     stop: Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl NetworkClientHandle {
+    /// Forcefully stop the network thread.
+    pub fn abort(&self) {
+        self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
 }
 
 impl Drop for NetworkClientHandle {

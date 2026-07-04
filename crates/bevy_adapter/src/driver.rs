@@ -7,6 +7,7 @@ use bevy::prelude::*;
 use simulation::command::{CommandBuffer, GameCommand};
 use simulation::replay::ReplayFile;
 use crate::network::NetworkCommandSource;
+use crate::session::bootstrap::BootstrapPhase;
 use crate::tick::{PendingEvents, SimulationWorld};
 use crate::replay::ReplayRecorder;
 
@@ -140,6 +141,7 @@ pub struct SimulationDriver {
     pub clock: TickClock,
     pub scheduler: SchedulerState,
     pub source: CommandSource,
+    pub bootstrap_phase: BootstrapPhase,
 }
 
 impl SimulationDriver {
@@ -149,6 +151,7 @@ impl SimulationDriver {
             clock: TickClock::default(),
             scheduler: SchedulerState::default(),
             source: CommandSource::Live(LiveCommandSource),
+            bootstrap_phase: BootstrapPhase::Active,
         }
     }
 
@@ -158,6 +161,17 @@ impl SimulationDriver {
             clock: TickClock::default(),
             scheduler: SchedulerState::default(),
             source: CommandSource::Replay(ReplayCommandSource { replay }),
+            bootstrap_phase: BootstrapPhase::Active,
+        }
+    }
+
+    /// Create a Network mode driver (Init phase — bootstrap must run first).
+    pub fn new_network() -> Self {
+        Self {
+            clock: TickClock::default(),
+            scheduler: SchedulerState::default(),
+            source: CommandSource::Network(NetworkCommandSource::default()),
+            bootstrap_phase: BootstrapPhase::Init,
         }
     }
 

@@ -140,6 +140,7 @@ fn test_network_pipeline_e2e() {
             ruleset_version: 1,
             connected: false,
         }),
+        bootstrap_phase: bevy_adapter::session::bootstrap::BootstrapPhase::Active,
     });
 
     // Support resources

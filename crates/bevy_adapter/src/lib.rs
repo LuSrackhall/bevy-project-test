@@ -4,6 +4,7 @@ pub mod lifecycle;
 pub mod mapper;
 pub mod network;
 pub mod replay;
+pub mod session;
 pub mod tick;
 pub mod driver;
 pub mod transport;

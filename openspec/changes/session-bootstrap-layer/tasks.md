@@ -1,11 +1,11 @@
 ## 1. 项目结构
 
-- [ ] 1.1 创建 `crates/bevy_adapter/src/session/` 目录及 mod.rs
-- [ ] 1.2 创建 `crates/bevy_adapter/src/session/bootstrap.rs`（dispatch, wire, SessionArtifacts, BootstrapPhase）
-- [ ] 1.3 创建 `crates/bevy_adapter/src/session/single.rs`
-- [ ] 1.4 创建 `crates/bevy_adapter/src/session/replay.rs`
-- [ ] 1.5 创建 `crates/bevy_adapter/src/session/network.rs`（NetworkBootstrapResult, connect_and_handshake）
-- [ ] 1.6 创建 `crates/render_view/src/session.rs`（GameIntent, resolve_intent）
+- [x] 1.1 创建 `crates/bevy_adapter/src/session/` 目录及 mod.rs
+- [x] 1.2 创建 `crates/bevy_adapter/src/session/bootstrap.rs`（dispatch, wire, SessionArtifacts, BootstrapPhase）
+- [x] 1.3 创建 `crates/bevy_adapter/src/session/single.rs`
+- [x] 1.4 创建 `crates/bevy_adapter/src/session/replay.rs`
+- [x] 1.5 创建 `crates/bevy_adapter/src/session/network.rs`（NetworkBootstrapResult, connect_and_handshake）
+- [x] 1.6 创建 `crates/render_view/src/session.rs`（GameIntent, resolve_intent）
 
 ## 2. 数据结构定义
 
