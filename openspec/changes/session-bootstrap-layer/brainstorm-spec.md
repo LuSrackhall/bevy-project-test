@@ -291,6 +291,13 @@ pub fn bootstrap(config: SessionConfig, ctx: &mut InitCtx) -> Result<(), String>
 
 三层各司其职：`dispatch` = registry（可扩展）；`initialize` = I/O（每种模式独立）；`wire` = 系统对接（模式无关）。
 
+**`wire()` 约束：必须保持纯结构性对接（pure structural binding）。** 
+- 不允许业务判断（if mode == Network）
+- 不允许协议逻辑（解析 GameCommand）
+- 不允许条件分支（根据 mode 做不同 setup）
+- 只做：`driver.source = artifacts.source`、`insert_resource()`、`init_world()`、`setup_recorder()` 等绑定操作。
+- 防止 `wire()` 退化为"第二个 `reset_game_system`"。
+
 ### D5: InitCtx — wiring 上下文
 
 ```rust
