@@ -84,15 +84,20 @@ pub fn network_poll_system(
 ) {
     let receiver = match receiver {
         Some(r) => r,
-        None => return, // Not in Network mode — no transport resources
+        None => return,
     };
     let frames = receiver.drain_all();
     if frames.is_empty() {
         return;
     }
+    #[cfg(debug_assertions)]
+    println!("[NET] poll: received {} broadcast frames", frames.len());
     if let CommandSource::Network(ref mut ns) = driver.source {
         for frame in frames {
+            let tick = frame.payload.tick;
             ns.push_broadcast(frame);
+            #[cfg(debug_assertions)]
+            println!("[NET] poll: pushed tick {} to relay_buffer", tick);
         }
     }
 }
