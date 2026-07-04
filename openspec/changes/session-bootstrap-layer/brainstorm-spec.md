@@ -122,8 +122,16 @@ pub enum SessionMode {
 /// 包含初始化完成后的所有依赖对象，供 SessionBootstrap 进行 wiring。
 pub struct SessionArtifacts {
     pub source: CommandSource,
-    pub network_handle: Option<NetworkClientHandle>,
-    // future: network_receiver, network_sender, replay_reader, metrics
+    pub transport: Option<TransportResources>,
+    // future: replay_reader, metrics, benchmark_state
+}
+
+/// Initializer 创建的传输层资源。
+/// 由 SessionBootstrap 注册为 Bevy Resources，供 transport poll/flush systems 使用。
+pub struct TransportResources {
+    pub receiver: NetworkReceiver,
+    pub sender: NetworkSender,
+    pub handle: NetworkClientHandle,
 }
 ```
 
@@ -185,7 +193,11 @@ impl SessionInitializer for NetworkInitializer {
         let ns = NetworkCommandSource::new(1, player_id, input_delay);
         Ok(SessionArtifacts {
             source: CommandSource::Network(ns),
-            network_handle: Some(handle),
+            transport: Some(TransportResources {
+                receiver: rx,
+                sender: tx,
+                handle,
+            }),
         })
     }
 }
@@ -196,7 +208,7 @@ impl SessionInitializer for SingleInitializer {
     fn initialize(&self, _cfg: &()) -> Result<SessionArtifacts, String> {
         Ok(SessionArtifacts {
             source: CommandSource::Live(LiveCommandSource),
-            network_handle: None,
+            transport: None,
         })
     }
 }
@@ -208,7 +220,7 @@ impl SessionInitializer for ReplayInitializer {
         let replay = load_replay(&cfg.path)?;
         Ok(SessionArtifacts {
             source: CommandSource::Replay(ReplayCommandSource { replay }),
-            network_handle: None,
+            transport: None,
         })
     }
 }
@@ -222,9 +234,10 @@ Phase 2: SessionBootstrap::wire       → 写 driver.source、insert resources�
 ```
 
 ```rust
-pub fn bootstrap(...) -> Result<(), String> {
-    // Phase 1: dispatch to typed initializer
-    let artifacts = match &config.mode {
+/// 注册：把 SessionMode 映射到具体 Initializer。
+/// 这是唯一需要了解所有模式的地方。
+fn dispatch(config: &SessionConfig) -> Result<SessionArtifacts, String> {
+    match &config.mode {
         SessionMode::Single => {
             SingleInitializer.initialize(&())?
         }
@@ -237,18 +250,31 @@ pub fn bootstrap(...) -> Result<(), String> {
                 player_count: *player_count,
             })?
         }
-    };
+    }
+}
 
-    // Phase 2: wiring (模式无关的通用流程)
+/// Wire：把初始化产物接入 Bevy 系统资源。
+/// 纯 wiring，不知模式类型。可单测。
+fn wire(ctx: &mut InitCtx, artifacts: SessionArtifacts) {
     ctx.driver.source = artifacts.source;
-    insert_network_handle(artifacts.network_handle);
-    setup_recorder(...);
-    init_world(...);
+    // 注册传输层资源（如有）
+    if let Some(t) = artifacts.transport {
+        ctx.insert_resource(t.receiver);
+        ctx.insert_resource(t.sender);
+        ctx.insert_network_handle(t.handle);
+    }
+    setup_recorder(ctx);
+    init_world(ctx);
+}
+
+pub fn bootstrap(config: SessionConfig, ctx: &mut InitCtx) -> Result<(), String> {
+    let artifacts = dispatch(&config)?;
+    wire(ctx, artifacts);
     Ok(())
 }
 ```
 
-通过 SessionActive resource 守卫，防止重入。bootstrap 是唯一允许构造 CommandSource 的入口（S1）。
+三层各司其职：`dispatch` = registry（可扩展）；`initialize` = I/O（每种模式独立）；`wire` = 系统对接（模式无关）。
 
 ### D5: Bootstrap 是唯一允许构造 CommandSource 的入口
 
