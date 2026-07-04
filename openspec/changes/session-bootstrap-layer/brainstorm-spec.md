@@ -274,9 +274,9 @@ fn wire(artifacts: SessionArtifacts, ctx: &mut InitCtx) {
 }
 ```
 
-### D4.1 SessionArtifacts Ownership（Move-Only）
+### D4.1 SessionArtifacts：Bootstrap Transaction 的 Commit Payload（Move-Only）
 
-`SessionArtifacts` 是初始化阶段的一次性所有权对象（one-shot ownership），**必须由 `wire()` 以 move 方式消费**：
+`SessionArtifacts` 是一次 bootstrap transaction 的 commit payload（只能 commit 一次，天然 move-only），**必须由 `wire()` 以 move 方式消费**：
 
 - Initializer 创建 → **ownership 转移到 dispatch**
 - dispatch → **move 到 wire**
