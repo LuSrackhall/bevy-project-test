@@ -232,7 +232,7 @@ impl SessionInitializer for ReplayInitializer {
 `SessionArtifacts` 是初始化阶段的一次性所有权对象（one-shot ownership），**必须被恰好消费一次（consumed exactly once）**：
 
 - **Initializer 创建它**
-- **`wire()` 消费它**——将内部资源分别注册到 Driver、Bevy Resources、Recorder
+- **`wire()` 必须在一个 pass 内完全分解它（fully deconstruct in one pass）**——将内部资源分别注册到 Driver、Bevy Resources、Recorder，不允许 deferred injection 或 lazy registration
 - **`wire()` 完成后，`SessionArtifacts` 不再存在**
 
 因此：
