@@ -50,34 +50,40 @@ Playing (simulation_driver_system)
 
 ## Decisions
 
-### D1: 分层架构（三层隔离 + 生命周期分界）
+### D1: 分层架构（三域 + 握手协议隔离）
 
 ```
 UI (render_view)
   ↓ GameIntent ← 纯 intent，无 I/O 无状态机
 resolve_intent() (pure data transform, 在 render_view 中)
   ↓ SessionConfig ← init-only 数据，不进入 tick path
-SessionBootstrap (bevy_adapter 服务函数，由 reset_game_system 调用)
+SessionBootstrap
+    ├─ connect (TCP)
+    ├─ handshake (JoinGame → GameJoined)  ← 握手协议，非运行时
+    └─ create Driver + NetworkCommandSource
   ↓
-Driver → Simulation (不变)
+Playing
   ↓
-transport events (运行时域——GameJoined, TickBatch, Disconnect)
+transport runtime (TickBatch, Disconnect, ...)
 ```
 
-**三域生命周期划分：**
+**三域生命周期 + 握手协议隔离：**
 
 | 域 | 范围 | 职责 |
 |----|------|------|
-| **初始化域** | UI → Intent → Resolver → Bootstrap | 纯数据映射 + 一次性 wiring |
-| **运行时域** | Playing → transport → tick loop | 网络事件、driver 循环、simulation |
-| **配置域** | SessionConfig | init-only 数据结构，不进入 tick 路径 |
+| **初始化域** | UI → Intent → Resolver | 纯数据映射 |
+| **握手协议域** | TCP connect → JoinGame → GameJoined | 建立网络会话，产出 player_id |
+| **运行时域** | Playing → transport → tick loop | TickBatch、Disconnect 等游戏事件 |
 
-**关键约束：Bootstrap 仅负责初始化，不消费或等待任何运行时网络事件。**
-所有握手结果（如 `GameJoined`）、Tick 广播、断线等均属于 Transport Runtime，由 transport 系统处理。Bootstrap 属于初始化域，Transport 属于运行时域，两者生命周期不交叉。
+生命周期分界：**在 `driver.source = CommandSource::Network(...)` 之前发生的网络交互（JoinGame/GameJoined）属于握手协议域；之后发生的（TickBatch、Disconnect）属于运行时域。**
 
-- **GameIntent** = UI → 逻辑层的边界，属于 render_view（符合 UI CLAUDE.md：Widget 产生 semantic event，不持有业务状态）
-- **resolve_intent()** = 纯数据转换，属于 render_view。无 I/O、无副作用
-- **SessionBootstrap** = bevy_adapter 服务函数，被 `reset_game_system` 调用。唯一的副作用入口（初始化 network client、设置 driver）。由 `SessionActive` resource 守卫，防止重入
+**关键约束：SessionBootstrap 不消费或等待运行时域事件（TickBatch、Disconnect、Reconnect）。** 但可以等待握手协议事件（GameJoined），因为握手协议在 driver.source 赋值之前完成。
+
+- **GameIntent** = UI → 逻辑层的边界，属于 render_view
+- **resolve_intent()** = 纯数据转换，属于 render_view。无 I/O 无副作用
+- **SessionBootstrap** = bevy_adapter 服务函数，被 `reset_game_system` 调用。唯一的副作用入口
+
+### D2: 数据结构
 
 ### D2: 数据结构
 
@@ -152,52 +158,66 @@ pub fn resolve_intent(intent: GameIntent) -> SessionConfig {
 - **不填充 seed** — relay authoritative
 - 100% 纯函数，无 I/O 无副作用无 network access
 
-### D4: SessionBootstrap（bevy_adapter 服务函数）
+### D4: SessionInitializer trait（开放-封闭原则）
+
+每种 SessionMode 对应一个 Initializer，实现相同 trait：
 
 ```rust
-// bevy_adapter/src/session.rs
+pub trait SessionInitializer {
+    /// 执行一次会话初始化。
+    /// - 可执行 I/O（文件读取、TCP 握手）
+    /// - 必须返回完整 CommandSource 对象
+    /// - 不得留下半初始化状态
+    fn initialize(
+        &self,
+        config: &SessionConfig,
+        world: &mut SimulationWorld,
+        driver: &mut SimulationDriver,
+        recorder: &mut ReplayRecorder,
+        cmd_buf: &mut CommandBuffer,
+        map_size: MapSize,
+        seed: u64,
+    ) -> Result<CommandSourceBundle, String>;
+}
+```
 
-/// 仅做初始化工件，不消费运行时网络事件。
-/// 连接握手（GameJoined）属于初始化域——它是"连接是否建立"的确认，不是游戏运行时事件。
-/// NetworkCommandSource 从创建起就是完整对象（player_id 是构造参数，不是可变字段）。
-pub fn bootstrap(
-    config: SessionConfig,
-    sim_world: &mut SimulationWorld,
-    driver: &mut SimulationDriver,
-    recorder: &mut ReplayRecorder,
-    cmd_buf: &mut CommandBuffer,
-    map_size: MapSize,
-    seed: u64,
-) -> Result<(), String> {
-    match config.mode {
-        SessionMode::Single => {
-            driver.source = CommandSource::Live(LiveCommandSource);
-            Ok(())
-        }
-        SessionMode::Replay { path } => {
-            let replay = load_replay(path)?;
-            driver.source = CommandSource::Replay(ReplayCommandSource { replay });
-            Ok(())
-        }
-        SessionMode::Network { relay_addr, player_count } => {
-            let input_delay = 3; // 网络 policy 默认值
-            let (rx, tx, handle) = spawn_network_client(relay_addr, 1, 0, 1)?;
-            // ↑ spawn_network_client 内部阻塞等待 GameJoined 握手完成
-            //   返回时连接已建立、player_id 已分配
-            //   player_id 通过 GameJoined 消息从 relay 获取，不是占位符
-            let ns = NetworkCommandSource::new(1, player_id, input_delay);
-            // rx/tx 作为 Bevy Resource 插入，供 transport poll/flush systems 使用
-            insert_resource(rx);
-            insert_resource(tx);
-            insert_resource(handle);
-            driver.source = CommandSource::Network(ns);
-            Ok(())
-        }
+SessionBootstrap 退化为纯调度器：
+
+```rust
+pub fn bootstrap(...) -> Result<(), String> {
+    let initializer: Box<dyn SessionInitializer> = match &config.mode {
+        SessionMode::Single => Box::new(SingleInitializer),
+        SessionMode::Replay { .. } => Box::new(ReplayInitializer),
+        SessionMode::Network { .. } => Box::new(NetworkInitializer),
+    };
+    let bundle = initializer.initialize(config, &mut ctx)?;
+    ctx.driver.source = bundle.source;
+    Ok(())
+}
+```
+
+每种 Initializer 独立实现、独立测试：
+
+```rust
+struct NetworkInitializer;
+
+impl SessionInitializer for NetworkInitializer {
+    fn initialize(...) -> Result<CommandSourceBundle, String> {
+        let input_delay = 3; // policy 默认值
+        // 握手协议（非运行时域）：
+        let (player_id, rx, tx, handle) = connect_and_handshake(&relay_addr)?;
+        // ↑ 阻塞等待 GameJoined，返回 relay 分配的 player_id
+        // 此时 NetworkCommandSource 是完整对象，无占位符：
+        let ns = NetworkCommandSource::new(game_id, player_id, input_delay);
+        Ok(CommandSourceBundle {
+            source: CommandSource::Network(ns),
+            network_handle: Some(handle),
+        })
     }
 }
 ```
 
-**关于 player_id：** NetworkCommandSource 从创建起就是完整对象。`player_id` 通过阻塞式连接握手（`connect_and_handshake`）从 relay 的 `GameJoined` 响应中获取，不是占位符。这使得 `NetworkCommandSource.player_id` 成为不可变的构造参数，而非运行时可变字段。
+**关于 player_id：** `connect_and_handshake` 在 `driver.source` 赋值之前执行，属于**握手协议域**而非运行时域。生命周期的分界是"driver.source 赋值前 = 握手协议，赋值后 = 运行时"。GameJoined 是连接握手的一部分，与 TickBatch/Disconnect 性质不同。
 
 ### D5: Bootstrap 是唯一允许构造 CommandSource 的入口
 
