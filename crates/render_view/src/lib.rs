@@ -1,6 +1,10 @@
+use bevy::prelude::*;
+use std::path::PathBuf;
+
 pub mod camera;
 pub mod debug_shape;
 pub mod selection;
+pub mod session;
 pub mod ui;
 pub mod unit_info_bar;
 #[cfg(target_arch = "wasm32")]
@@ -30,6 +34,8 @@ pub enum NeedsGameReset {
     NewGame(simulation::map::MapSize),
     /// Load a replay file
     Replay(simulation::replay::ReplayFile),
+    /// Start a network game
+    Network { relay_addr: String, player_count: u8 },
 }
 
 /// Whether to auto-record replays. Defaults to true.
@@ -189,11 +195,14 @@ fn reset_game_system(
 
     let _is_replay = matches!(&*needs_reset, NeedsGameReset::Replay(_));
 
-    let (map_size, replay_file) = match std::mem::replace(&mut *needs_reset, NeedsGameReset::None) {
-        NeedsGameReset::None => (None, None),
-        NeedsGameReset::SameSize => (Some(current_map_size.0), None),
-        NeedsGameReset::NewGame(size) => (Some(size), None),
-        NeedsGameReset::Replay(replay) => (Some(replay.map_size), Some(replay)),
+    let (map_size, replay_file, network_config) = match std::mem::replace(&mut *needs_reset, NeedsGameReset::None) {
+        NeedsGameReset::None => (None, None, None),
+        NeedsGameReset::SameSize => (Some(current_map_size.0), None, None),
+        NeedsGameReset::NewGame(size) => (Some(size), None, None),
+        NeedsGameReset::Replay(replay) => (Some(replay.map_size), Some(replay), None),
+        NeedsGameReset::Network { relay_addr, player_count } => {
+            (None, None, Some((relay_addr, player_count)))
+        }
     };
 
     if let Some(map_size) = map_size {
@@ -289,6 +298,28 @@ fn reset_game_system(
                 total_ticks: total,
                 is_seeking: false,
             });
+        }
+
+        // If starting a network game, use bootstrap pipeline
+        if let Some((relay_addr, player_count)) = network_config {
+            let config = bevy_adapter::session::SessionConfig {
+                mode: bevy_adapter::session::SessionMode::Network {
+                    relay_addr,
+                    player_count,
+                },
+            };
+            // bootstrap_session replaces the driver with NetworkCommandSource
+            // and registers transport resources via Commands
+            let _ = bevy_adapter::session::bootstrap::bootstrap_session(
+                &config,
+                &mut _driver,
+                &mut commands,
+                &mut recorder,
+                &mut cmd_buf,
+            );
+            // Network mode uses a random seed for world init (same as single player)
+            // In future, seed comes from relay handshake
+            commands.insert_resource(bevy_adapter::GameMode::Live);
         }
     }
 }

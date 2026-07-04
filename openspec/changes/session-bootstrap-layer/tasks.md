@@ -36,10 +36,10 @@
 
 ## 5. UI 入口
 
-- [ ] 5.1 主菜单添加"联机"区域（relay 地址输入 + 玩家数量选择 + 开始按钮）
-- [ ] 5.2 点击 Start 时产生 GameIntent::Network
-- [ ] 5.3 UI 显示 "SessionConnecting" 状态（bootstrap 期间）
-- [ ] 5.4 bootstrap 完成后进入 Playing 状态
+- [x] 5.1 主菜单添加"联机"区域（relay 地址输入 + 玩家数量选择 + 开始按钮）
+- [x] 5.2 点击 Start 时产生 GameIntent::Network
+- [x] 5.3 UI 显示 "SessionConnecting" 状态（bootstrap 期间）
+- [x] 5.4 bootstrap 完成后进入 Playing 状态
 
 ## 6. transport 适配
 
