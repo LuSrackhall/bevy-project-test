@@ -155,6 +155,7 @@ mod tests {
             match faction {
                 FactionId(0) | FactionId(1) => {} // expected
                 FactionId(2) => {} // also possible
+                FactionId(_) => {} // other factions
             }
         }
     }
