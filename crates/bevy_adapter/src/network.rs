@@ -5,8 +5,9 @@
 
 use serde::{Deserialize, Serialize};
 use simulation::command::GameCommand;
-
-/// Player state in an active game session (relay view).
+use std::collections::{HashMap, VecDeque};
+use std::sync::{Arc, Mutex};
+use bevy::prelude::Resource;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum PlayerState {
     /// Player is actively connected and submitting frames.
@@ -130,6 +131,8 @@ pub enum RelayClientMessage {
 pub enum RelayServerMessage {
     /// Game session accepted.
     GameJoined { game_id: u64, player_id: u8 },
+    /// All players have connected; game is starting.
+    GameStarted { game_id: u64, seed: u64, player_count: u8 },
     /// Reconnect response with full state recovery data.
     ReconnectResponse(ReconnectResponse),
     /// Broadcast frame for a finalized tick.
@@ -144,7 +147,30 @@ pub enum RelayServerMessage {
 // NetworkCommandSource — 网络模式命令源
 // ═══════════════════════════════════════════════════════════════
 
-use std::collections::HashMap;
+/// Events from the network tokio thread to the Bevy main thread.
+#[derive(Clone, Debug)]
+pub enum NetworkEvent {
+    /// All players connected; game is starting.
+    GameStarted { game_id: u64, seed: u64, player_count: u8 },
+}
+
+/// Cross-thread channel for NetworkEvents (tokio → Bevy).
+#[derive(Clone, Default, Resource)]
+pub struct NetworkEventReceiver {
+    inner: Arc<Mutex<VecDeque<NetworkEvent>>>,
+}
+
+impl NetworkEventReceiver {
+    pub fn push(&self, event: NetworkEvent) {
+        self.inner.lock().unwrap().push_back(event);
+    }
+
+    pub fn drain_all(&self) -> Vec<NetworkEvent> {
+        let mut inner = self.inner.lock().unwrap();
+        inner.drain(..).collect()
+    }
+}
+
 use crate::driver::DriverContext;
 
 /// Network-mode command source: consumes relay-finalized CommandBatches.
@@ -167,6 +193,16 @@ pub struct NetworkCommandSource {
 }
 
 impl NetworkCommandSource {
+    /// Create a new NetworkCommandSource.
+    pub fn new(game_id: u64, player_id: u8, input_delay: u32) -> Self {
+        Self {
+            game_id,
+            player_id,
+            input_delay,
+            ..Default::default()
+        }
+    }
+
     /// Check whether this source has received a finalized batch for the given tick.
     pub fn is_tick_ready(&self, tick: u32) -> bool {
         self.relay_buffer.contains_key(&tick)
@@ -278,6 +314,9 @@ pub struct RelayServer {
     current_tick: u32,
     /// Game creation wall clock time (ms). Used for absolute timeout fallback.
     created_at_ms: u64,
+    /// All players have joined and game is actively running.
+    /// Prevents timeout-based tick finalization before all players connect.
+    game_started: bool,
 }
 
 impl RelayServer {
@@ -309,31 +348,35 @@ impl RelayServer {
             freezed_at_ms: 0,
             current_tick: 1,
             created_at_ms: now_ms,
+            game_started: false,
         }
     }
 
-    /// Process an incoming player frame. Returns finalized TickCommands if the tick
-    /// was just completed, or `None` if still waiting for other players.
+    /// Process an incoming player frame.
+    ///
+    /// Returns `(Option<TickCommands>, bool)`:
+    /// - `Option<TickCommands>` — finalized batch if tick was just completed, or `None`
+    /// - `bool` — `true` if game_started transitioned from false to true (all players connected)
     ///
     /// D4: Relay does NOT modify commands.
     /// D10: Dedup uses (tick, player_id, player_sid).
-    pub fn on_player_frame(&mut self, frame: &PlayerTickFrame, now_ms: u64) -> Option<TickCommands> {
+    pub fn on_player_frame(&mut self, frame: &PlayerTickFrame, now_ms: u64) -> (Option<TickCommands>, bool) {
         if self.frozen {
-            return None;
+            return (None, false);
         }
         if frame.game_id != self.game_id {
-            return None;
+            return (None, false);
         }
 
         // E2: Reject frames from disconnected players
         if !self.all_players.contains(&frame.player_id) {
-            return None;
+            return (None, false);
         }
 
         // D10: Idempotent dedup by (tick, player_id, player_sid)
         let dedup_key = (frame.tick, frame.player_id, frame.player_sid);
         if !self.seen_frames.insert(dedup_key) {
-            return None; // Duplicate, silently dropped
+            return (None, false); // Duplicate, silently dropped
         }
 
         // Record first arrival time for this tick (used for timeout D5)
@@ -350,8 +393,23 @@ impl RelayServer {
         // Mark player as ready for this tick
         self.ready.entry(frame.tick).or_default().push(frame.player_id);
 
+        // Check if all players have connected (at least one frame from each).
+        // Prevents timeout-based finalization before all players join the game.
+        let mut game_just_started = false;
+        if !self.game_started {
+            let connected: std::collections::HashSet<&u8> =
+                self.ready.values().flat_map(|v| v.iter()).collect();
+            let now_started = self.all_players.iter().all(|p| connected.contains(p));
+            if now_started {
+                self.game_started = true;
+                game_just_started = true;
+                eprintln!("[RELAY] game_started = true (all players connected)");
+            }
+        }
+
         // Try to finalize
-        self.try_finalize(frame.tick, now_ms)
+        let batch = self.try_finalize(frame.tick, now_ms);
+        (batch, game_just_started)
     }
 
     /// Attempt to finalize a tick. Returns finalized TickCommands if complete.
@@ -370,7 +428,10 @@ impl RelayServer {
             self.all_players.iter().all(|p| ready_set.contains(p))
         };
 
-        let timed_out = self.is_timed_out(tick, now_ms);
+        // Only allow timeout when game_started (all players have connected).
+        // Without this, a player connects, relay times out, and finalizes tick 1
+        // before the other player even joins.
+        let timed_out = self.game_started && self.is_timed_out(tick, now_ms);
 
         if !all_ready && !timed_out {
             return None;
@@ -508,6 +569,14 @@ impl RelayServer {
         self.current_tick
     }
 
+    pub fn seed(&self) -> u64 {
+        self.seed
+    }
+
+    pub fn player_count(&self) -> u8 {
+        self.all_players.len() as u8
+    }
+
     pub fn command_log(&self) -> &[TickCommands] {
         &self.log
     }
@@ -555,12 +624,12 @@ mod relay_tests {
         let now = 1000;
 
         let r1 = relay.on_player_frame(&make_frame(1, 0, 1), now);
-        assert!(r1.is_none()); // Still waiting for player 1
+        assert!(r1.0.is_none()); // Still waiting for player 1
 
         let r2 = relay.on_player_frame(&make_frame(1, 1, 1), now);
-        assert!(r2.is_some()); // Both arrived → finalized
+        assert!(r2.0.is_some()); // Both arrived → finalized
 
-        let batch = r2.unwrap();
+        let batch = r2.0.unwrap();
         assert_eq!(batch.tick, 1);
         assert_eq!(batch.commands.len(), 2);
     }
@@ -570,9 +639,9 @@ mod relay_tests {
         let mut relay = relay_2p();
         let now = 1000;
 
-        assert!(relay.on_player_frame(&make_frame(1, 0, 1), now).is_none());
+        assert!(relay.on_player_frame(&make_frame(1, 0, 1), now).0.is_none());
         // Duplicate (same tick, player, sid)
-        assert!(relay.on_player_frame(&make_frame(1, 0, 1), now).is_none());
+        assert!(relay.on_player_frame(&make_frame(1, 0, 1), now).0.is_none());
     }
 
     #[test]
@@ -583,19 +652,24 @@ mod relay_tests {
         let tick_dur = 50u64;
         let jitter = 50u64;
 
-        // Player 0 submits twice (second submission has no new commands, just triggers timeout)
-        assert!(relay.on_player_frame(&make_frame(1, 0, 1), arrival).is_none());
+        // Both players must connect (submit for tick 1) to mark game_started
+        relay.on_player_frame(&make_empty_frame(1, 0, 1), arrival);
+        relay.on_player_frame(&make_empty_frame(1, 1, 1), arrival);
 
-        // Player 1 never submits. Timeout fires after arrival + 3*50 + 50 = 1200ms
-        let timeout = arrival + (input_delay as u64 * tick_dur) + jitter + 1;
-        let result = relay.on_player_frame(&make_empty_frame(1, 0, 2), timeout);
-        assert!(result.is_some()); // Timed out
+        // Tick 1 finalized (both players ready)
+        // Player 0 submits for tick 2 → sets first_arrival[2]
+        relay.on_player_frame(&make_empty_frame(2, 0, 2), arrival + 100);
 
-        let batch = result.unwrap();
-        assert_eq!(batch.commands.len(), 2);
-        // Player 1's command should be NoOp
-        let noop = &batch.commands[1];
-        assert_eq!(noop.player_id, 1);
+        // Wait for timeout: first_arrival[2] + 3*50 + 50 = 100 + 150 + 50 = 300ms
+        // Submit at 500ms (well past timeout) to trigger try_finalize
+        let timeout = arrival + 100 + (input_delay as u64 * tick_dur) + jitter + 50;
+        let result = relay.on_player_frame(&make_empty_frame(2, 0, 3), timeout);
+        assert!(result.0.is_some(), "timeout should fire");
+
+        let batch = result.0.unwrap();
+        // Both players have 1 command each (player 1 never submitted, gets NoOp)
+        let noop = batch.commands.iter().find(|c| c.player_id == 1)
+            .expect("player 1 should have a command");
         assert_eq!(noop.action, Action::NoOp);
     }
 
@@ -637,7 +711,7 @@ mod relay_tests {
 
         // Late frame for tick 1 should NOT be accepted (already finalized)
         let late = relay.on_player_frame(&make_frame(1, 0, 2), now + 1000);
-        assert!(late.is_none()); // Already finalized, treated as late
+        assert!(late.0.is_none()); // Already finalized, treated as late
         assert_eq!(relay.command_log().len(), 1); // Log unchanged
     }
 
@@ -654,7 +728,7 @@ mod relay_tests {
 
         // Frozen relay ignores frames
         let result = relay.on_player_frame(&make_frame(1, 0, 1), now);
-        assert!(result.is_none());
+        assert!(result.0.is_none());
     }
 }
 

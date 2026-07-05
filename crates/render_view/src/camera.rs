@@ -12,6 +12,7 @@ pub fn setup_camera(mut commands: Commands) {
 }
 
 /// Center camera on the first player city after map generation.
+/// Uses the LocalPlayerId stored in the simulation world (defaults to Player for single-player).
 pub fn center_on_player_city(
     sim_world: bevy::ecs::system::NonSend<SimulationWorld>,
     mut cam_query: Query<&mut Transform, With<MainCamera>>,
@@ -21,9 +22,15 @@ pub fn center_on_player_city(
         return;
     }
     let world = sim_world.world_ref();
+    // Determine which faction to center on based on local player id
+    let local_id = world
+        .get_resource::<simulation::types::LocalPlayerId>()
+        .map(|r| r.0)
+        .unwrap_or(0);
+    let target_faction = simulation::types::Faction::from_player_id(local_id);
     let mut q = sim_world.query::<(&LogicalPosition, &FactionComponent)>();
     for (pos, faction) in q.iter(world) {
-        if faction.0 == Faction::Player {
+        if faction.0 == target_faction {
             if let Some(mut cam) = cam_query.iter_mut().next() {
                 cam.translation.x = pos.0.x.to_float();
                 cam.translation.y = pos.0.y.to_float();

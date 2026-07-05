@@ -273,6 +273,38 @@ pub enum Faction {
     Neutral,
 }
 
+impl Faction {
+    /// Map player_id 0→Player, 1→Enemy, others→Neutral.
+    pub fn from_player_id(id: u8) -> Self {
+        match id {
+            0 => Faction::Player,
+            1 => Faction::Enemy,
+            _ => Faction::Neutral,
+        }
+    }
+
+    /// The player_id that controls this faction (0=Player, 1=Enemy).
+    pub fn player_id(&self) -> u8 {
+        match self {
+            Faction::Player => 0,
+            Faction::Enemy => 1,
+            Faction::Neutral => 255,
+        }
+    }
+}
+
+/// Bevy ECS Resource stored in the simulation world indicating which player_id
+/// is the local human player. Defaults to 0 (Player faction) for single-player.
+/// Set during game init for network mode.
+#[derive(Clone, Copy, Debug, Resource)]
+pub struct LocalPlayerId(pub u8);
+
+impl Default for LocalPlayerId {
+    fn default() -> Self {
+        Self(0)
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, Serialize, Deserialize)]
 pub enum SoldierType {
     Militia,

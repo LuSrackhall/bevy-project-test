@@ -7,6 +7,7 @@ use bevy::prelude::*;
 use simulation::command::{CommandBuffer, GameCommand};
 use simulation::replay::ReplayFile;
 use crate::network::NetworkCommandSource;
+use crate::session::bootstrap::BootstrapPhase;
 use crate::tick::{PendingEvents, SimulationWorld};
 use crate::replay::ReplayRecorder;
 
@@ -140,6 +141,7 @@ pub struct SimulationDriver {
     pub clock: TickClock,
     pub scheduler: SchedulerState,
     pub source: CommandSource,
+    pub bootstrap_phase: BootstrapPhase,
 }
 
 impl SimulationDriver {
@@ -149,6 +151,7 @@ impl SimulationDriver {
             clock: TickClock::default(),
             scheduler: SchedulerState::default(),
             source: CommandSource::Live(LiveCommandSource),
+            bootstrap_phase: BootstrapPhase::Active,
         }
     }
 
@@ -158,6 +161,17 @@ impl SimulationDriver {
             clock: TickClock::default(),
             scheduler: SchedulerState::default(),
             source: CommandSource::Replay(ReplayCommandSource { replay }),
+            bootstrap_phase: BootstrapPhase::Active,
+        }
+    }
+
+    /// Create a Network mode driver (Init phase — bootstrap must run first).
+    pub fn new_network() -> Self {
+        Self {
+            clock: TickClock::default(),
+            scheduler: SchedulerState::default(),
+            source: CommandSource::Network(NetworkCommandSource::default()),
+            bootstrap_phase: BootstrapPhase::Init,
         }
     }
 
@@ -219,6 +233,25 @@ fn world_fingerprint(sim_world: &mut SimulationWorld) -> u64 {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// check_wired_system — BootstrapPhase Wired → Active
+// ═══════════════════════════════════════════════════════════════
+
+/// Check if transport resources are available and transition to Active.
+/// Runs BEFORE simulation_driver_system.
+pub fn check_wired_system(
+    mut driver: ResMut<SimulationDriver>,
+    transport_exists: Option<Res<crate::transport::NetworkReceiver>>,
+) {
+    let was_wired = driver.bootstrap_phase == crate::session::bootstrap::BootstrapPhase::Wired;
+    if was_wired && transport_exists.is_some() {
+        driver.bootstrap_phase = crate::session::bootstrap::BootstrapPhase::Active;
+        bevy::log::info!("[NET] phase: Wired → Active (transport ready)");
+    } else if was_wired && transport_exists.is_none() {
+        bevy::log::info!("[NET] phase: Wired (waiting for transport resources)");
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
 // simulation_driver_system — 统一驱动系统
 // ═══════════════════════════════════════════════════════════════
 
@@ -248,6 +281,13 @@ pub fn simulation_driver_system(
         return;
     }
 
+    // D7: Only advance ticks during Active phase.
+    // Wired means bootstrap wire() completed but transport resources
+    // may not yet be visible (deferred Commits).
+    if driver.bootstrap_phase != crate::session::bootstrap::BootstrapPhase::Active {
+        return;
+    }
+
     // Normal playback: accumulate time, advance ticks
     let speed = driver.scheduler.speed_multiplier.max(1);
     driver.clock.accumulator += time.delta_secs() * speed as f32;
@@ -273,6 +313,11 @@ pub fn simulation_driver_system(
             driver.source.commands_for_tick(tick, &ctx)
         };
 
+        // Network mode logging: how many commands came from relay
+        if matches!(driver.source, CommandSource::Network(_)) {
+            bevy::log::info!("[NET] driver: advancing tick {} with {} commands", tick, commands.len());
+        }
+
         // 2. Record if source indicates recording is needed
         if driver.source.should_record() {
             recorder.record_tick(tick, &commands);
@@ -285,9 +330,18 @@ pub fn simulation_driver_system(
         cmd_buf.0.retain(|c| c.tick > tick);
 
         // 5. Execute tick — the ONLY run_tick call point (I2, I7)
+        //    Network mode: disable AI (human controls all factions)
         #[cfg(feature = "tracing")]
         let _tick_span = tracing::info_span!("tick", tick_number = tick).entered();
-        let events = simulation::run_tick_default(sim_world.world_mut(), tick);
+        let events = if matches!(driver.source, CommandSource::Network(_)) {
+            simulation::run_tick(
+                sim_world.world_mut(),
+                tick,
+                &simulation::RunConfig { enable_ai: false },
+            )
+        } else {
+            simulation::run_tick_default(sim_world.world_mut(), tick)
+        };
         #[cfg(feature = "tracing")]
         drop(_tick_span);
         pending.events.push(events);

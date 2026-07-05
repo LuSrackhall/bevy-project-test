@@ -20,7 +20,7 @@ use bevy::prelude::*;
 use bevy_adapter::driver::{
     CommandSource, SimulationDriver, SchedulerState, TickClock, simulation_driver_system,
 };
-use bevy_adapter::network::NetworkCommandSource;
+use bevy_adapter::network::{NetworkCommandSource, NetworkEventReceiver};
 use bevy_adapter::replay::ReplayRecorder;
 use bevy_adapter::tick::{PendingEvents, SimulationWorld};
 use bevy_adapter::transport::{
@@ -108,12 +108,15 @@ fn test_network_pipeline_e2e() {
     let sim_world = SimulationWorld::new(raw_world);
 
     // ── Phase 3: Start network client — get shared receiver/sender ──
+    let event_receiver = bevy_adapter::network::NetworkEventReceiver::default();
     let (nrecv, nsend, _handle) = spawn_network_client(
         format!("127.0.0.1:{port}"),
         1, // game_id
         0, // player_id
         1, // ruleset_version
-    );
+        event_receiver.clone(),
+    )
+    .expect("spawn_network_client should connect within 5s");
     // Wait for TCP handshake + GameJoined message
     thread::sleep(Duration::from_millis(500));
 
@@ -140,6 +143,7 @@ fn test_network_pipeline_e2e() {
             ruleset_version: 1,
             connected: false,
         }),
+        bootstrap_phase: bevy_adapter::session::bootstrap::BootstrapPhase::Active,
     });
 
     // Support resources
