@@ -127,7 +127,7 @@ pub fn network_flush_system(
             .cloned()
             .collect();
 
-        bevy::log::info!("[NET] flush: tick={}, cmd_tick={}, cmds={}", current_tick, cmd_tick, cmds.len());
+        eprintln!("[NET] flush: tick={}, cmd_tick={}, cmds={}", current_tick, cmd_tick, cmds.len());
 
         let sid = sender.next_sid();
         let frame = PlayerTickFrame {

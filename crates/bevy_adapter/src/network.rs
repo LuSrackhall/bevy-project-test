@@ -369,7 +369,11 @@ impl RelayServer {
         if !self.game_started {
             let connected: std::collections::HashSet<&u8> =
                 self.ready.values().flat_map(|v| v.iter()).collect();
-            self.game_started = self.all_players.iter().all(|p| connected.contains(p));
+            let now_started = self.all_players.iter().all(|p| connected.contains(p));
+            if now_started {
+                self.game_started = true;
+                eprintln!("[RELAY] game_started = true (all players connected)");
+            }
         }
 
         // Try to finalize

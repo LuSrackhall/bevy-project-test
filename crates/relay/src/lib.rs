@@ -50,7 +50,7 @@ pub async fn start_relay(
     let ctx = RelayCtx::new(server, player_count);
     let listener = TcpListener::bind(format!("0.0.0.0:{}", port)).await?;
 
-    println!("Relay on port {} (players={}, seed={})", port, player_count, seed);
+    println!("Relay on port {} (players={}, seed={}) [v2: game_started]", port, player_count, seed);
 
     loop {
         let (stream, addr) = listener.accept().await?;
