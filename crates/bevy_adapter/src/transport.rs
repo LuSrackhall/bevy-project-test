@@ -114,11 +114,12 @@ pub fn network_flush_system(
     };
     if let CommandSource::Network(ref ns) = driver.source {
         let current_tick = driver.clock.current_tick;
-        let target_tick = ns.delayed_tick(current_tick); // current_tick + input_delay
+        // Send PlayerTickFrame for the NEXT tick the relay expects
+        // Use current_tick + 1 (not delayed) so the relay processes the right tick
+        let cmd_tick = current_tick + 1;
 
-        // Collect all pending commands from cmd_buf.
-        // render_view pushes commands with tick = current_tick + 1 (local time).
-        // For network mode, they need to be sent with the delayed target tick.
+        // Always send a PlayerTickFrame even with empty commands.
+        // The relay needs an empty frame to know the player is connected.
         let cmds: Vec<GameCommand> = cmd_buf
             .0
             .iter()
@@ -126,18 +127,13 @@ pub fn network_flush_system(
             .cloned()
             .collect();
 
-        if cmds.is_empty() {
-            bevy::log::info!("[NET] flush: tick {} (target {}): no commands", current_tick, target_tick);
-            return;
-        }
-
-        bevy::log::info!("[NET] flush: sending {} commands for tick {} (target {})", cmds.len(), current_tick + 1, target_tick);
+        bevy::log::info!("[NET] flush: tick={}, cmd_tick={}, cmds={}", current_tick, cmd_tick, cmds.len());
 
         let sid = sender.next_sid();
         let frame = PlayerTickFrame {
             magic: 0xBEEF,
             game_id: ns.game_id,
-            tick: target_tick,
+            tick: cmd_tick,
             player_id: ns.player_id,
             commands: cmds,
             player_sid: sid,
