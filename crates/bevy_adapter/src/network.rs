@@ -288,6 +288,9 @@ pub struct RelayServer {
     current_tick: u32,
     /// Game creation wall clock time (ms). Used for absolute timeout fallback.
     created_at_ms: u64,
+    /// All players have joined and game is actively running.
+    /// Prevents timeout-based tick finalization before all players connect.
+    game_started: bool,
 }
 
 impl RelayServer {
@@ -319,6 +322,7 @@ impl RelayServer {
             freezed_at_ms: 0,
             current_tick: 1,
             created_at_ms: now_ms,
+            game_started: false,
         }
     }
 
@@ -360,6 +364,14 @@ impl RelayServer {
         // Mark player as ready for this tick
         self.ready.entry(frame.tick).or_default().push(frame.player_id);
 
+        // Check if all players have connected (at least one frame from each).
+        // Prevents timeout-based finalization before all players join the game.
+        if !self.game_started {
+            let connected: std::collections::HashSet<&u8> =
+                self.ready.values().flat_map(|v| v.iter()).collect();
+            self.game_started = self.all_players.iter().all(|p| connected.contains(p));
+        }
+
         // Try to finalize
         self.try_finalize(frame.tick, now_ms)
     }
@@ -380,7 +392,10 @@ impl RelayServer {
             self.all_players.iter().all(|p| ready_set.contains(p))
         };
 
-        let timed_out = self.is_timed_out(tick, now_ms);
+        // Only allow timeout when game_started (all players have connected).
+        // Without this, a player connects, relay times out, and finalizes tick 1
+        // before the other player even joins.
+        let timed_out = self.game_started && self.is_timed_out(tick, now_ms);
 
         if !all_ready && !timed_out {
             return None;
@@ -593,19 +608,24 @@ mod relay_tests {
         let tick_dur = 50u64;
         let jitter = 50u64;
 
-        // Player 0 submits twice (second submission has no new commands, just triggers timeout)
-        assert!(relay.on_player_frame(&make_frame(1, 0, 1), arrival).is_none());
+        // Both players must connect (submit for tick 1) to mark game_started
+        relay.on_player_frame(&make_empty_frame(1, 0, 1), arrival);
+        relay.on_player_frame(&make_empty_frame(1, 1, 1), arrival);
 
-        // Player 1 never submits. Timeout fires after arrival + 3*50 + 50 = 1200ms
-        let timeout = arrival + (input_delay as u64 * tick_dur) + jitter + 1;
-        let result = relay.on_player_frame(&make_empty_frame(1, 0, 2), timeout);
-        assert!(result.is_some()); // Timed out
+        // Tick 1 finalized (both players ready)
+        // Player 0 submits for tick 2 → sets first_arrival[2]
+        relay.on_player_frame(&make_empty_frame(2, 0, 2), arrival + 100);
+
+        // Wait for timeout: first_arrival[2] + 3*50 + 50 = 100 + 150 + 50 = 300ms
+        // Submit at 500ms (well past timeout) to trigger try_finalize
+        let timeout = arrival + 100 + (input_delay as u64 * tick_dur) + jitter + 50;
+        let result = relay.on_player_frame(&make_empty_frame(2, 0, 3), timeout);
+        assert!(result.is_some(), "timeout should fire");
 
         let batch = result.unwrap();
-        assert_eq!(batch.commands.len(), 2);
-        // Player 1's command should be NoOp
-        let noop = &batch.commands[1];
-        assert_eq!(noop.player_id, 1);
+        // Both players have 1 command each (player 1 never submitted, gets NoOp)
+        let noop = batch.commands.iter().find(|c| c.player_id == 1)
+            .expect("player 1 should have a command");
         assert_eq!(noop.action, Action::NoOp);
     }
 
