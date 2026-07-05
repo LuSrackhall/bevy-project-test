@@ -90,14 +90,12 @@ pub fn network_poll_system(
     if frames.is_empty() {
         return;
     }
-    #[cfg(debug_assertions)]
-    println!("[NET] poll: received {} broadcast frames", frames.len());
+    bevy::log::info!("[NET] poll: received {} broadcast frames", frames.len());
     if let CommandSource::Network(ref mut ns) = driver.source {
         for frame in frames {
             let tick = frame.payload.tick;
             ns.push_broadcast(frame);
-            #[cfg(debug_assertions)]
-            println!("[NET] poll: pushed tick {} to relay_buffer", tick);
+            bevy::log::info!("[NET] poll: pushed tick {} to relay_buffer", tick);
         }
     }
 }
@@ -129,8 +127,11 @@ pub fn network_flush_system(
             .collect();
 
         if cmds.is_empty() {
+            bevy::log::info!("[NET] flush: tick {} (target {}): no commands", current_tick, target_tick);
             return;
         }
+
+        bevy::log::info!("[NET] flush: sending {} commands for tick {} (target {})", cmds.len(), current_tick + 1, target_tick);
 
         let sid = sender.next_sid();
         let frame = PlayerTickFrame {

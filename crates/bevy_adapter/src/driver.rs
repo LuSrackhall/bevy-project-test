@@ -242,10 +242,12 @@ pub fn check_wired_system(
     mut driver: ResMut<SimulationDriver>,
     transport_exists: Option<Res<crate::transport::NetworkReceiver>>,
 ) {
-    if driver.bootstrap_phase == crate::session::bootstrap::BootstrapPhase::Wired
-        && transport_exists.is_some()
-    {
+    let was_wired = driver.bootstrap_phase == crate::session::bootstrap::BootstrapPhase::Wired;
+    if was_wired && transport_exists.is_some() {
         driver.bootstrap_phase = crate::session::bootstrap::BootstrapPhase::Active;
+        bevy::log::info!("[NET] phase: Wired → Active (transport ready)");
+    } else if was_wired && transport_exists.is_none() {
+        bevy::log::info!("[NET] phase: Wired (waiting for transport resources)");
     }
 }
 
@@ -310,6 +312,11 @@ pub fn simulation_driver_system(
             let ctx = DriverContext { bevy_cmds: &cmd_buf };
             driver.source.commands_for_tick(tick, &ctx)
         };
+
+        // Network mode logging: how many commands came from relay
+        if matches!(driver.source, CommandSource::Network(_)) {
+            bevy::log::info!("[NET] driver: advancing tick {} with {} commands", tick, commands.len());
+        }
 
         // 2. Record if source indicates recording is needed
         if driver.source.should_record() {
