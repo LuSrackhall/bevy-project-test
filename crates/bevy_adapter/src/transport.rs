@@ -126,11 +126,6 @@ pub fn network_flush_system(
             .cloned()
             .collect();
 
-        eprintln!("[FLUSH] player={}, tick={}, cmd_buf_len={}, flusing={} cmds",
-            ns.player_id, cmd_tick, cmd_buf.0.len(), cmds.len());
-        for c in &cmds {
-            eprintln!("[FLUSH]   cmd: tick={}, player={}, action={:?}", c.tick, c.player_id, c.action);
-        }
         let sid = sender.next_sid();
         let frame = PlayerTickFrame {
             magic: 0xBEEF,
