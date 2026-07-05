@@ -150,6 +150,19 @@ pub fn network_flush_system(
 // Network client thread
 // ═══════════════════════════════════════════════════════════════
 
+/// Synchronous TCP connection check — blocks until relay is reachable.
+/// Called during bootstrap to verify relay before entering Playing state.
+pub fn connect_sync(relay_addr: &str) -> Result<(), String> {
+    use std::time::Duration;
+    let addr: std::net::SocketAddr = relay_addr
+        .parse()
+        .map_err(|_| format!("Invalid relay address: {}", relay_addr))?;
+    std::net::TcpStream::connect_timeout(&addr, Duration::from_secs(5))
+        .map_err(|e| format!("Relay unreachable at {}: {}", relay_addr, e))?;
+    bevy::log::info!("[NET] TCP connect OK to {}", relay_addr);
+    Ok(())
+}
+
 /// Spawn a tokio runtime thread that connects to the relay.
 pub fn spawn_network_client(
     relay_addr: String,

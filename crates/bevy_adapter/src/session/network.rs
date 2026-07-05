@@ -13,8 +13,7 @@ pub struct NetworkBootstrapResult {
 }
 
 /// 建立 TCP 连接，完成握手，返回 bootstrap facts。
-/// player_id 由 relay 根据连接顺序分配（0, 1, 2...），此处根据已知的玩家数量推算。
-/// 超时 5 秒，失败时清理所有资源。
+/// 先同步阻塞确认 relay 可达，再启动异步通信线程。
 pub fn initialize(config: &SessionConfig) -> Result<NetworkBootstrapResult, String> {
     let (relay_addr, _player_count, player_id) = match &config.mode {
         crate::session::SessionMode::Network { relay_addr, player_count, player_id } => {
@@ -23,6 +22,10 @@ pub fn initialize(config: &SessionConfig) -> Result<NetworkBootstrapResult, Stri
         _ => return Err("Not a Network session".into()),
     };
 
+    // Phase 1: sync TCP connect to verify relay is running
+    crate::transport::connect_sync(&relay_addr)?;
+
+    // Phase 2: spawn async client for ongoing communication
     let (receiver, sender, handle) =
         crate::transport::spawn_network_client(relay_addr, 1, player_id, 1);
 
