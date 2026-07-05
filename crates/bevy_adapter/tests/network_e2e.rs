@@ -100,7 +100,7 @@ fn test_network_pipeline_e2e() {
             &SoldierMarker,
         )>();
         q.iter(&raw_world)
-            .find(|(_, f, _)| f.0 == Faction::Player)
+            .find(|(_, f, _)| f.0 == FactionId(0))
             .map(|(id, _, _)| id.0)
     };
 

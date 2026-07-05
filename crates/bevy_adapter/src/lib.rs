@@ -73,7 +73,7 @@ pub struct LocalPlayerFaction(pub simulation::types::Faction);
 
 impl Default for LocalPlayerFaction {
     fn default() -> Self {
-        Self(simulation::types::Faction::Player)
+        Self(simulation::types::FactionId(0))
     }
 }
 

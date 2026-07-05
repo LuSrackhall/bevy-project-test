@@ -139,7 +139,7 @@ mod tests {
         let mut q = world.query::<(&UnitIdComponent, &FactionComponent)>();
         let uid = q
             .iter(&world)
-            .find(|(_, f)| f.0 == Faction::Player)
+            .find(|(_, f)| f.0 == FactionId(0))
             .map(|(id, _)| id.0)
             .expect("Should have a player unit");
 

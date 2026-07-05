@@ -617,7 +617,7 @@ pub(crate) fn update_top_bar(
     {
         let mut q = sim_world.query::<(&FactionComponent, &simulation::soldier::CityComponent)>();
         for (f, c) in q.iter(world) {
-            if f.0 == simulation::types::Faction::Player {
+            if f.0 == simulation::types::FactionId(0) {
                 pp += c.population;
                 pm += c.max_population;
             }
@@ -648,9 +648,9 @@ pub(crate) fn update_top_bar(
                 .iter()
                 .map(|(faction, (soldiers, cities))| {
                     let label = match faction {
-                        simulation::types::Faction::Player => "玩家",
-                        simulation::types::Faction::Enemy => "敌人",
-                        simulation::types::Faction::Neutral => "中立",
+                        simulation::types::FactionId(0) => "玩家",
+                        simulation::types::FactionId(1) => "敌人",
+                        simulation::types::FactionId(2) => "中立",
                     };
                     format!("{}: 兵{}/城{}", label, soldiers, cities)
                 })
@@ -1172,7 +1172,7 @@ pub(crate) fn seek_panel_count_system(
         let mut q = sim_world.query::<(&UnitIdComponent, &SoldierTypeComponent, &FactionComponent)>();
         for uid in &selection.selected_unit_ids {
             for (id, st, fac) in q.iter(world) {
-                if id.0 == *uid && fac.0 == Faction::Player {
+                if id.0 == *uid && fac.0 == FactionId(0) {
                     match st.0 {
                         SoldierType::Militia => {
                             counts[0] += 1;
@@ -1199,7 +1199,7 @@ pub(crate) fn seek_panel_count_system(
         // Global mode: count all Player soldiers
         let mut q = sim_world.query::<(&SoldierTypeComponent, &FactionComponent)>();
         for (st, fac) in q.iter(world) {
-            if fac.0 == Faction::Player {
+            if fac.0 == FactionId(0) {
                 match st.0 {
                     SoldierType::Militia => {
                         counts[0] += 1;

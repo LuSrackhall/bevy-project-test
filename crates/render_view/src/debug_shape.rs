@@ -43,9 +43,9 @@ pub fn draw_debug_shapes_system(
             let py = pos.0.y.to_float();
             if !in_view(px, py) { continue; }
             let color = match faction.0 {
-                simulation::types::Faction::Player => Color::srgb(0.2, 0.6, 1.0),
-                simulation::types::Faction::Enemy => Color::srgb(1.0, 0.2, 0.2),
-                simulation::types::Faction::Neutral => Color::srgb(0.6, 0.6, 0.6),
+                simulation::types::FactionId(0) => Color::srgb(0.2, 0.6, 1.0),
+                simulation::types::FactionId(1) => Color::srgb(1.0, 0.2, 0.2),
+                simulation::types::FactionId(2) => Color::srgb(0.6, 0.6, 0.6),
             };
             let r = radius.0 as f32;
             gizmos.circle_2d(Vec2::new(px, py), r, color);
@@ -66,9 +66,9 @@ pub fn draw_debug_shapes_system(
             let p = Vec2::new(pos.0.x.to_float(), pos.0.y.to_float());
             if !in_view(p.x, p.y) { continue; }
             let color = match faction.0 {
-                simulation::types::Faction::Player => Color::srgb(0.3, 0.5, 0.9),
-                simulation::types::Faction::Enemy => Color::srgb(0.9, 0.3, 0.3),
-                simulation::types::Faction::Neutral => Color::srgb(0.5, 0.5, 0.5),
+                simulation::types::FactionId(0) => Color::srgb(0.3, 0.5, 0.9),
+                simulation::types::FactionId(1) => Color::srgb(0.9, 0.3, 0.3),
+                simulation::types::FactionId(2) => Color::srgb(0.5, 0.5, 0.5),
             };
             let r = soldier_config.get(stype.0).collision_radius as f32;
             gizmos.circle_2d(p, r, color);
@@ -80,9 +80,9 @@ pub fn draw_debug_shapes_system(
                 let line_len = r * 1.5;
                 let dir = Vec2::new(angle_rad.cos(), angle_rad.sin());
                 let line_color = match faction.0 {
-                    simulation::types::Faction::Player => Color::srgb(0.5, 0.7, 1.0),
-                    simulation::types::Faction::Enemy => Color::srgb(1.0, 0.5, 0.5),
-                    simulation::types::Faction::Neutral => Color::srgb(0.7, 0.7, 0.7),
+                    simulation::types::FactionId(0) => Color::srgb(0.5, 0.7, 1.0),
+                    simulation::types::FactionId(1) => Color::srgb(1.0, 0.5, 0.5),
+                    simulation::types::FactionId(2) => Color::srgb(0.7, 0.7, 0.7),
                 };
                 gizmos.line_2d(p, p + dir * line_len, line_color);
             }
@@ -93,9 +93,9 @@ pub fn draw_debug_shapes_system(
                     let shield_offset = r + 3.0;
                     let shield_pos = p + Vec2::new(shield_offset, 0.0);
                     let shield_color = match faction.0 {
-                        simulation::types::Faction::Player => Color::srgb(0.4, 0.6, 1.0),
-                        simulation::types::Faction::Enemy => Color::srgb(1.0, 0.4, 0.4),
-                        simulation::types::Faction::Neutral => Color::srgb(0.6, 0.6, 0.6),
+                        simulation::types::FactionId(0) => Color::srgb(0.4, 0.6, 1.0),
+                        simulation::types::FactionId(1) => Color::srgb(1.0, 0.4, 0.4),
+                        simulation::types::FactionId(2) => Color::srgb(0.6, 0.6, 0.6),
                     };
                     let hw = 2.0;
                     let hh = 2.5;

@@ -15,7 +15,7 @@ fn create_world_mixed(count: usize, seed: u64) -> bevy_ecs::world::World {
         let uid = world.resource_mut::<IdGenerator>().next_id();
         let x = (i as i32 % 50) * 20;
         let y = (i as i32 / 50) * 20;
-        let faction = if i % 2 == 0 { Faction::Player } else { Faction::Enemy };
+        let faction = if i % 2 == 0 { FactionId(0) } else { FactionId(1) };
         let stype = if i % 3 == 0 { SoldierType::Archer } else { SoldierType::Infantry };
         let cfg = soldier_config.get(stype);
         let shield_hp = combat_config.shield.initial_hp;

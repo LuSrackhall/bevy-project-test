@@ -62,9 +62,10 @@ fn collect_command_players(world: &mut World) -> Vec<u8> {
     let mut players = Vec::new();
     for f in q.iter(world) {
         match f.0 {
-            Faction::Player => { if !players.contains(&0) { players.push(0); } }
-            Faction::Enemy => { if !players.contains(&1) { players.push(1); } }
-            Faction::Neutral => {} // does not participate in command pipeline
+            FactionId(0) => { if !players.contains(&0) { players.push(0); } }
+            FactionId(1) => { if !players.contains(&1) { players.push(1); } }
+            FactionId(2) => {}
+            FactionId(_) => {} // other factions — also don't participate
         }
     }
     players

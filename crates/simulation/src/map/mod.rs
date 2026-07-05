@@ -130,17 +130,17 @@ pub fn generate_map(world: &mut World, map_size: MapSize) {
     };
     let per_side = (total_cities as usize).saturating_sub(neutral_count as usize + 1) / 2;
 
-    let mut cities: Vec<(FixedVec2, u32, Faction)> = Vec::new();
+    let mut cities: Vec<(FixedVec2, u32, FactionId)> = Vec::new();
     let mut assigned = 0;
     for (i, (pos, max_level)) in positions.iter().enumerate() {
         let faction = if i < per_side {
             assigned += 1;
-            Faction::Player
+            FactionId(0)
         } else if assigned < 2 * per_side && i >= per_side {
             assigned += 1;
-            Faction::Enemy
+            FactionId(1)
         } else {
-            Faction::Neutral
+            FactionId(2)
         };
         cities.push((*pos, *max_level, faction));
     }

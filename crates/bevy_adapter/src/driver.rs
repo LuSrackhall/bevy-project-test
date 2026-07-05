@@ -596,7 +596,7 @@ mod tests {
                 &simulation::soldier::FactionComponent,
                 &simulation::soldier::SoldierMarker,
             )>();
-            if let Some((id, _, _)) = q.iter(&world).find(|(_, f, _)| f.0 == simulation::types::Faction::Player) {
+            if let Some((id, _, _)) = q.iter(&world).find(|(_, f, _)| f.0 == simulation::types::FactionId(0)) {
                 cmd_buf.0.push(simulation::command::GameCommand {
                     tick: 51,
                     player_id: 0,
@@ -619,7 +619,7 @@ mod tests {
                 &simulation::soldier::SoldierMarker,
             )>();
             let ids: Vec<_> = q.iter(&world)
-                .filter(|(_, f, _)| f.0 == simulation::types::Faction::Player)
+                .filter(|(_, f, _)| f.0 == simulation::types::FactionId(0))
                 .map(|(id, _, _)| id.0)
                 .take(5)
                 .collect();
@@ -729,7 +729,7 @@ mod tests {
                 &simulation::soldier::FactionComponent,
                 &simulation::soldier::SoldierMarker,
             )>();
-            if let Some((id, _, _)) = q.iter(&world_rec).find(|(_, f, _)| f.0 == simulation::types::Faction::Player) {
+            if let Some((id, _, _)) = q.iter(&world_rec).find(|(_, f, _)| f.0 == simulation::types::FactionId(0)) {
                 let cmd = simulation::command::GameCommand {
                     tick: 51,
                     player_id: 0,
@@ -810,7 +810,7 @@ mod tests {
                 &simulation::soldier::SoldierMarker,
             )>();
             let ids: Vec<_> = q.iter(&world_rec)
-                .filter(|(_, f, _)| f.0 == simulation::types::Faction::Player)
+                .filter(|(_, f, _)| f.0 == simulation::types::FactionId(0))
                 .map(|(id, _, _)| id.0)
                 .take(5)
                 .collect();

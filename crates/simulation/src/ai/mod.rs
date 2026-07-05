@@ -33,7 +33,7 @@ pub fn ai_decide(world: &mut World, current_tick: u32) {
         )>();
         query
             .iter(world)
-            .filter(|(_, _, _, _, fac)| fac.0 == Faction::Enemy)
+            .filter(|(_, _, _, _, fac)| fac.0 == FactionId(1))
             .map(|(_, id, pos, city, _)| (id.0, pos.0, city.level, city.max_level))
             .collect()
     };
@@ -50,7 +50,7 @@ pub fn ai_decide(world: &mut World, current_tick: u32) {
         )>();
         query
             .iter(world)
-            .filter(|(_, _, _, _, fac)| fac.0 == Faction::Player)
+            .filter(|(_, _, _, _, fac)| fac.0 == FactionId(0))
             .map(|(_, id, pos, city, _)| (id.0, pos.0, city.level))
             .collect()
     };
@@ -67,14 +67,14 @@ pub fn ai_decide(world: &mut World, current_tick: u32) {
         )>();
         query
             .iter(world)
-            .filter(|(_, _, _, _, fac)| fac.0 == Faction::Neutral)
+            .filter(|(_, _, _, _, fac)| fac.0 == FactionId(2))
             .map(|(_, id, pos, city, _)| (id.0, pos.0, city.level, city.health_max))
             .collect()
     };
     neutral_cities.sort_by_key(|(uid, _, _, _)| *uid);
 
     // Collect all soldiers — sorted for determinism (§0.1)
-    let mut soldiers: Vec<(UnitId, FixedVec2, Faction, bool, Option<UnitId>)> = {
+    let mut soldiers: Vec<(UnitId, FixedVec2, FactionId, bool, Option<UnitId>)> = {
         let mut query = world.query::<(
             Entity,
             &UnitIdComponent,
@@ -111,13 +111,13 @@ pub fn ai_decide(world: &mut World, current_tick: u32) {
             let ai_nearby = soldiers
                 .iter()
                 .filter(|(_, pos, fac, _, _)| {
-                    *fac == Faction::Enemy && (*pos - target_pos).length_squared() <= radius_sq
+                    *fac == FactionId(1) && (*pos - target_pos).length_squared() <= radius_sq
                 })
                 .count();
 
             if ai_nearby > 0 {
                 for (sid, spos, sfac, has_target, _) in &soldiers {
-                    if *sfac == Faction::Enemy
+                    if *sfac == FactionId(1)
                         && !*has_target
                         && (*spos - ai_pos).length_squared() <= radius_sq
                     {
@@ -150,21 +150,21 @@ pub fn ai_decide(world: &mut World, current_tick: u32) {
                     let ai_nearby = soldiers
                         .iter()
                         .filter(|(_, pos, fac, _, _)| {
-                            *fac == Faction::Enemy
+                            *fac == FactionId(1)
                                 && (*pos - target_pos).length_squared() <= radius_sq
                         })
                         .count();
                     let player_nearby = soldiers
                         .iter()
                         .filter(|(_, pos, fac, _, _)| {
-                            *fac == Faction::Player
+                            *fac == FactionId(0)
                                 && (*pos - target_pos).length_squared() <= radius_sq
                         })
                         .count();
 
                     if (ai_nearby as u64) * 10 > (player_nearby as u64) * 13 && ai_nearby > 0 {
                         for &(sid, _spos, sfac, has_target, _) in &soldiers {
-                            if sfac == Faction::Enemy && !has_target {
+                            if sfac == FactionId(1) && !has_target {
                                 commands.push(GameCommand {
                                     tick: current_tick + 1,
                                     player_id: 1,
@@ -190,7 +190,7 @@ pub fn ai_decide(world: &mut World, current_tick: u32) {
             query
                 .iter(world)
                 .filter(|(_, _, city, fac)| {
-                    fac.0 == Faction::Enemy && city.health_current < city.health_max / 2
+                    fac.0 == FactionId(1) && city.health_current < city.health_max / 2
                 })
                 .map(|(_, id, _, _)| id.0)
                 .collect()

@@ -7,7 +7,7 @@
 use std::collections::BTreeMap;
 
 use crate::soldier::{CityMarker, FactionComponent, SoldierMarker};
-use crate::types::Faction;
+use crate::types::FactionId;
 use bevy_ecs::world::World;
 
 /// Per-faction soldier and city counts.
@@ -16,19 +16,19 @@ use bevy_ecs::world::World;
 /// Factions with zero units are not present in the map.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FactionCounts {
-    pub factions: BTreeMap<Faction, (u32, u32)>,
+    pub factions: BTreeMap<FactionId, (u32, u32)>,
 }
 
 impl FactionCounts {
     /// Number of soldiers belonging to the given faction.
     /// Returns 0 if the faction has no soldiers.
-    pub fn soldiers(&self, faction: Faction) -> u32 {
+    pub fn soldiers(&self, faction: FactionId) -> u32 {
         self.factions.get(&faction).map_or(0, |(s, _)| *s)
     }
 
     /// Number of cities belonging to the given faction.
     /// Returns 0 if the faction has no cities.
-    pub fn cities(&self, faction: Faction) -> u32 {
+    pub fn cities(&self, faction: FactionId) -> u32 {
         self.factions.get(&faction).map_or(0, |(_, c)| *c)
     }
 
@@ -52,10 +52,10 @@ impl FactionCounts {
 /// # Determinism
 ///
 /// Returns a `BTreeMap` whose iteration order is determined by the
-/// `Ord` implementation of `Faction`, which is consistent across
+/// `Ord` implementation of `FactionId`, which is consistent across
 /// same-seed runs. No allocation-dependent iteration is used.
 pub fn count_factions(world: &mut World) -> FactionCounts {
-    let mut factions: BTreeMap<Faction, (u32, u32)> = BTreeMap::new();
+    let mut factions: BTreeMap<FactionId, (u32, u32)> = BTreeMap::new();
 
     // Count soldiers (entities with both FactionComponent and SoldierMarker)
     let mut soldier_q = world.query::<(&FactionComponent, &SoldierMarker)>();
@@ -80,7 +80,7 @@ mod tests {
     use crate::init_simulation_world;
     use crate::map;
     use crate::map::MapSize;
-    use crate::types::Faction;
+    use crate::types::FactionId;
 
     #[test]
     fn test_empty_world_returns_empty_counts() {
@@ -89,8 +89,8 @@ mod tests {
         assert!(counts.factions.is_empty(), "Empty world should have zero factions");
         assert_eq!(counts.total_soldiers(), 0);
         assert_eq!(counts.total_cities(), 0);
-        assert_eq!(counts.soldiers(Faction::Player), 0);
-        assert_eq!(counts.cities(Faction::Neutral), 0);
+        assert_eq!(counts.soldiers(FactionId(0)), 0);
+        assert_eq!(counts.cities(FactionId(2)), 0);
     }
 
     #[test]
@@ -153,8 +153,8 @@ mod tests {
         // (Neutral may appear depending on map generation)
         for (faction, _) in &counts.factions {
             match faction {
-                Faction::Player | Faction::Enemy => {} // expected
-                Faction::Neutral => {} // also possible
+                FactionId(0) | FactionId(1) => {} // expected
+                FactionId(2) => {} // also possible
             }
         }
     }
@@ -166,8 +166,8 @@ mod tests {
         let counts = count_factions(&mut world);
 
         // Neutral may or may not have units; either way accessing should be safe
-        let _s = counts.soldiers(Faction::Neutral);
-        let _c = counts.cities(Faction::Neutral);
+        let _s = counts.soldiers(FactionId(2));
+        let _c = counts.cities(FactionId(2));
         // No panic means success
     }
 }

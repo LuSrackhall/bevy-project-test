@@ -263,7 +263,7 @@ impl IdGenerator {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Slot / Controller / Faction 所有权模型
+// Slot / Controller / FactionId 所有权模型
 // ═══════════════════════════════════════════════════════════════
 
 /// 阵营 ID — 单位/城市属于哪个阵营。
@@ -399,7 +399,7 @@ pub struct DroppedShield {
     pub shield: ShieldItem,
     pub position: FixedVec2,
     pub drop_tick: u32,
-    pub owner_faction: Option<Faction>,
+    pub owner_faction: Option<FactionId>,
 }
 
 // ═══════════════════════════════════════════════════════════════
