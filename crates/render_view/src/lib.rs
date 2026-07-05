@@ -188,29 +188,20 @@ fn check_victory_system(
 /// 阻塞等待 TCP 连接成功后进入等待房间，由 lobby_wait_system 检测 GameStarted。
 fn setup_lobby_system(
     mut commands: Commands,
-    mut sim_world: bevy::ecs::system::NonSendMut<bevy_adapter::tick::SimulationWorld>,
-    mut mapper: ResMut<bevy_adapter::mapper::UnitIdMapper>,
-    mut tick_clock: ResMut<bevy_adapter::tick::TickClock>,
-    mut cmd_buf: ResMut<simulation::command::CommandBuffer>,
-    mut pending: ResMut<bevy_adapter::tick::PendingEvents>,
-    mut selection: ResMut<crate::selection::SelectionState>,
-    mut needs_reset: ResMut<NeedsGameReset>,
     mut _driver: ResMut<bevy_adapter::driver::SimulationDriver>,
-    mut current_map_size: ResMut<bevy_adapter::CurrentMapSize>,
     mut recorder: ResMut<bevy_adapter::replay::ReplayRecorder>,
+    mut cmd_buf: ResMut<simulation::command::CommandBuffer>,
     mut network_active: ResMut<bevy_adapter::NetworkActive>,
-    auto_record: Res<AutoRecordReplay>,
-    map_bounds: Option<ResMut<bevy_adapter::MapBounds>>,
-    game_entities: Query<Entity, With<bevy_adapter::binding::LogicEntityRef>>,
+    needs_reset: Res<NeedsGameReset>,
 ) {
-    let network_config = match std::mem::replace(&mut *needs_reset, NeedsGameReset::None) {
+    let network_config = match &*needs_reset {
         NeedsGameReset::Network { relay_addr, player_count, player_id } => {
-            Some((relay_addr, player_count, player_id))
+            Some((relay_addr.clone(), *player_count, *player_id))
         }
         _ => None,
     };
     let Some((relay_addr, player_count, player_id)) = network_config else {
-        // Not network mode — shouldn't be in Lobby, go back to MainMenu
+        bevy::log::error!("[LOBBY] NeedsGameReset is not Network — returning to MainMenu");
         commands.insert_resource(NextState::<GameState>::default());
         return;
     };

@@ -112,6 +112,7 @@ async fn handle(ctx: Arc<RelayCtx>, stream: tokio::net::TcpStream) {
 
         match request {
             RelayClientMessage::PlayerTick(frame) => {
+                eprintln!("[RELAY] PlayerTick: player={}, tick={}, cmds={}", frame.player_id, frame.tick, frame.commands.len());
                 let now_ms = SystemTime::now()
                     .duration_since(SystemTime::UNIX_EPOCH)
                     .unwrap()

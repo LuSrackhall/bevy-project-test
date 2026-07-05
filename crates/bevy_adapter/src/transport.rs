@@ -136,6 +136,7 @@ pub fn network_flush_system(
             commands: cmds,
             player_sid: sid,
         };
+        eprintln!("[NET] flushing frame: tick={}, player={}, cmds={}", cmd_tick, ns.player_id, frame.commands.len());
         sender.push(frame);
     }
 }
