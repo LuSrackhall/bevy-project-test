@@ -327,7 +327,7 @@ pub struct PlayerSlot {
 }
 
 /// 当前 Session 的所有槽位分配。
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Resource)]
 pub struct PlayerSlots {
     pub slots: Vec<PlayerSlot>,
 }
