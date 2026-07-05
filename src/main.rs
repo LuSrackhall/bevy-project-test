@@ -26,7 +26,7 @@ fn main() {
             ..default()
         })
         .set(LogPlugin {
-            filter: "warn,icu_provider=error".to_string(),
+            filter: "info,simulation=warn,relay=warn,wgpu=warn,naga=warn,accesskit=warn,cargo=warn".to_string(),
             ..default()
         }),))
         .insert_non_send(SimulationWorld::new(simulation::init_simulation_world(0)))
