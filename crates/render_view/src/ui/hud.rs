@@ -594,7 +594,7 @@ pub(crate) fn update_top_bar(
 
     // Inline count_factions using read-only queries
     use std::collections::BTreeMap;
-    let mut f_counts: BTreeMap<Faction, (u32, u32)> = BTreeMap::new();
+    let mut f_counts: BTreeMap<FactionId, (u32, u32)> = BTreeMap::new();
     {
         let mut q = sim_world.query::<(&FactionComponent, &SoldierMarker)>();
         for (fac, _) in q.iter(world) {
@@ -651,6 +651,7 @@ pub(crate) fn update_top_bar(
                         simulation::types::FactionId(0) => "玩家",
                         simulation::types::FactionId(1) => "敌人",
                         simulation::types::FactionId(2) => "中立",
+                        simulation::types::FactionId(_) => "其他",
                     };
                     format!("{}: 兵{}/城{}", label, soldiers, cities)
                 })

@@ -2,7 +2,7 @@ use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
 use bevy_adapter::tick::SimulationWorld;
 use simulation::soldier::*;
-use simulation::types::Faction;
+use simulation::types::FactionId;
 
 #[derive(Component)]
 pub struct MainCamera;
@@ -27,7 +27,7 @@ pub fn center_on_player_city(
         .get_resource::<simulation::types::LocalPlayerId>()
         .map(|r| r.0)
         .unwrap_or(0);
-    let target_faction = simulation::types::Faction::from_player_id(local_id);
+    let target_faction = simulation::types::FactionId(local_id);
     let mut q = sim_world.query::<(&LogicalPosition, &FactionComponent)>();
     for (pos, faction) in q.iter(world) {
         if faction.0 == target_faction {

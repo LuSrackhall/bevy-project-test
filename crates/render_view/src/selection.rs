@@ -130,7 +130,7 @@ pub fn selection_click_system(
             &CityMarker,
         )>();
         for (pos, fac, id, radius, _) in q.iter(world) {
-            if fac.0 != Faction::from_player_id(lid) {
+            if fac.0 != FactionId(lid) {
                 continue;
             }
             let dx = pos.0.x.to_float() - world_pos.x;
@@ -159,7 +159,7 @@ pub fn selection_click_system(
             &SoldierMarker,
         )>();
         for (pos, fac, id, _) in q.iter(world) {
-            if fac.0 != Faction::from_player_id(lid) {
+            if fac.0 != FactionId(lid) {
                 continue;
             }
             let dx = pos.0.x.to_float() - world_pos.x;
@@ -256,7 +256,7 @@ pub fn drag_select_system(
             let new_sel: Vec<UnitId> = q
                 .iter(world)
                 .filter(|(pos, fac, _, _)| {
-                    if fac.0 != Faction::from_player_id(lid) {
+                    if fac.0 != FactionId(lid) {
                         return false;
                     }
                     let p = Vec2::new(pos.0.x.to_float(), pos.0.y.to_float());
@@ -300,7 +300,7 @@ pub fn selection_shortcut_system(
         selection.selected_city = None;
         selection.selected_unit_ids = q
             .iter(world)
-            .filter(|(fac, _, _)| fac.0 == Faction::from_player_id(lid))
+            .filter(|(fac, _, _)| fac.0 == FactionId(lid))
             .map(|(_, id, _)| id.0)
             .collect();
     }
@@ -419,7 +419,7 @@ pub fn command_issue_system(
     {
         let mut q = sim_world.query::<(&LogicalPosition, &FactionComponent, &UnitIdComponent)>();
         for (pos, fac, id) in q.iter(world) {
-            if fac.0 != Faction::from_player_id(lid) {
+            if fac.0 != FactionId(lid) {
                 let dx = pos.0.x.to_float() - world_pos.x;
                 let dy = pos.0.y.to_float() - world_pos.y;
                 if (dx * dx + dy * dy) < 144.0 {
@@ -450,7 +450,7 @@ pub fn command_issue_system(
             &UnitIdComponent,
         )>();
         for (pos, fac, radius, id) in q.iter(world) {
-            if fac.0 != Faction::from_player_id(lid) {
+            if fac.0 != FactionId(lid) {
                 let dx = pos.0.x.to_float() - world_pos.x;
                 let dy = pos.0.y.to_float() - world_pos.y;
                 let r = radius.0 as f32;
@@ -482,7 +482,7 @@ pub fn command_issue_system(
             &UnitIdComponent,
         )>();
         for (pos, fac, radius, id) in q.iter(world) {
-            if fac.0 == Faction::from_player_id(lid) {
+            if fac.0 == FactionId(lid) {
                 let dx = pos.0.x.to_float() - world_pos.x;
                 let dy = pos.0.y.to_float() - world_pos.y;
                 if (dx * dx + dy * dy) < (radius.0 as f32).powi(2) {
