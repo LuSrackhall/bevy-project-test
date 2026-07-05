@@ -54,6 +54,7 @@ impl Default for AutoRecordReplay {
 #[derive(Resource, Default)]
 pub struct NetworkGameStart {
     pub seed: u64,
+    pub player_id: u8,
     pub received: bool,
 }
 
@@ -192,6 +193,7 @@ fn setup_lobby_system(
     mut recorder: ResMut<bevy_adapter::replay::ReplayRecorder>,
     mut cmd_buf: ResMut<simulation::command::CommandBuffer>,
     mut network_active: ResMut<bevy_adapter::NetworkActive>,
+    mut network_start: ResMut<NetworkGameStart>,
     needs_reset: Res<NeedsGameReset>,
 ) {
     let network_config = match &*needs_reset {
@@ -206,7 +208,15 @@ fn setup_lobby_system(
         return;
     };
 
+    // Store the player_id for reset_game_system to use
+    network_start.player_id = player_id;
+
+    use bevy_adapter::session::bootstrap::BootstrapPhase;
+
     bevy::log::info!("[LOBBY] Starting network bootstrap (relay={}, player={}/{})", relay_addr, player_id, player_count);
+
+    // CRITICAL: Reset phase to Init so wire() accepts the artifacts
+    _driver.bootstrap_phase = BootstrapPhase::Init;
 
     // Bootstrap session: blocks on TCP connect (30s timeout)
     let config = bevy_adapter::session::SessionConfig {
@@ -293,11 +303,7 @@ fn reset_game_system(
         NeedsGameReset::SameSize => (Some(current_map_size.0), None, None),
         NeedsGameReset::NewGame(size) => (Some(size), None, None),
         NeedsGameReset::Replay(replay) => (Some(replay.map_size), Some(replay), None),
-        NeedsGameReset::Network { .. } => {
-            // Network mode: world is created by lobby (via GameStarted), not here
-            // bootstrap_session already ran in setup_lobby_system
-            (Some(simulation::map::MapSize::Medium), None, Some(()))
-        }
+        NeedsGameReset::Network { .. } => (Some(simulation::map::MapSize::Medium), None, Some(()))
     };
 
     if let Some(map_size) = map_size {
@@ -327,6 +333,11 @@ fn reset_game_system(
         };
         let mut world = simulation::init_simulation_world(seed);
         simulation::map::generate_map(&mut world, map_size);
+        // For network mode, store the local player's id so input/selection systems
+        // can filter units and issue commands with the correct player_id.
+        if network_start.received {
+            world.insert_resource(simulation::types::LocalPlayerId(network_start.player_id));
+        }
         sim_world.set_world(world);
 
         // Update current map size and MapBounds

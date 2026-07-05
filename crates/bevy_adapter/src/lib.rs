@@ -66,6 +66,17 @@ impl Default for CurrentMapSize {
 #[derive(Resource, Default, PartialEq)]
 pub struct NetworkActive(pub bool);
 
+/// Which faction the local player controls (set during game start).
+/// In single-player: Player; in network: depends on player_id.
+#[derive(Resource)]
+pub struct LocalPlayerFaction(pub simulation::types::Faction);
+
+impl Default for LocalPlayerFaction {
+    fn default() -> Self {
+        Self(simulation::types::Faction::Player)
+    }
+}
+
 pub struct BevyAdapterPlugin;
 
 impl Plugin for BevyAdapterPlugin {
@@ -89,6 +100,7 @@ impl Plugin for BevyAdapterPlugin {
             .init_resource::<CurrentMapSize>()
             .init_resource::<GameMode>()
             .init_resource::<NetworkActive>()
+            .init_resource::<LocalPlayerFaction>()
             .insert_resource(crate::driver::SimulationDriver::new_live())
             .init_resource::<crate::driver::TickClock>()
             .init_resource::<ReplayRecorder>()

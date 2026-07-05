@@ -330,9 +330,18 @@ pub fn simulation_driver_system(
         cmd_buf.0.retain(|c| c.tick > tick);
 
         // 5. Execute tick — the ONLY run_tick call point (I2, I7)
+        //    Network mode: disable AI (human controls all factions)
         #[cfg(feature = "tracing")]
         let _tick_span = tracing::info_span!("tick", tick_number = tick).entered();
-        let events = simulation::run_tick_default(sim_world.world_mut(), tick);
+        let events = if matches!(driver.source, CommandSource::Network(_)) {
+            simulation::run_tick(
+                sim_world.world_mut(),
+                tick,
+                &simulation::RunConfig { enable_ai: false },
+            )
+        } else {
+            simulation::run_tick_default(sim_world.world_mut(), tick)
+        };
         #[cfg(feature = "tracing")]
         drop(_tick_span);
         pending.events.push(events);

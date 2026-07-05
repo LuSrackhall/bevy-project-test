@@ -8,6 +8,14 @@ use simulation::command::*;
 use simulation::soldier::*;
 use simulation::types::*;
 
+/// Helper: read the local human player's id from the simulation world.
+/// Returns 0 (Player faction) if not set (single-player default).
+fn local_player_id(sim: &SimulationWorld) -> u8 {
+    sim.world_ref()
+        .get_resource::<simulation::types::LocalPlayerId>()
+        .map(|r| r.0)
+        .unwrap_or(0)
+}
 /// Returns true if the mouse cursor is currently over any UI element.
 /// Uses HoverMap from Bevy's picking system, which is automatically maintained.
 /// Transparent containers have Pickable::IGNORE so they don't appear in HoverMap.
@@ -87,6 +95,7 @@ pub fn selection_click_system(
     sim_world: bevy::ecs::system::NonSend<SimulationWorld>,
     mut selection: ResMut<SelectionState>,
 ) {
+    let lid = local_player_id(&sim_world);
     if !mouse.just_pressed(MouseButton::Left) {
         return;
     }
@@ -121,7 +130,7 @@ pub fn selection_click_system(
             &CityMarker,
         )>();
         for (pos, fac, id, radius, _) in q.iter(world) {
-            if fac.0 != Faction::Player {
+            if fac.0 != Faction::from_player_id(lid) {
                 continue;
             }
             let dx = pos.0.x.to_float() - world_pos.x;
@@ -150,7 +159,7 @@ pub fn selection_click_system(
             &SoldierMarker,
         )>();
         for (pos, fac, id, _) in q.iter(world) {
-            if fac.0 != Faction::Player {
+            if fac.0 != Faction::from_player_id(lid) {
                 continue;
             }
             let dx = pos.0.x.to_float() - world_pos.x;
@@ -192,6 +201,7 @@ pub fn drag_select_system(
     sim_world: bevy::ecs::system::NonSend<SimulationWorld>,
     mut selection: ResMut<SelectionState>,
 ) {
+    let lid = local_player_id(&sim_world);
     let Ok(window) = q_windows.single() else {
         return;
     };
@@ -246,7 +256,7 @@ pub fn drag_select_system(
             let new_sel: Vec<UnitId> = q
                 .iter(world)
                 .filter(|(pos, fac, _, _)| {
-                    if fac.0 != Faction::Player {
+                    if fac.0 != Faction::from_player_id(lid) {
                         return false;
                     }
                     let p = Vec2::new(pos.0.x.to_float(), pos.0.y.to_float());
@@ -280,6 +290,7 @@ pub fn selection_shortcut_system(
     sim_world: bevy::ecs::system::NonSend<SimulationWorld>,
     mut selection: ResMut<SelectionState>,
 ) {
+    let lid = local_player_id(&sim_world);
     if keyboard.just_pressed(KeyCode::KeyA)
         && (keyboard.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight])
             || keyboard.any_pressed([KeyCode::SuperLeft, KeyCode::SuperRight]))
@@ -289,7 +300,7 @@ pub fn selection_shortcut_system(
         selection.selected_city = None;
         selection.selected_unit_ids = q
             .iter(world)
-            .filter(|(fac, _, _)| fac.0 == Faction::Player)
+            .filter(|(fac, _, _)| fac.0 == Faction::from_player_id(lid))
             .map(|(_, id, _)| id.0)
             .collect();
     }
@@ -304,6 +315,7 @@ pub fn selection_visual_system(
     selection: Res<SelectionState>,
     sim_world: bevy::ecs::system::NonSend<SimulationWorld>,
 ) {
+    let lid = local_player_id(&sim_world);
     let world = sim_world.world_ref();
 
     // O(1) per lookup using UnitIdEntityIndex (rebuilt each tick in run_tick)
@@ -368,6 +380,7 @@ pub fn command_issue_system(
     tick_clock: Res<bevy_adapter::tick::TickClock>,
     force_next: Option<ResMut<ForceMoveNext>>,
 ) {
+    let lid = local_player_id(&sim_world);
     if !mouse.just_pressed(MouseButton::Right) {
         return;
     }
@@ -406,7 +419,7 @@ pub fn command_issue_system(
     {
         let mut q = sim_world.query::<(&LogicalPosition, &FactionComponent, &UnitIdComponent)>();
         for (pos, fac, id) in q.iter(world) {
-            if fac.0 != Faction::Player {
+            if fac.0 != Faction::from_player_id(lid) {
                 let dx = pos.0.x.to_float() - world_pos.x;
                 let dy = pos.0.y.to_float() - world_pos.y;
                 if (dx * dx + dy * dy) < 144.0 {
@@ -420,7 +433,7 @@ pub fn command_issue_system(
         for &uid in &selection.selected_unit_ids {
             cmd_buf.push(GameCommand {
                 tick: next_tick,
-                player_id: 0,
+                player_id: lid,
                 action: Action::Attack { unit: uid, target },
             });
         }
@@ -437,7 +450,7 @@ pub fn command_issue_system(
             &UnitIdComponent,
         )>();
         for (pos, fac, radius, id) in q.iter(world) {
-            if fac.0 != Faction::Player {
+            if fac.0 != Faction::from_player_id(lid) {
                 let dx = pos.0.x.to_float() - world_pos.x;
                 let dy = pos.0.y.to_float() - world_pos.y;
                 let r = radius.0 as f32;
@@ -452,7 +465,7 @@ pub fn command_issue_system(
         for &uid in &selection.selected_unit_ids {
             cmd_buf.push(GameCommand {
                 tick: next_tick,
-                player_id: 0,
+                player_id: lid,
                 action: Action::Attack { unit: uid, target },
             });
         }
@@ -469,7 +482,7 @@ pub fn command_issue_system(
             &UnitIdComponent,
         )>();
         for (pos, fac, radius, id) in q.iter(world) {
-            if fac.0 == Faction::Player {
+            if fac.0 == Faction::from_player_id(lid) {
                 let dx = pos.0.x.to_float() - world_pos.x;
                 let dy = pos.0.y.to_float() - world_pos.y;
                 if (dx * dx + dy * dy) < (radius.0 as f32).powi(2) {
@@ -483,7 +496,7 @@ pub fn command_issue_system(
         for &uid in &selection.selected_unit_ids {
             cmd_buf.push(GameCommand {
                 tick: next_tick,
-                player_id: 0,
+                player_id: lid,
                 action: Action::ReturnToCity {
                     unit: uid,
                     city: target,
@@ -506,7 +519,7 @@ pub fn command_issue_system(
         };
         cmd_buf.push(GameCommand {
             tick: next_tick,
-            player_id: 0,
+            player_id: lid,
             action,
         });
     }
@@ -540,6 +553,7 @@ pub fn seek_stance_shortcut_system(
     tick_clock: Res<bevy_adapter::tick::TickClock>,
     sim_world: bevy::ecs::system::NonSend<SimulationWorld>,
 ) {
+    let lid = local_player_id(&sim_world);
     if !keyboard.just_pressed(KeyCode::KeyS) {
         return;
     }
@@ -562,7 +576,7 @@ pub fn seek_stance_shortcut_system(
 
     cmd_buf.push(GameCommand {
         tick: next_tick,
-        player_id: 0,
+        player_id: lid,
         action: Action::SetSeekStance {
             scope: SeekScope::All, // scope is irrelevant when unit_ids is set
             seek_range,
