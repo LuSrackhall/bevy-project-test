@@ -67,6 +67,23 @@ async fn test_two_clients_receive_identical_broadcasts() {
     let b0 = read_msg(&mut c0, 5).await;
     let b1 = read_msg(&mut c1, 5).await;
 
+    // If we got GameStarted instead of Broadcast, read the next message
+    let b0 = match b0 {
+        RelayServerMessage::Broadcast(_) => b0,
+        RelayServerMessage::GameStarted { .. } => {
+            // GameStarted arrived before Broadcast — read the actual Broadcast
+            read_msg(&mut c0, 5).await
+        }
+        other => panic!("c0 expected Broadcast, got {:?}", other),
+    };
+    let b1 = match b1 {
+        RelayServerMessage::Broadcast(_) => b1,
+        RelayServerMessage::GameStarted { .. } => {
+            read_msg(&mut c1, 5).await
+        }
+        other => panic!("c1 expected Broadcast, got {:?}", other),
+    };
+
     let batch0 = match b0 {
         RelayServerMessage::Broadcast(ref b) => b.payload.clone(),
         other => panic!("c0 expected Broadcast, got {:?}", other),

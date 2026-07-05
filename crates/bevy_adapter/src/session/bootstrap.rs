@@ -96,9 +96,12 @@ pub fn wire(ctx: &mut BootstrapCtx, artifacts: SessionArtifacts) {
         SessionArtifacts::Network(result) => {
             let ns = NetworkCommandSource::new(1, result.player_id, 3);
             ctx.driver.source = CommandSource::Network(ns);
-            // Register transport resources as Bevy resources (handle excluded — managed by caller)
+            // Register transport resources as Bevy resources (must keep handle alive — its Drop
+            // stops the network thread).
             ctx.commands.insert_resource(result.receiver);
             ctx.commands.insert_resource(result.sender);
+            ctx.commands.insert_resource(result.handle);
+            ctx.commands.insert_resource(result.event_receiver);
         }
     }
     ctx.driver.bootstrap_phase = BootstrapPhase::Wired;

@@ -18,6 +18,8 @@ use bevy::prelude::*;
 pub enum GameState {
     #[default]
     MainMenu,
+    /// 等待房间 — 网络模式：TCP 已连接但 GameStarted 尚未收到
+    Lobby,
     Playing,
     GameOver,
 }
@@ -48,6 +50,13 @@ impl Default for AutoRecordReplay {
     }
 }
 
+/// Received from relay via GameStarted message — seed for deterministic world creation.
+#[derive(Resource, Default)]
+pub struct NetworkGameStart {
+    pub seed: u64,
+    pub received: bool,
+}
+
 pub struct RenderViewPlugin;
 
 impl Plugin for RenderViewPlugin {
@@ -55,6 +64,7 @@ impl Plugin for RenderViewPlugin {
         app.init_state::<GameState>()
             .init_resource::<NeedsGameReset>()
             .init_resource::<AutoRecordReplay>()
+            .init_resource::<NetworkGameStart>()
             .init_resource::<crate::selection::SelectionState>()
             .add_plugins(crate::ui::UiPlugin)
             .add_systems(Startup, crate::camera::setup_camera)
@@ -68,6 +78,12 @@ impl Plugin for RenderViewPlugin {
         app.add_systems(Last, crate::wasm_keyboard::clear_wasm_keyboard_just_pressed);
 
         app
+            // Lobby: entry + wait for GameStarted
+            .add_systems(OnEnter(GameState::Lobby), setup_lobby_system)
+            .add_systems(
+                Update,
+                lobby_wait_system.run_if(in_state(GameState::Lobby)),
+            )
             // Lifecycle: reset on enter Playing, cleanup on exit
             .add_systems(
                 OnEnter(GameState::Playing),
@@ -168,7 +184,95 @@ fn check_victory_system(
     }
 }
 
-/// Reset game state when entering Playing.
+/// 进入 Lobby 状态：执行网络启动（TCP 连接）、注册传输资源。
+/// 阻塞等待 TCP 连接成功后进入等待房间，由 lobby_wait_system 检测 GameStarted。
+fn setup_lobby_system(
+    mut commands: Commands,
+    mut sim_world: bevy::ecs::system::NonSendMut<bevy_adapter::tick::SimulationWorld>,
+    mut mapper: ResMut<bevy_adapter::mapper::UnitIdMapper>,
+    mut tick_clock: ResMut<bevy_adapter::tick::TickClock>,
+    mut cmd_buf: ResMut<simulation::command::CommandBuffer>,
+    mut pending: ResMut<bevy_adapter::tick::PendingEvents>,
+    mut selection: ResMut<crate::selection::SelectionState>,
+    mut needs_reset: ResMut<NeedsGameReset>,
+    mut _driver: ResMut<bevy_adapter::driver::SimulationDriver>,
+    mut current_map_size: ResMut<bevy_adapter::CurrentMapSize>,
+    mut recorder: ResMut<bevy_adapter::replay::ReplayRecorder>,
+    mut network_active: ResMut<bevy_adapter::NetworkActive>,
+    auto_record: Res<AutoRecordReplay>,
+    map_bounds: Option<ResMut<bevy_adapter::MapBounds>>,
+    game_entities: Query<Entity, With<bevy_adapter::binding::LogicEntityRef>>,
+) {
+    let network_config = match std::mem::replace(&mut *needs_reset, NeedsGameReset::None) {
+        NeedsGameReset::Network { relay_addr, player_count, player_id } => {
+            Some((relay_addr, player_count, player_id))
+        }
+        _ => None,
+    };
+    let Some((relay_addr, player_count, player_id)) = network_config else {
+        // Not network mode — shouldn't be in Lobby, go back to MainMenu
+        commands.insert_resource(NextState::<GameState>::default());
+        return;
+    };
+
+    bevy::log::info!("[LOBBY] Starting network bootstrap (relay={}, player={}/{})", relay_addr, player_id, player_count);
+
+    // Bootstrap session: blocks on TCP connect (30s timeout)
+    let config = bevy_adapter::session::SessionConfig {
+        mode: bevy_adapter::session::SessionMode::Network {
+            relay_addr,
+            player_count,
+            player_id,
+        },
+    };
+    if let Err(e) = bevy_adapter::session::bootstrap::bootstrap_session(
+        &config,
+        &mut _driver,
+        &mut commands,
+        &mut recorder,
+        &mut cmd_buf,
+    ) {
+        bevy::log::error!("[LOBBY] Network bootstrap failed: {}", e);
+        commands.insert_resource(NextState::<GameState>::default());
+        return;
+    }
+
+    // Enable network systems (poll, flush) without starting the tick driver
+    network_active.0 = true;
+    bevy::log::info!("[LOBBY] Network ready — waiting for GameStarted...");
+}
+
+/// 在 Lobby 状态中轮询 NetworkEventReceiver，等待 GameStarted
+fn lobby_wait_system(
+    mut commands: Commands,
+    mut next_state: ResMut<NextState<GameState>>,
+    mut network_start: ResMut<NetworkGameStart>,
+    event_receiver: Option<Res<bevy_adapter::network::NetworkEventReceiver>>,
+) {
+    use bevy_adapter::network::NetworkEvent;
+
+    let Some(receiver) = event_receiver else {
+        return;
+    };
+    let events = receiver.drain_all();
+    for event in &events {
+        match event {
+            NetworkEvent::GameStarted { game_id: _, seed, player_count: _ } => {
+                bevy::log::info!(
+                    "[LOBBY] GameStarted received! seed={} — entering Playing",
+                    seed
+                );
+                network_start.seed = *seed;
+                network_start.received = true;
+                // Enter Playing state; reset_game_system will create the world
+                // using the relay-provided seed
+                next_state.set(GameState::Playing);
+                return;
+            }
+        }
+    }
+}
+
 /// If NeedsGameReset is true, fully resets the simulation world.
 /// Always clears the paused flag.
 #[allow(clippy::too_many_arguments)]
@@ -179,30 +283,29 @@ fn reset_game_system(
     mut tick_clock: ResMut<bevy_adapter::tick::TickClock>,
     mut cmd_buf: ResMut<simulation::command::CommandBuffer>,
     mut pending: ResMut<bevy_adapter::tick::PendingEvents>,
-    mut selection: ResMut<crate::selection::SelectionState>,
     mut needs_reset: ResMut<NeedsGameReset>,
     mut paused: ResMut<bevy_adapter::Paused>,
     mut game_active: ResMut<bevy_adapter::GameActive>,
-    mut _driver: ResMut<bevy_adapter::driver::SimulationDriver>,
+    mut network_active: ResMut<bevy_adapter::NetworkActive>,
+    mut driver: ResMut<bevy_adapter::driver::SimulationDriver>,
     mut current_map_size: ResMut<bevy_adapter::CurrentMapSize>,
     mut recorder: ResMut<bevy_adapter::replay::ReplayRecorder>,
-    auto_record: Res<AutoRecordReplay>,
-    map_bounds: Option<ResMut<bevy_adapter::MapBounds>>,
+    mut network_start: ResMut<NetworkGameStart>,
     game_entities: Query<Entity, With<bevy_adapter::binding::LogicEntityRef>>,
 ) {
     paused.0 = false;
     game_active.0 = true;
-
-    let _is_replay = matches!(&*needs_reset, NeedsGameReset::Replay(_));
+    network_active.0 = false; // Network mode already active, disable lobby
 
     let (map_size, replay_file, network_config) = match std::mem::replace(&mut *needs_reset, NeedsGameReset::None) {
         NeedsGameReset::None => (None, None, None),
         NeedsGameReset::SameSize => (Some(current_map_size.0), None, None),
         NeedsGameReset::NewGame(size) => (Some(size), None, None),
         NeedsGameReset::Replay(replay) => (Some(replay.map_size), Some(replay), None),
-        NeedsGameReset::Network { relay_addr, player_count, player_id } => {
-            // Phase 1: use default map size for Network mode; future: relay authoritative
-            (Some(simulation::map::MapSize::Medium), None, Some((relay_addr, player_count, player_id)))
+        NeedsGameReset::Network { .. } => {
+            // Network mode: world is created by lobby (via GameStarted), not here
+            // bootstrap_session already ran in setup_lobby_system
+            (Some(simulation::map::MapSize::Medium), None, Some(()))
         }
     };
 
@@ -216,16 +319,21 @@ fn reset_game_system(
         mapper.clear();
         *tick_clock = bevy_adapter::tick::TickClock::default();
         cmd_buf.0.clear();
-        pending.events.clear();
-        selection.clear();
+        commands.init_resource::<bevy_adapter::tick::PendingEvents>();
+        commands.init_resource::<crate::selection::SelectionState>();
 
         // Rebuild simulation world
-        let seed = replay_file.as_ref().map(|r| r.seed).unwrap_or_else(|| {
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs()
-        });
+        let seed = if network_config.is_some() && network_start.received {
+            // Network mode: use seed broadcast by relay (deterministic across clients)
+            network_start.seed
+        } else {
+            replay_file.as_ref().map(|r| r.seed).unwrap_or_else(|| {
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs()
+            })
+        };
         let mut world = simulation::init_simulation_world(seed);
         simulation::map::generate_map(&mut world, map_size);
         sim_world.set_world(world);
@@ -237,7 +345,7 @@ fn reset_game_system(
         recorder.seed = seed;
         recorder.map_size = map_size;
         recorder.command_log.clear();
-        recorder.is_recording = replay_file.is_none() && auto_record.0;
+        recorder.is_recording = replay_file.is_none();
 
         let config = map_size.load_config();
         let w = config.width as f32;
@@ -250,11 +358,7 @@ fn reset_game_system(
             wall_max_x: w * 1.5,
             wall_max_y: h * 1.5,
         };
-        if let Some(mut bounds) = map_bounds {
-            *bounds = new_bounds;
-        } else {
-            commands.insert_resource(new_bounds);
-        }
+        commands.insert_resource(new_bounds);
 
         // Backfill: create Bevy entities for all simulation entities
         {
@@ -301,32 +405,14 @@ fn reset_game_system(
             });
         }
 
-        // If starting a network game, use bootstrap pipeline
-        if let Some((relay_addr, player_count, player_id)) = network_config {
-            let config = bevy_adapter::session::SessionConfig {
-                mode: bevy_adapter::session::SessionMode::Network {
-                    relay_addr,
-                    player_count,
-                    player_id,
-                },
-            };
-            // bootstrap_session replaces the driver with NetworkCommandSource
-            if let Err(e) = bevy_adapter::session::bootstrap::bootstrap_session(
-                &config,
-                &mut _driver,
-                &mut commands,
-                &mut recorder,
-                &mut cmd_buf,
-            ) {
-                bevy::log::error!("Network bootstrap failed: {}", e);
-                game_active.0 = false;
-                // Return to main menu — can't play without network
-                commands.insert_resource(NextState::<GameState>::default());
-                return;
-            }
-            // Network mode uses a random seed for world init (same as single player)
-            // In future, seed comes from relay handshake
+        // If starting a network game, finalize bootstrap and activate the driver.
+        // bootstrap_session was already called in setup_lobby_system.
+        if network_config.is_some() {
+            use bevy_adapter::session::bootstrap::BootstrapPhase;
+            driver.bootstrap_phase = BootstrapPhase::Active;
             commands.insert_resource(bevy_adapter::GameMode::Live);
+            // Clear the lobby resource to free memory
+            network_start.received = false;
         }
     }
 }
@@ -339,11 +425,13 @@ fn cleanup_playing_system(
     mut driver: ResMut<bevy_adapter::driver::SimulationDriver>,
     mut status: ResMut<bevy_adapter::replay::ReplayStatus>,
     mut recorder: ResMut<bevy_adapter::replay::ReplayRecorder>,
+    mut network_active: ResMut<bevy_adapter::NetworkActive>,
     tick_clock: Res<bevy_adapter::tick::TickClock>,
     hud_query: Query<Entity, With<crate::ui::hud::HudRoot>>,
     pause_query: Query<Entity, With<crate::ui::pause::PauseUI>>,
 ) {
     game_active.0 = false;
+    network_active.0 = false;
     *driver = bevy_adapter::driver::SimulationDriver::new_live();
     *status = bevy_adapter::replay::ReplayStatus::default();
     commands.insert_resource(bevy_adapter::GameMode::Live);
@@ -370,6 +458,12 @@ fn cleanup_playing_system(
     for e in pause_query.iter() {
         commands.entity(e).despawn();
     }
+
+    // Clean up network resources (stops the tokio thread via Drop)
+    commands.remove_resource::<bevy_adapter::transport::NetworkClientHandle>();
+    commands.remove_resource::<bevy_adapter::network::NetworkEventReceiver>();
+    commands.remove_resource::<bevy_adapter::transport::NetworkSender>();
+    commands.remove_resource::<bevy_adapter::transport::NetworkReceiver>();
 }
 
 /// Simple timestamp for filenames (no external crate needed).

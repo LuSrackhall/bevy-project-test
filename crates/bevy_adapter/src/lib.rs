@@ -61,6 +61,11 @@ impl Default for CurrentMapSize {
     }
 }
 
+/// Network connection active but game not yet started (Lobby state).
+/// Set true during lobby, then false when game enters Playing.
+#[derive(Resource, Default, PartialEq)]
+pub struct NetworkActive(pub bool);
+
 pub struct BevyAdapterPlugin;
 
 impl Plugin for BevyAdapterPlugin {
@@ -83,11 +88,12 @@ impl Plugin for BevyAdapterPlugin {
             .init_resource::<Paused>()
             .init_resource::<CurrentMapSize>()
             .init_resource::<GameMode>()
+            .init_resource::<NetworkActive>()
             .insert_resource(crate::driver::SimulationDriver::new_live())
             .init_resource::<crate::driver::TickClock>()
             .init_resource::<ReplayRecorder>()
             .init_resource::<ReplayStatus>()
-            // Unified driver: simulation_driver_system + sync_entities
+            // Network transport systems: run during Lobby (NetworkActive) and Playing (GameActive)
             .configure_sets(Update, SimulationTickSet.before(crate::lifecycle::SyncEntitiesSet))
             .add_systems(
                 Update,
@@ -95,9 +101,24 @@ impl Plugin for BevyAdapterPlugin {
                     crate::transport::network_poll_system.before(SimulationTickSet),
                     crate::transport::network_flush_system.before(SimulationTickSet),
                     crate::driver::check_wired_system.before(SimulationTickSet),
-                    crate::driver::simulation_driver_system.in_set(SimulationTickSet),
-                    crate::lifecycle::sync_entities_system.in_set(crate::lifecycle::SyncEntitiesSet),
                 )
+                    .run_if(
+                        resource_exists_and_equals(GameActive(true))
+                            .or_else(resource_exists_and_equals(NetworkActive(true))),
+                    ),
+            )
+            // Simulation tick driver: only run during Playing
+            .add_systems(
+                Update,
+                crate::driver::simulation_driver_system
+                    .in_set(SimulationTickSet)
+                    .run_if(resource_exists_and_equals(GameActive(true))),
+            )
+            // Entity sync: only run during Playing
+            .add_systems(
+                Update,
+                crate::lifecycle::sync_entities_system
+                    .in_set(crate::lifecycle::SyncEntitiesSet)
                     .run_if(resource_exists_and_equals(GameActive(true))),
             );
     }

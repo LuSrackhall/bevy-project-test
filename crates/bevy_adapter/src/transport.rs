@@ -6,7 +6,7 @@ use bevy::prelude::*;
 
 use crate::driver::{CommandSource};
 use crate::network::{
-    BroadcastFrame, PlayerTickFrame, RelayClientMessage,
+    BroadcastFrame, NetworkEvent, NetworkEventReceiver, PlayerTickFrame, RelayClientMessage,
     RelayServerMessage,
 };
 use simulation::command::{CommandBuffer, GameCommand};
@@ -127,8 +127,6 @@ pub fn network_flush_system(
             .cloned()
             .collect();
 
-        eprintln!("[NET] flush: tick={}, cmd_tick={}, cmds={}", current_tick, cmd_tick, cmds.len());
-
         let sid = sender.next_sid();
         let frame = PlayerTickFrame {
             magic: 0xBEEF,
@@ -142,37 +140,36 @@ pub fn network_flush_system(
     }
 }
 
+
 // ═══════════════════════════════════════════════════════════════
 // Network client thread
 // ═══════════════════════════════════════════════════════════════
 
-/// Synchronous TCP connection check — blocks until relay is reachable.
-/// Called during bootstrap to verify relay before entering Playing state.
-pub fn connect_sync(relay_addr: &str) -> Result<(), String> {
-    use std::time::Duration;
-    let addr: std::net::SocketAddr = relay_addr
-        .parse()
-        .map_err(|_| format!("Invalid relay address: {}", relay_addr))?;
-    std::net::TcpStream::connect_timeout(&addr, Duration::from_secs(5))
-        .map_err(|e| format!("Relay unreachable at {}: {}", relay_addr, e))?;
-    bevy::log::info!("[NET] TCP connect OK to {}", relay_addr);
-    Ok(())
-}
-
 /// Spawn a tokio runtime thread that connects to the relay.
+///
+/// **Blocks** until TCP connection is established (30s timeout).
+/// Returns transport resources or an error string.
+///
+/// The tokio thread continues to run in the background, handling
+/// all protocol communication (send/receive) until stopped.
 pub fn spawn_network_client(
     relay_addr: String,
     game_id: u64,
     player_id: u8,
     _ruleset_version: u32,
-) -> (NetworkReceiver, NetworkSender, NetworkClientHandle) {
+    event_receiver: NetworkEventReceiver,
+) -> Result<(NetworkReceiver, NetworkSender, NetworkClientHandle), String> {
     let receiver = NetworkReceiver::default();
     let sender = NetworkSender::default();
     let stop_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
 
+    let (connected_tx, connected_rx) = std::sync::mpsc::channel::<()>();
+
     let recv = receiver.clone();
     let send = sender.clone();
     let stop = stop_flag.clone();
+    let events = event_receiver;
+    let relay_addr_for_thread = relay_addr.clone();
 
     let thread = std::thread::spawn(move || {
         let rt = tokio::runtime::Builder::new_current_thread()
@@ -188,18 +185,15 @@ pub fn spawn_network_client(
                     break;
                 }
 
-                let ok = tokio::time::timeout(
+                // Try TCP connect with 5s timeout
+                let stream = tokio::time::timeout(
                     Duration::from_secs(5),
-                    run_client(&relay_addr, game_id, player_id, _ruleset_version, &recv, &send, stop.clone()),
+                    tokio::net::TcpStream::connect(&relay_addr_for_thread),
                 )
                 .await;
 
-                match ok {
-                    Ok(true) => {
-                        retry_count = 0;
-                        // Clean disconnect (game over) — stop
-                        break;
-                    }
+                let stream = match stream {
+                    Ok(Ok(s)) => s,
                     _ => {
                         retry_count = retry_count.saturating_add(1);
                         let delay = Duration::from_secs(
@@ -211,70 +205,61 @@ pub fn spawn_network_client(
                             retry_count
                         );
                         tokio::time::sleep(delay).await;
+                        continue;
                     }
+                };
+
+                // TCP connected! Signal the main thread (spawn_network_client unblocks)
+                let _ = connected_tx.send(());
+                retry_count = 0;
+
+                // Enter read/write session
+                let clean_exit = run_session(
+                    stream,
+                    game_id,
+                    player_id,
+                    _ruleset_version,
+                    &recv,
+                    &send,
+                    stop.clone(),
+                    &events,
+                )
+                .await;
+
+                if clean_exit {
+                    break;
                 }
+                // If not clean (disconnect), retry the entire connection
             }
         });
     });
+
+    // Block until TCP connect succeeds (30s timeout)
+    connected_rx
+        .recv_timeout(Duration::from_secs(30))
+        .map_err(|_| format!("Timed out waiting for relay connection at {}", relay_addr))?;
+    eprintln!("[NET] TCP connected to {}", relay_addr);
 
     let handle = NetworkClientHandle {
         thread: Some(thread),
         stop: stop_flag,
     };
 
-    (receiver, sender, handle)
+    Ok((receiver, sender, handle))
 }
 
-/// Spawn network client with GameJoined return channel for bootstrap handshake.
-pub fn spawn_with_game_joined(
-    relay_addr: &str,
-    game_id: u64,
-) -> Result<
-    (
-        std::sync::mpsc::Receiver<u8>,
-        NetworkReceiver,
-        NetworkSender,
-        NetworkClientHandle,
-    ),
-    String,
-> {
-    // For Phase 1, delegate to the standard spawn and return a dummy channel.
-    // The GameJoined player_id is currently assigned sequentially by the relay
-    // and known to the client via spawn order. A full implementation would
-    // extract the player_id from the transport's GameJoined message.
-    let player_id = 0; // placeholder; real value comes from relay handshake
-    let (rx, tx, handle) = spawn_network_client(
-        relay_addr.to_string(),
-        game_id,
-        player_id,
-        1,
-    );
-    // Use oneshot channel for GameJoined delivery
-    let (game_joined_tx, game_joined_rx) = std::sync::mpsc::channel();
-    // In a full implementation, transport's run_client would send() on
-    // game_joined_tx when GameJoined is received. For Phase 1, send once
-    // we know the connection succeeded.
-    let _ = game_joined_tx.send(player_id);
-    Ok((game_joined_rx, rx, tx, handle))
-}
-
-/// Run a single client connection session. Returns true on clean disconnect.
-async fn run_client(
-    addr: &str,
+/// Run a single client session over an already-established TCP stream.
+/// Returns `true` on clean disconnect (game over), `false` on connection error.
+async fn run_session(
+    stream: tokio::net::TcpStream,
     game_id: u64,
     player_id: u8,
     _ruleset_version: u32,
     receiver: &NetworkReceiver,
     sender: &NetworkSender,
     stop: Arc<std::sync::atomic::AtomicBool>,
+    event_receiver: &NetworkEventReceiver,
 ) -> bool {
-    let stream = match tokio::net::TcpStream::connect(addr).await {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("Network: connect failed: {}", e);
-            return false;
-        }
-    };
     let (mut reader, mut writer) = tokio::io::split(stream);
 
     // Write frames to relay in the background
@@ -301,18 +286,12 @@ async fn run_client(
     // Read frames from relay
     let mut len_buf = [0u8; 4];
     loop {
-        if reader.read_exact(&mut len_buf)
-            .await
-            .is_err()
-        {
+        if reader.read_exact(&mut len_buf).await.is_err() {
             break;
         }
         let len = u32::from_le_bytes(len_buf) as usize;
         let mut buf = vec![0u8; len];
-        if reader.read_exact(&mut buf)
-            .await
-            .is_err()
-        {
+        if reader.read_exact(&mut buf).await.is_err() {
             break;
         }
         let Ok((msg, _)) = bincode::serde::decode_from_slice::<RelayServerMessage, _>(
@@ -325,22 +304,37 @@ async fn run_client(
             RelayServerMessage::Broadcast(frame) => {
                 receiver.push(frame);
             }
+            RelayServerMessage::GameStarted {
+                game_id: g,
+                seed,
+                player_count,
+            } => {
+                eprintln!(
+                    "[NET] GameStarted: game_id={}, seed={}, players={}",
+                    g, seed, player_count
+                );
+                event_receiver.push(NetworkEvent::GameStarted {
+                    game_id: g,
+                    seed,
+                    player_count,
+                });
+            }
             RelayServerMessage::GameJoined {
                 game_id: g,
                 player_id: p,
             } => {
-                println!("Network: joined game {} as player {}", g, p);
+                eprintln!("[NET] Joined game {} as player {}", g, p);
             }
             RelayServerMessage::ReconnectResponse(resp) => {
-                println!("Network: reconnect OK ({} ticks)", resp.ticks.len());
+                eprintln!("[NET] Reconnect OK ({} ticks)", resp.ticks.len());
             }
             RelayServerMessage::GameOver { reason } => {
-                println!("Network: game over ({})", reason);
+                eprintln!("[NET] Game over ({})", reason);
                 write_task.abort();
                 return true;
             }
             RelayServerMessage::Error { code, message } => {
-                eprintln!("Network error ({}): {}", code, message);
+                eprintln!("[NET] Error ({}): {}", code, message);
                 write_task.abort();
                 return true;
             }
@@ -352,6 +346,7 @@ async fn run_client(
 }
 
 /// Handle that stops the network thread when dropped.
+#[derive(Resource)]
 pub struct NetworkClientHandle {
     thread: Option<std::thread::JoinHandle<()>>,
     stop: Arc<std::sync::atomic::AtomicBool>,

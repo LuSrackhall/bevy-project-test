@@ -52,7 +52,7 @@ fn main() {
                 player_id,
             });
             app.add_systems(Startup, |mut next: ResMut<NextState<render_view::GameState>>| {
-                next.set(render_view::GameState::Playing);
+                next.set(render_view::GameState::Lobby);
             });
         }
     }

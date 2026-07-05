@@ -117,10 +117,28 @@ async fn handle(ctx: Arc<RelayCtx>, stream: tokio::net::TcpStream) {
                     .unwrap()
                     .as_millis() as u64;
 
-                let batch = {
+                let (batch, game_just_started) = {
                     let mut server = ctx.server.lock().unwrap();
                     server.on_player_frame(&frame, now_ms)
                 };
+
+                // Broadcast GameStarted when all players have connected
+                if game_just_started {
+                    let seed = {
+                        let server = ctx.server.lock().unwrap();
+                        server.seed()
+                    };
+                    let started_msg = RelayServerMessage::GameStarted {
+                        game_id: 1,
+                        seed,
+                        player_count: ctx.player_count,
+                    };
+                    eprintln!("[RELAY] Broadcasting GameStarted (seed={}, players={})", seed, ctx.player_count);
+                    let clients = ctx.clients.lock().unwrap();
+                    for sender in clients.values() {
+                        let _ = sender.send(started_msg.clone());
+                    }
+                }
 
                 if let Some(tick_cmds) = batch {
                     let broadcast = RelayServerMessage::Broadcast(BroadcastFrame {
