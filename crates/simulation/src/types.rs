@@ -263,32 +263,93 @@ impl IdGenerator {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Enums
+// Slot / Controller / Faction 所有权模型
 // ═══════════════════════════════════════════════════════════════
 
+/// 阵营 ID — 单位/城市属于哪个阵营。
+/// Simulation 只认识这个 ID，不知道谁在控制。
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Hash, Serialize, Deserialize)]
-pub enum Faction {
-    Player,
-    Enemy,
-    Neutral,
+pub struct FactionId(pub u8);
+
+/// 队伍 ID — 胜负关系分组。
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Hash, Serialize, Deserialize)]
+pub struct TeamId(pub u8);
+
+/// 槽位编号 — 谁坐在哪个位置。
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Hash, Serialize, Deserialize)]
+pub struct SlotId(pub u8);
+
+/// AI 难度配置（预留）。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AiProfile(pub String);
+
+impl Default for AiProfile {
+    fn default() -> Self {
+        Self("default".into())
+    }
 }
 
-impl Faction {
-    /// Map player_id 0→Player, 1→Enemy, others→Neutral.
-    pub fn from_player_id(id: u8) -> Self {
-        match id {
-            0 => Faction::Player,
-            1 => Faction::Enemy,
-            _ => Faction::Neutral,
-        }
-    }
+/// Agent ID（预留）。
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, Serialize, Deserialize)]
+pub struct AgentId(pub u64);
 
-    /// The player_id that controls this faction (0=Player, 1=Enemy).
-    pub fn player_id(&self) -> u8 {
-        match self {
-            Faction::Player => 0,
-            Faction::Enemy => 1,
-            Faction::Neutral => 255,
+/// 谁负责产生 Command。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Controller {
+    /// 本地人类玩家。
+    HumanLocal,
+    /// 远程人类玩家（联机预留）。
+    HumanRemote(SlotId),
+    /// AI 控制。
+    AI(AiProfile),
+    /// LLM Agent 等未来扩展预留。
+    Agent(AgentId),
+    /// 回放数据源。
+    Replay,
+    /// 槽位关闭，不产生 Command。
+    Disabled,
+}
+
+impl Controller {
+    /// Disabled 返回 false，其余返回 true。
+    pub fn is_active(&self) -> bool {
+        !matches!(self, Controller::Disabled)
+    }
+}
+
+/// 一个槽位的完整配置。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlayerSlot {
+    pub slot_id: SlotId,
+    pub controller: Controller,
+    pub faction: FactionId,
+    pub team: TeamId,
+}
+
+/// 当前 Session 的所有槽位分配。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlayerSlots {
+    pub slots: Vec<PlayerSlot>,
+}
+
+impl PlayerSlots {
+    /// 单人模式默认：1 × HumanLocal + 1 × AI。
+    pub fn single_player() -> Self {
+        Self {
+            slots: vec![
+                PlayerSlot {
+                    slot_id: SlotId(0),
+                    controller: Controller::HumanLocal,
+                    faction: FactionId(0),
+                    team: TeamId(0),
+                },
+                PlayerSlot {
+                    slot_id: SlotId(1),
+                    controller: Controller::AI(AiProfile::default()),
+                    faction: FactionId(1),
+                    team: TeamId(1),
+                },
+            ],
         }
     }
 }
