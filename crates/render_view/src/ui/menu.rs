@@ -149,7 +149,7 @@ pub fn setup_main_menu(
                             player_count: count,
                             player_id: id,
                         };
-                        next.set(crate::GameState::Playing);
+                        next.set(crate::GameState::Lobby);
                     });
             });
         // Replay section

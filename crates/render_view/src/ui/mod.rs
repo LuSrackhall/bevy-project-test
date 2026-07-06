@@ -1,5 +1,6 @@
 pub mod gameover;
 pub mod hud;
+pub mod lobby;
 pub mod menu;
 pub mod pause;
 pub mod replay_player;
@@ -18,6 +19,10 @@ impl Plugin for UiPlugin {
             .add_systems(Update, hud::button_style_system)
             .add_systems(OnEnter(crate::GameState::MainMenu), menu::setup_main_menu)
             .add_systems(OnExit(crate::GameState::MainMenu), menu::cleanup_main_menu)
+            // Lobby UI
+            .add_systems(OnEnter(crate::GameState::Lobby), lobby::setup_lobby_ui)
+            .add_systems(OnExit(crate::GameState::Lobby), lobby::cleanup_lobby_ui)
+            .add_systems(Update, lobby::update_lobby_status.run_if(in_state(crate::GameState::Lobby)))
             // HUD setup is registered in RenderViewPlugin (after reset_game_system)
             // update_top_bar runs even during replay (top bar shows real-time faction stats)
             // It has NO gate — not even Paused — since the replay seek driver updates world state
