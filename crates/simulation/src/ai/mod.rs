@@ -141,7 +141,7 @@ fn ai_decide_for_faction(world: &mut World, current_tick: u32, ai_faction: Facti
                     {
                         commands.push(GameCommand {
                             tick: current_tick + 1,
-                            player_id: 1,
+                            player_id: ai_faction.0,
                             action: Action::MoveTo {
                                 unit: *sid,
                                 target: target_pos,
@@ -185,7 +185,7 @@ fn ai_decide_for_faction(world: &mut World, current_tick: u32, ai_faction: Facti
                             if sfac == ai_faction && !has_target {
                                 commands.push(GameCommand {
                                     tick: current_tick + 1,
-                                    player_id: 1,
+                                    player_id: ai_faction.0,
                                     action: Action::MoveTo {
                                         unit: sid,
                                         target: target_pos,
