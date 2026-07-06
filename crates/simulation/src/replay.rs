@@ -179,7 +179,7 @@ mod tests {
             if tick == 50 {
                 let mut q = world1.query::<(&UnitIdComponent, &FactionComponent, &SoldierMarker)>();
                 if let Some((id, _fac, _)) =
-                    q.iter(&world1).find(|(_, f, _)| f.0 == Faction::Player)
+                    q.iter(&world1).find(|(_, f, _)| f.0 == FactionId(0))
                 {
                     let uid = id.0;
                     let target = FixedVec2::new(Fixed::from_int(300), Fixed::from_int(300));
@@ -275,7 +275,7 @@ mod tests {
                 let mut q =
                     world_rec.query::<(&UnitIdComponent, &FactionComponent, &SoldierMarker)>();
                 if let Some((id, _fac, _)) =
-                    q.iter(&world_rec).find(|(_, f, _)| f.0 == Faction::Player)
+                    q.iter(&world_rec).find(|(_, f, _)| f.0 == FactionId(0))
                 {
                     let cmd = GameCommand {
                         tick: 101,
@@ -343,7 +343,7 @@ mod tests {
                 let mut cmds = Vec::new();
                 let mut q = world1.query::<(&UnitIdComponent, &FactionComponent, &SoldierMarker)>();
                 let soldier_uids: Vec<UnitId> = q.iter(&world1)
-                    .filter(|(_, f, _)| f.0 == Faction::Player)
+                    .filter(|(_, f, _)| f.0 == FactionId(0))
                     .map(|(id, _, _)| id.0)
                     .collect();
                 for uid in soldier_uids {
@@ -368,7 +368,7 @@ mod tests {
                 let mut cmds = Vec::new();
                 let mut q = world1.query::<(&UnitIdComponent, &FactionComponent, &SoldierMarker)>();
                 let soldier_uids: Vec<UnitId> = q.iter(&world1)
-                    .filter(|(_, f, _)| f.0 == Faction::Player)
+                    .filter(|(_, f, _)| f.0 == FactionId(0))
                     .take(50)
                     .map(|(id, _, _)| id.0)
                     .collect();

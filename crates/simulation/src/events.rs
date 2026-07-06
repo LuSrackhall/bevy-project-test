@@ -1,6 +1,6 @@
 //! Simulation events — emitted by systems, consumed by bevy_adapter and other systems.
 
-use crate::types::{Faction, FixedVec2, SoldierType, UnitId};
+use crate::types::{FactionId, FixedVec2, SoldierType, UnitId};
 use bevy_ecs::prelude::Resource;
 
 /// A new unit was spawned in the simulation.
@@ -8,7 +8,7 @@ use bevy_ecs::prelude::Resource;
 pub struct UnitSpawned {
     pub unit_id: UnitId,
     pub pos: FixedVec2,
-    pub faction: Faction,
+    pub faction: FactionId,
     pub unit_kind: UnitKind,
 }
 
@@ -31,8 +31,8 @@ pub struct UnitDestroyed {
 #[derive(Clone, Debug)]
 pub struct CityCaptured {
     pub city_id: UnitId,
-    pub old_faction: Faction,
-    pub new_faction: Faction,
+    pub old_faction: FactionId,
+    pub new_faction: FactionId,
 }
 
 /// Damage was dealt to a target.
@@ -40,7 +40,7 @@ pub struct CityCaptured {
 pub struct DamageDealt {
     pub target_id: UnitId,
     pub amount: u32,
-    pub from_faction: Faction,
+    pub from_faction: FactionId,
 }
 
 /// A soldier leveled up.

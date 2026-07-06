@@ -51,23 +51,34 @@ pub fn init_simulation_world(seed: u64) -> World {
     world.insert_resource(GlobalSeekDirective::default());
     world.insert_resource(SimulationEvents::new());
     world.insert_resource(SimulationSeed(seed));
+    world.insert_resource(PlayerSlots::single_player());
 
     world
 }
 
-/// Collect known command-producing players (Player=0, Enemy=1).
-/// Neutral is excluded — it does not participate in the command pipeline.
+/// Collect active faction IDs from PlayerSlots.
+/// This replaces the old FactionComponent scan — PlayerSlots is the
+/// single source of truth for "which factions receive commands".
 fn collect_command_players(world: &mut World) -> Vec<u8> {
-    let mut q = world.query::<&FactionComponent>();
-    let mut players = Vec::new();
-    for f in q.iter(world) {
-        match f.0 {
-            Faction::Player => { if !players.contains(&0) { players.push(0); } }
-            Faction::Enemy => { if !players.contains(&1) { players.push(1); } }
-            Faction::Neutral => {} // does not participate in command pipeline
+    if let Some(slots) = world.get_resource::<PlayerSlots>() {
+        slots
+            .slots
+            .iter()
+            .filter(|s| s.controller.is_active())
+            .map(|s| s.faction.0)
+            .collect()
+    } else {
+        // Fallback: scan FactionComponent (legacy, for tests without PlayerSlots)
+        let mut q = world.query::<&FactionComponent>();
+        let mut players = Vec::new();
+        for f in q.iter(world) {
+            let id = f.0 .0;
+            if id <= 1 && !players.contains(&id) {
+                players.push(id);
+            }
         }
+        players
     }
-    players
 }
 
 /// Run one complete simulation tick with explicit config.

@@ -31,7 +31,7 @@ use simulation::golden_test;
 use simulation::map::MapSize;
 use simulation::replay::ReplayFile;
 use simulation::soldier::{FactionComponent, SoldierMarker, UnitIdComponent};
-use simulation::types::{Faction, Fixed, FixedVec2, UnitId};
+use simulation::types::{FactionId, Fixed, FixedVec2, UnitId};
 
 // ═══════════════════════════════════════════════════════════════
 // Helpers
@@ -100,7 +100,7 @@ fn test_network_pipeline_e2e() {
             &SoldierMarker,
         )>();
         q.iter(&raw_world)
-            .find(|(_, f, _)| f.0 == Faction::Player)
+            .find(|(_, f, _)| f.0 == FactionId(0))
             .map(|(id, _, _)| id.0)
     };
 

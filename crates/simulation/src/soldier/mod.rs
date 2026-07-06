@@ -53,7 +53,7 @@ pub struct Attack {
     pub cooldown_remaining: u32,
 }
 #[derive(Component, Clone, Debug)]
-pub struct FactionComponent(pub Faction);
+pub struct FactionComponent(pub FactionId);
 #[derive(Component, Clone, Debug)]
 pub struct SoldierTypeComponent(pub SoldierType);
 #[derive(Component, Clone, Debug)]
@@ -90,7 +90,7 @@ pub struct CityComponent {
     pub spawn_type: SoldierType,
     pub spawn_cooldown: u32,
     pub level_exp: u64,
-    pub last_attacker_faction: Option<Faction>,
+    pub last_attacker_faction: Option<FactionId>,
     pub arrow_damage_acc: u32,
 }
 #[derive(Component, Clone, Debug)]
@@ -130,7 +130,7 @@ fn integer_sqrt(n: i64) -> i64 {
 pub(crate) struct SoldierSnapshot {
     pub entity: Entity,
     pub pos: FixedVec2,
-    pub faction: Faction,
+    pub faction: FactionId,
     pub soldier_type: SoldierType,
     pub state: SoldierState,
     pub health: Health,
@@ -151,9 +151,9 @@ pub(crate) struct TickCombatIndex {
     /// SpatialHash for all soldiers (cell_size=32, fine-grained)
     pub all_spatial: spatial_hash::SpatialHash,
     /// Per-faction SpatialHash for O(k/2) queries
-    pub faction_spatial: BTreeMap<Faction, spatial_hash::SpatialHash>,
+    pub faction_spatial: BTreeMap<FactionId, spatial_hash::SpatialHash>,
     /// Soldier position+faction only (lighter weight for some systems)
-    pub pos_faction: HashMap<UnitId, (FixedVec2, Faction)>,
+    pub pos_faction: HashMap<UnitId, (FixedVec2, FactionId)>,
 }
 
 impl TickCombatIndex {
@@ -180,7 +180,7 @@ impl TickCombatIndex {
         }
 
         // Build per-faction SpatialHash
-        let mut faction_spatial: BTreeMap<Faction, spatial_hash::SpatialHash> = BTreeMap::new();
+        let mut faction_spatial: BTreeMap<FactionId, spatial_hash::SpatialHash> = BTreeMap::new();
         for (&uid, s) in &soldiers {
             faction_spatial
                 .entry(s.faction)
@@ -193,7 +193,7 @@ impl TickCombatIndex {
         }
 
         // Lightweight pos+faction map
-        let pos_faction: HashMap<UnitId, (FixedVec2, Faction)> =
+        let pos_faction: HashMap<UnitId, (FixedVec2, FactionId)> =
             soldiers.iter().map(|(&id, s)| (id, (s.pos, s.faction))).collect();
 
         Self {
@@ -244,11 +244,11 @@ pub(crate) fn build_soldier_index(world: &mut World) -> HashMap<UnitId, SoldierS
         .collect()
 }
 
-/// Build a HashMap<UnitId, (FixedVec2, Faction)> from all soldier entities.
+/// Build a HashMap<UnitId, (FixedVec2, FactionId)> from all soldier entities.
 /// Lighter-weight version for systems that only need position + faction.
 pub(crate) fn build_soldier_pos_faction_map(
     world: &mut World,
-) -> HashMap<UnitId, (FixedVec2, Faction)> {
+) -> HashMap<UnitId, (FixedVec2, FactionId)> {
     let mut q = world.query::<(
         &UnitIdComponent,
         &LogicalPosition,
@@ -410,7 +410,7 @@ fn apply_seek_stance(
                 &SoldierMarker,
             )>();
             q.iter(world)
-                .filter(|(_, fac, _, _)| fac.0 == Faction::Player)
+                .filter(|(_, fac, _, _)| fac.0 == FactionId(0))
                 .filter(|(_, _, st, _)| match &scope {
                     SeekScope::All => true,
                     SeekScope::ByType(t) => st.0 == *t,
@@ -701,10 +701,10 @@ pub fn city_spawn_system(world: &mut World) {
     let seek_directives = world.resource::<GlobalSeekDirective>().clone();
 
     // Collect city entities and check spawn conditions
-    let cities: Vec<(Entity, FixedVec2, Faction, SoldierType, u32, bool)> = {
+    let cities: Vec<(Entity, FixedVec2, FactionId, SoldierType, u32, bool)> = {
         let mut q = world.query::<(Entity, &LogicalPosition, &FactionComponent, &CityComponent)>();
         q.iter(world)
-            .filter(|(_, _, fac, _)| fac.0 != Faction::Neutral)
+            .filter(|(_, _, fac, _)| fac.0 != FactionId(2))
             .map(|(e, pos, fac, city)| {
                 let can = city.population < city.max_population && city.spawn_cooldown == 0;
                 (e, pos.0, fac.0, city.spawn_type, city.spawn_cooldown, can)
@@ -824,7 +824,7 @@ pub fn city_spawn_system(world: &mut World) {
 }
 
 /// Find the nearest city entity of a given faction. Filters by CityMarker to exclude soldiers.
-fn find_nearest_city_uid(world: &mut World, pos: FixedVec2, faction: Faction) -> UnitId {
+fn find_nearest_city_uid(world: &mut World, pos: FixedVec2, faction: FactionId) -> UnitId {
     let mut q = world.query::<(
         Entity,
         &UnitIdComponent,
@@ -851,15 +851,16 @@ fn find_nearest_city_uid(world: &mut World, pos: FixedVec2, faction: Faction) ->
 pub fn city_capture_check_system(world: &mut World) {
     let city_config = world.resource::<CityGlobalConfig>().clone();
 
-    let captures: Vec<(Entity, UnitId, Faction, Faction)> = {
+    let captures: Vec<(Entity, UnitId, FactionId, FactionId)> = {
         let mut q = world.query::<(Entity, &UnitIdComponent, &CityComponent, &FactionComponent)>();
         q.iter(world)
             .filter(|(_, _, city, _)| city.health_current == 0)
             .map(|(e, id, city, fac)| {
                 let nf = match fac.0 {
-                    Faction::Player => Faction::Enemy,
-                    Faction::Enemy => Faction::Player,
-                    Faction::Neutral => city.last_attacker_faction.unwrap_or(Faction::Player),
+                    FactionId(0) => FactionId(1),
+                    FactionId(1) => FactionId(0),
+                    FactionId(2) => city.last_attacker_faction.unwrap_or(FactionId(0)),
+                    FactionId(_) => FactionId(2), // unknown faction → neutral
                 };
                 (e, id.0, fac.0, nf)
             })
@@ -908,7 +909,7 @@ pub fn city_interaction_system(world: &mut World) {
         entity: Entity,
         uid: UnitId,
         pos: FixedVec2,
-        faction: Faction,
+        faction: FactionId,
         level: u32,
         max_level: u32,
         hp: u32,
@@ -919,7 +920,7 @@ pub fn city_interaction_system(world: &mut World) {
     struct SData {
         entity: Entity,
         pos: FixedVec2,
-        faction: Faction,
+        faction: FactionId,
         attack: u32,
         cmd_target: Option<UnitId>,
         target: Option<UnitId>,
@@ -1076,7 +1077,7 @@ pub fn city_interaction_system(world: &mut World) {
 pub fn aura_heal_system(world: &mut World) {
     let city_config = world.resource::<CityGlobalConfig>().clone();
 
-    let cities: Vec<(FixedVec2, Faction, u32, u32)> = {
+    let cities: Vec<(FixedVec2, FactionId, u32, u32)> = {
         let mut q = world.query::<(
             &LogicalPosition,
             &FactionComponent,
@@ -1339,7 +1340,7 @@ mod seek_stance_tests {
                 interval_ticks: cfg.attack_interval_ticks,
                 cooldown_remaining: 0,
             },
-            FactionComponent(Faction::Player),
+            FactionComponent(FactionId(0)),
             SoldierTypeComponent(stype),
             Level { level: 1, exp: 0 },
             ShieldComponent {
@@ -1384,7 +1385,7 @@ mod seek_stance_tests {
                 interval_ticks: 10,
                 cooldown_remaining: 0,
             },
-            FactionComponent(Faction::Enemy),
+            FactionComponent(FactionId(1)),
             SoldierTypeComponent(SoldierType::Militia),
             Level { level: 1, exp: 0 },
             ShieldComponent {
@@ -1446,7 +1447,7 @@ mod seek_stance_tests {
         let mut q = world.query::<(&FactionComponent, &SoldierTypeComponent, &SeekStance)>();
         let found = q
             .iter(&world)
-            .filter(|(fac, _, _)| fac.0 == Faction::Player)
+            .filter(|(fac, _, _)| fac.0 == FactionId(0))
             .any(|(_, _, stance)| stance.active && stance.seek_range == 10);
         assert!(
             found,
@@ -1476,7 +1477,7 @@ mod seek_stance_tests {
         let mut q = world.query::<(&FactionComponent, &SoldierTypeComponent, &SeekStance)>();
         let militia_with_seek = q
             .iter(&world)
-            .filter(|(fac, st, _)| fac.0 == Faction::Player && st.0 == SoldierType::Militia)
+            .filter(|(fac, st, _)| fac.0 == FactionId(0) && st.0 == SoldierType::Militia)
             .any(|(_, _, stance)| stance.active);
         assert!(
             !militia_with_seek,
@@ -1509,7 +1510,7 @@ mod seek_stance_tests {
         let mut q = world.query::<(&FactionComponent, &SoldierTypeComponent, &SeekStance)>();
         let found = q
             .iter(&world)
-            .filter(|(fac, st, _)| fac.0 == Faction::Player && st.0 == SoldierType::Militia)
+            .filter(|(fac, st, _)| fac.0 == FactionId(0) && st.0 == SoldierType::Militia)
             .any(|(_, _, stance)| stance.active && stance.seek_range == 30);
         assert!(
             found,
@@ -1878,7 +1879,7 @@ mod shield_lifecycle_tests {
     use crate::init_simulation_world;
     use crate::map;
 
-    fn spawn_infantry(world: &mut World, pos: FixedVec2, faction: Faction) -> UnitId {
+    fn spawn_infantry(world: &mut World, pos: FixedVec2, faction: FactionId) -> UnitId {
         let uid = world.resource_mut::<IdGenerator>().next_id();
         let cfg = world
             .resource::<SoldierConfig>()
@@ -1935,7 +1936,7 @@ mod shield_lifecycle_tests {
         uid
     }
 
-    fn spawn_militia(world: &mut World, pos: FixedVec2, faction: Faction) -> UnitId {
+    fn spawn_militia(world: &mut World, pos: FixedVec2, faction: FactionId) -> UnitId {
         let uid = world.resource_mut::<IdGenerator>().next_id();
         let cfg = world
             .resource::<SoldierConfig>()
@@ -1988,7 +1989,7 @@ mod shield_lifecycle_tests {
         let uid = spawn_infantry(
             &mut world,
             FixedVec2::new(Fixed::from_int(0), Fixed::from_int(0)),
-            Faction::Player,
+            FactionId(0),
         );
         let e = find_entity_by_unit_id(&mut world, uid).unwrap();
         assert!(
@@ -2010,7 +2011,7 @@ mod shield_lifecycle_tests {
         let uid = spawn_militia(
             &mut world,
             FixedVec2::new(Fixed::from_int(0), Fixed::from_int(0)),
-            Faction::Player,
+            FactionId(0),
         );
         let e = find_entity_by_unit_id(&mut world, uid).unwrap();
         assert!(
@@ -2032,7 +2033,7 @@ mod shield_lifecycle_tests {
         {
             let mut q = world.query::<(Entity, &FactionComponent, &mut CityComponent)>();
             for (_, fac, mut city) in q.iter_mut(&mut world) {
-                if fac.0 == Faction::Player {
+                if fac.0 == FactionId(0) {
                     city.spawn_type = SoldierType::Infantry;
                     city.population = 0;
                     city.max_population = 100;
@@ -2054,7 +2055,7 @@ mod shield_lifecycle_tests {
                 Option<&ShieldComponent>,
             )>();
             for (fac, st, shield_item, shield_comp) in q.iter(&world) {
-                if fac.0 == Faction::Player && st.0 == SoldierType::Infantry {
+                if fac.0 == FactionId(0) && st.0 == SoldierType::Infantry {
                     assert!(
                         shield_item.is_some(),
                         "Spawned Infantry should have ShieldItem"
@@ -2084,7 +2085,7 @@ mod shield_lifecycle_tests {
         let uid = spawn_infantry(
             &mut world,
             FixedVec2::new(Fixed::from_int(50), Fixed::from_int(50)),
-            Faction::Player,
+            FactionId(0),
         );
         let e = find_entity_by_unit_id(&mut world, uid).unwrap();
 
@@ -2118,7 +2119,7 @@ mod shield_lifecycle_tests {
         let uid = spawn_militia(
             &mut world,
             FixedVec2::new(Fixed::from_int(50), Fixed::from_int(50)),
-            Faction::Player,
+            FactionId(0),
         );
         let e = find_entity_by_unit_id(&mut world, uid).unwrap();
 
@@ -2147,7 +2148,7 @@ mod shield_lifecycle_tests {
         let uid = spawn_militia(
             &mut world,
             FixedVec2::new(Fixed::from_int(10), Fixed::from_int(10)),
-            Faction::Player,
+            FactionId(0),
         );
         let e = find_entity_by_unit_id(&mut world, uid).unwrap();
 
@@ -2159,7 +2160,7 @@ mod shield_lifecycle_tests {
             },
             position: FixedVec2::new(Fixed::from_int(12), Fixed::from_int(10)),
             drop_tick: 50,
-            owner_faction: Some(Faction::Enemy),
+            owner_faction: Some(FactionId(1)),
         });
 
         shield_pickup_system(&mut world);
@@ -2194,7 +2195,7 @@ mod shield_lifecycle_tests {
         let uid = spawn_infantry(
             &mut world,
             FixedVec2::new(Fixed::from_int(10), Fixed::from_int(10)),
-            Faction::Player,
+            FactionId(0),
         );
         let e = find_entity_by_unit_id(&mut world, uid).unwrap();
 
@@ -2212,7 +2213,7 @@ mod shield_lifecycle_tests {
             },
             position: FixedVec2::new(Fixed::from_int(12), Fixed::from_int(10)),
             drop_tick: 50,
-            owner_faction: Some(Faction::Enemy),
+            owner_faction: Some(FactionId(1)),
         });
 
         shield_pickup_system(&mut world);
@@ -2231,7 +2232,7 @@ mod shield_lifecycle_tests {
         let uid = spawn_infantry(
             &mut world,
             FixedVec2::new(Fixed::from_int(10), Fixed::from_int(10)),
-            Faction::Player,
+            FactionId(0),
         );
         let e = find_entity_by_unit_id(&mut world, uid).unwrap();
 
@@ -2243,7 +2244,7 @@ mod shield_lifecycle_tests {
             },
             position: FixedVec2::new(Fixed::from_int(12), Fixed::from_int(10)),
             drop_tick: 50,
-            owner_faction: Some(Faction::Enemy),
+            owner_faction: Some(FactionId(1)),
         });
 
         shield_pickup_system(&mut world);
@@ -2296,7 +2297,7 @@ mod shield_lifecycle_tests {
                 interval_ticks: cfg.attack_interval_ticks,
                 cooldown_remaining: 0,
             },
-            FactionComponent(Faction::Player),
+            FactionComponent(FactionId(0)),
             SoldierTypeComponent(SoldierType::Archer),
             Level { level: 1, exp: 0 },
             CityOrigin(UnitId(0)),
@@ -2312,7 +2313,7 @@ mod shield_lifecycle_tests {
             },
             position: FixedVec2::new(Fixed::from_int(10), Fixed::from_int(10)),
             drop_tick: 50,
-            owner_faction: Some(Faction::Enemy),
+            owner_faction: Some(FactionId(1)),
         });
 
         shield_pickup_system(&mut world);
@@ -2338,7 +2339,7 @@ mod shield_lifecycle_tests {
             },
             position: FixedVec2::new(Fixed::from_int(50), Fixed::from_int(50)),
             drop_tick: 100,
-            owner_faction: Some(Faction::Player),
+            owner_faction: Some(FactionId(0)),
         });
 
         // At tick 500 (age = 400, need 600+60=660 to expire)
@@ -2364,7 +2365,7 @@ mod shield_lifecycle_tests {
             },
             position: FixedVec2::new(Fixed::from_int(50), Fixed::from_int(50)),
             drop_tick: 100,
-            owner_faction: Some(Faction::Player),
+            owner_faction: Some(FactionId(0)),
         });
 
         // At tick 760 (age = 660 = 600 + 60, exactly at threshold)
@@ -2386,7 +2387,7 @@ mod shield_lifecycle_tests {
             },
             position: FixedVec2::new(Fixed::from_int(50), Fixed::from_int(50)),
             drop_tick: 100, // age at tick 800 = 700, expired
-            owner_faction: Some(Faction::Player),
+            owner_faction: Some(FactionId(0)),
         });
         world.spawn(DroppedShield {
             shield: ShieldItem {
@@ -2395,7 +2396,7 @@ mod shield_lifecycle_tests {
             },
             position: FixedVec2::new(Fixed::from_int(60), Fixed::from_int(60)),
             drop_tick: 500, // age at tick 800 = 300, not expired
-            owner_faction: Some(Faction::Enemy),
+            owner_faction: Some(FactionId(1)),
         });
 
         shield_decay_system(&mut world, 800);
@@ -2425,7 +2426,7 @@ mod shield_lifecycle_tests {
             let mut q = world.query::<(&LogicalPosition, &FactionComponent, &CityMarker)>();
             let mut found = None;
             for (pos, fac, _) in q.iter(&world) {
-                if fac.0 == Faction::Player {
+                if fac.0 == FactionId(0) {
                     found = Some(pos.0);
                     break;
                 }
@@ -2434,7 +2435,7 @@ mod shield_lifecycle_tests {
         };
 
         // Spawn infantry right at the player city position
-        let uid = spawn_infantry(&mut world, city_pos, Faction::Player);
+        let uid = spawn_infantry(&mut world, city_pos, FactionId(0));
         let e = find_entity_by_unit_id(&mut world, uid).unwrap();
 
         // Damage the shield
@@ -2469,7 +2470,7 @@ mod shield_lifecycle_tests {
         let uid = spawn_infantry(
             &mut world,
             FixedVec2::new(Fixed::from_int(100), Fixed::from_int(100)),
-            Faction::Player,
+            FactionId(0),
         );
         let e = find_entity_by_unit_id(&mut world, uid).unwrap();
         assert!(world.get::<ShieldItem>(e).is_some());
@@ -2490,7 +2491,7 @@ mod shield_lifecycle_tests {
         let uid2 = spawn_militia(
             &mut world,
             FixedVec2::new(Fixed::from_int(102), Fixed::from_int(100)),
-            Faction::Player,
+            FactionId(0),
         );
         let e2 = find_entity_by_unit_id(&mut world, uid2).unwrap();
         shield_pickup_system(&mut world);

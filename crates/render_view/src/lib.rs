@@ -175,8 +175,8 @@ fn check_victory_system(
     let mut q = sim_world.query::<(&simulation::soldier::FactionComponent,)>();
     for (f,) in q.iter(world) {
         match f.0 {
-            simulation::types::Faction::Player => has_player = true,
-            simulation::types::Faction::Enemy => has_enemy = true,
+            simulation::types::FactionId(0) => has_player = true,
+            simulation::types::FactionId(1) => has_enemy = true,
             _ => {}
         }
     }

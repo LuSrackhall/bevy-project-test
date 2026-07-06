@@ -21,7 +21,7 @@ use std::collections::{BTreeMap, HashMap};
 pub struct Arrow {
     pub direction: FixedVec2, // unit vector × speed (movement per tick)
     pub damage: u32,
-    pub from_faction: Faction,
+    pub from_faction: FactionId,
     pub shooter: Option<UnitId>,
     pub flight_remaining: u32, // ticks remaining in flight (damage phase)
     pub decay_remaining: u32,  // 0=flight, >0=decay (visual only)
@@ -93,7 +93,7 @@ pub fn combat_engagement_system(world: &mut World) {
     let (all_units, faction_spatial) = {
         let index = world.resource::<crate::soldier::TickCombatIndex>();
         let all_units = index.pos_faction.clone();
-        let mut faction_spatial: BTreeMap<Faction, SpatialHash> = BTreeMap::new();
+        let mut faction_spatial: BTreeMap<FactionId, SpatialHash> = BTreeMap::new();
         for (&uid, &(pos, fac)) in &all_units {
             faction_spatial.entry(fac)
                 .or_insert_with(|| SpatialHash::new(Fixed::from_int(64)))
@@ -105,7 +105,7 @@ pub fn combat_engagement_system(world: &mut World) {
     // Pre-sort soldier UnitIds for deterministic iteration
     let mut sorted_soldier_uids: Vec<UnitId> = Vec::new();
     // Use HashMap for O(1) lookup instead of Vec::find O(S²)
-    let soldier_map: HashMap<UnitId, (Entity, FixedVec2, Faction, SoldierType, SoldierState, bool, Option<UnitId>, Option<UnitId>, u32, bool, u32)> = {
+    let soldier_map: HashMap<UnitId, (Entity, FixedVec2, FactionId, SoldierType, SoldierState, bool, Option<UnitId>, Option<UnitId>, u32, bool, u32)> = {
         let mut q = world.query::<(
             Entity,
             &UnitIdComponent,
@@ -314,7 +314,7 @@ pub fn melee_attack_system(world: &mut World, current_tick: u32) {
         let index = world.resource::<crate::soldier::TickCombatIndex>();
         let soldiers = index.soldiers.clone();
         // Build per-faction SpatialHash (eliminates faction_map)
-        let mut faction_spatial: BTreeMap<Faction, SpatialHash> = BTreeMap::new();
+        let mut faction_spatial: BTreeMap<FactionId, SpatialHash> = BTreeMap::new();
         for (&uid, ref s) in &soldiers {
             faction_spatial.entry(s.faction)
                 .or_insert_with(|| SpatialHash::new(Fixed::from_int(32)))
@@ -814,7 +814,7 @@ pub fn archer_attack_system(world: &mut World) {
     // Extract data from shared tick index then drop Ref — per-faction SpatialHash
     let soldier_faction_spatial = {
         let index = world.resource::<crate::soldier::TickCombatIndex>();
-        let mut faction_spatial: BTreeMap<Faction, SpatialHash> = BTreeMap::new();
+        let mut faction_spatial: BTreeMap<FactionId, SpatialHash> = BTreeMap::new();
         for (&uid, &(pos, fac)) in &index.pos_faction {
             faction_spatial.entry(fac)
                 .or_insert_with(|| SpatialHash::new(Fixed::from_int(200)))
@@ -824,7 +824,7 @@ pub fn archer_attack_system(world: &mut World) {
     }; // Ref dropped here
 
     // Collect enemy city positions + build SpatialHash
-    let all_cities: Vec<(UnitId, FixedVec2, Faction)> = {
+    let all_cities: Vec<(UnitId, FixedVec2, FactionId)> = {
         let mut q = world.query::<(
             Entity,
             &UnitIdComponent,
@@ -836,7 +836,7 @@ pub fn archer_attack_system(world: &mut World) {
             .map(|(_, id, pos, fac, _)| (id.0, pos.0, fac.0))
             .collect()
     };
-    let city_faction_map: HashMap<UnitId, Faction> =
+    let city_faction_map: HashMap<UnitId, FactionId> =
         all_cities.iter().map(|(id, _, fac)| (*id, *fac)).collect();
     let mut city_spatial = SpatialHash::new(Fixed::from_int(200));
     for &(uid, pos, _) in &all_cities {
@@ -848,7 +848,7 @@ pub fn archer_attack_system(world: &mut World) {
         entity: Entity,
         uid: UnitId,
         pos: FixedVec2,
-        faction: Faction,
+        faction: FactionId,
         dmg: u32,
         range: u32,
         interval: u32,
@@ -1068,7 +1068,7 @@ pub fn arrow_movement_system(world: &mut World, current_tick: u32) {
     let (soldier_faction_map, soldier_entity_map, soldier_pos_map, soldier_spatial) = {
         let index = world.resource::<crate::soldier::TickCombatIndex>();
         let soldiers = &index.soldiers;
-        let faction_map: HashMap<UnitId, Faction> =
+        let faction_map: HashMap<UnitId, FactionId> =
             soldiers.iter().map(|(&id, s)| (id, s.faction)).collect();
         let entity_map: HashMap<UnitId, Entity> =
             soldiers.iter().map(|(&id, s)| (id, s.entity)).collect();
@@ -1082,7 +1082,7 @@ pub fn arrow_movement_system(world: &mut World, current_tick: u32) {
     }; // Ref dropped here
 
     // Collect city positions + SpatialHash for collision
-    let all_cities: Vec<(UnitId, FixedVec2, Entity, Faction, u32)> = {
+    let all_cities: Vec<(UnitId, FixedVec2, Entity, FactionId, u32)> = {
         let mut q = world.query::<(
             Entity,
             &UnitIdComponent,
@@ -1095,7 +1095,7 @@ pub fn arrow_movement_system(world: &mut World, current_tick: u32) {
             .map(|(e, id, pos, fac, _, r)| (id.0, pos.0, e, fac.0, r.0))
             .collect()
     };
-    let city_faction_map: HashMap<UnitId, Faction> =
+    let city_faction_map: HashMap<UnitId, FactionId> =
         all_cities.iter().map(|(id, _, _, fac, _)| (*id, *fac)).collect();
     let city_entity_map: HashMap<UnitId, (Entity, u32)> =
         all_cities.iter().map(|(id, _, e, _, r)| (*id, (*e, *r))).collect();
@@ -1302,7 +1302,7 @@ mod arrow_city_tests {
         pos: FixedVec2,
         dir: FixedVec2,
         dmg: u32,
-        faction: Faction,
+        faction: FactionId,
     ) -> Entity {
         let aid = world.resource_mut::<IdGenerator>().next_id();
         world
@@ -1330,7 +1330,7 @@ mod arrow_city_tests {
     fn spawn_test_city(
         world: &mut World,
         pos: FixedVec2,
-        faction: Faction,
+        faction: FactionId,
         radius: u32,
         hp: u32,
     ) -> Entity {
@@ -1365,13 +1365,13 @@ mod arrow_city_tests {
     fn test_arrow_hits_city_accumulator_increments_no_health_loss() {
         let mut world = init_simulation_world(42);
         let city_pos = FixedVec2::new(Fixed::from_int(100), Fixed::from_int(100));
-        spawn_test_city(&mut world, city_pos, Faction::Enemy, 30, 500);
+        spawn_test_city(&mut world, city_pos, FactionId(1), 30, 500);
 
         // Arrow at city edge (distance 25), flying toward city center
         let arrow_start = FixedVec2::new(Fixed::from_int(100), Fixed::from_int(95)); // 5 units from center
         let dir = FixedVec2::new(Fixed::ZERO, Fixed::from_int(20)); // fly upward into city
         let dmg = 16u32;
-        spawn_test_arrow(&mut world, arrow_start, dir, dmg, Faction::Player);
+        spawn_test_arrow(&mut world, arrow_start, dir, dmg, FactionId(0));
 
         arrow_movement_system(&mut world, 0);
 
@@ -1391,7 +1391,7 @@ mod arrow_city_tests {
     fn test_arrow_accumulation_triggers_health_damage() {
         let mut world = init_simulation_world(42);
         let city_pos = FixedVec2::new(Fixed::from_int(100), Fixed::from_int(100));
-        let city_e = spawn_test_city(&mut world, city_pos, Faction::Enemy, 30, 500);
+        let city_e = spawn_test_city(&mut world, city_pos, FactionId(1), 30, 500);
 
         // Pre-set accumulator close to threshold
         {
@@ -1404,7 +1404,7 @@ mod arrow_city_tests {
         // Arrow with damage 16 → 190+16=206 → 1 health damage, 6 remainder
         let arrow_start = FixedVec2::new(Fixed::from_int(100), Fixed::from_int(95));
         let dir = FixedVec2::new(Fixed::ZERO, Fixed::from_int(20));
-        spawn_test_arrow(&mut world, arrow_start, dir, 16, Faction::Player);
+        spawn_test_arrow(&mut world, arrow_start, dir, 16, FactionId(0));
 
         arrow_movement_system(&mut world, 0);
 
@@ -1423,11 +1423,11 @@ mod arrow_city_tests {
     fn test_arrow_enters_decay_after_city_hit() {
         let mut world = init_simulation_world(42);
         let city_pos = FixedVec2::new(Fixed::from_int(100), Fixed::from_int(100));
-        spawn_test_city(&mut world, city_pos, Faction::Enemy, 30, 500);
+        spawn_test_city(&mut world, city_pos, FactionId(1), 30, 500);
 
         let arrow_start = FixedVec2::new(Fixed::from_int(100), Fixed::from_int(95));
         let dir = FixedVec2::new(Fixed::ZERO, Fixed::from_int(20));
-        spawn_test_arrow(&mut world, arrow_start, dir, 16, Faction::Player);
+        spawn_test_arrow(&mut world, arrow_start, dir, 16, FactionId(0));
 
         arrow_movement_system(&mut world, 0);
 
@@ -1445,11 +1445,11 @@ mod arrow_city_tests {
     fn test_friendly_arrow_passes_through_friendly_city() {
         let mut world = init_simulation_world(42);
         let city_pos = FixedVec2::new(Fixed::from_int(100), Fixed::from_int(100));
-        spawn_test_city(&mut world, city_pos, Faction::Player, 30, 500);
+        spawn_test_city(&mut world, city_pos, FactionId(0), 30, 500);
 
         let arrow_start = FixedVec2::new(Fixed::from_int(100), Fixed::from_int(95));
         let dir = FixedVec2::new(Fixed::ZERO, Fixed::from_int(20));
-        spawn_test_arrow(&mut world, arrow_start, dir, 16, Faction::Player);
+        spawn_test_arrow(&mut world, arrow_start, dir, 16, FactionId(0));
 
         arrow_movement_system(&mut world, 0);
 
@@ -1477,7 +1477,7 @@ mod arrow_city_tests {
 
         // Enemy city at center
         let city_pos = FixedVec2::new(Fixed::from_int(100), Fixed::from_int(100));
-        spawn_test_city(&mut world, city_pos, Faction::Enemy, 35, 500);
+        spawn_test_city(&mut world, city_pos, FactionId(1), 35, 500);
 
         // Enemy soldier between arrow and city
         let soldier_pos = FixedVec2::new(Fixed::from_int(100), Fixed::from_int(80));
@@ -1486,7 +1486,7 @@ mod arrow_city_tests {
             UnitIdComponent(sid),
             SoldierMarker,
             LogicalPosition(soldier_pos),
-            FactionComponent(Faction::Enemy),
+            FactionComponent(FactionId(1)),
             Health {
                 current: 100,
                 max: 100,
@@ -1521,7 +1521,7 @@ mod arrow_city_tests {
             Arrow {
                 direction: dir,
                 damage: 200,
-                from_faction: Faction::Player,
+                from_faction: FactionId(0),
                 shooter: None,
                 flight_remaining: 50,
                 decay_remaining: 0,
@@ -1572,7 +1572,7 @@ mod integration_tests {
     fn spawn_test_soldier(
         world: &mut World,
         pos: FixedVec2,
-        faction: Faction,
+        faction: FactionId,
         stype: SoldierType,
         facing_angle: Fixed,
     ) -> (UnitId, Entity) {
@@ -1633,7 +1633,7 @@ mod integration_tests {
     fn spawn_test_archer(
         world: &mut World,
         pos: FixedVec2,
-        faction: Faction,
+        faction: FactionId,
         facing_angle: Fixed,
     ) -> (UnitId, Entity) {
         let uid = world.resource_mut::<IdGenerator>().next_id();
@@ -1694,7 +1694,7 @@ mod integration_tests {
         let (_uid, entity) = spawn_test_soldier(
             &mut world,
             FixedVec2::new(Fixed::ZERO, Fixed::ZERO),
-            Faction::Player,
+            FactionId(0),
             SoldierType::Infantry,
             Fixed::ZERO, // facing 0° (right)
         );
@@ -1737,7 +1737,7 @@ mod integration_tests {
         let (_uid, entity) = spawn_test_soldier(
             &mut world,
             FixedVec2::new(Fixed::ZERO, Fixed::ZERO),
-            Faction::Player,
+            FactionId(0),
             SoldierType::Infantry,
             Fixed::ZERO,
         );
@@ -1781,7 +1781,7 @@ mod integration_tests {
         let (_uid, entity) = spawn_test_soldier(
             &mut world,
             FixedVec2::new(Fixed::ZERO, Fixed::ZERO),
-            Faction::Player,
+            FactionId(0),
             SoldierType::Infantry,
             Fixed::ZERO, // facing 0° (right)
         );
@@ -1847,7 +1847,7 @@ mod integration_tests {
         let (_uid, entity) = spawn_test_soldier(
             &mut world,
             FixedVec2::new(Fixed::ZERO, Fixed::ZERO),
-            Faction::Player,
+            FactionId(0),
             SoldierType::Infantry,
             Fixed::ZERO,
         );
@@ -1905,7 +1905,7 @@ mod integration_tests {
         let (_uid, entity) = spawn_test_soldier(
             &mut world,
             FixedVec2::new(Fixed::ZERO, Fixed::ZERO),
-            Faction::Player,
+            FactionId(0),
             SoldierType::Infantry,
             Fixed::ZERO,
         );
@@ -1959,7 +1959,7 @@ mod integration_tests {
         let (_archer_uid, _archer_e) = spawn_test_archer(
             &mut world,
             FixedVec2::new(Fixed::ZERO, Fixed::ZERO),
-            Faction::Player,
+            FactionId(0),
             Fixed::ZERO,
         );
 
@@ -1971,7 +1971,7 @@ mod integration_tests {
                 UnitIdComponent(eid),
                 SoldierMarker,
                 LogicalPosition(enemy_pos),
-                FactionComponent(Faction::Enemy),
+                FactionComponent(FactionId(1)),
                 SoldierTypeComponent(SoldierType::Militia),
                 Health {
                     current: 100,
@@ -2020,7 +2020,7 @@ mod integration_tests {
         let (_enemy_uid, _enemy) = spawn_test_soldier(
             &mut world,
             FixedVec2::new(Fixed::from_int(100), Fixed::ZERO),
-            Faction::Enemy,
+            FactionId(1),
             SoldierType::Militia,
             Fixed::ZERO,
         );
@@ -2029,7 +2029,7 @@ mod integration_tests {
         let (_frontal_uid, frontal) = spawn_test_soldier(
             &mut world,
             FixedVec2::new(Fixed::from_int(75), Fixed::ZERO),
-            Faction::Player,
+            FactionId(0),
             SoldierType::Militia,
             Fixed::from_int(0), // facing 0° (toward enemy)
         );
@@ -2048,7 +2048,7 @@ mod integration_tests {
         let (_rear_uid, rear) = spawn_test_soldier(
             &mut world,
             FixedVec2::new(Fixed::from_int(75), Fixed::from_int(1)),
-            Faction::Player,
+            FactionId(0),
             SoldierType::Militia,
             Fixed::from_int(180), // facing 180° (away from enemy)
         );
@@ -2133,7 +2133,7 @@ mod integration_tests {
         let (_player_uid, player) = spawn_test_soldier(
             &mut world,
             FixedVec2::new(Fixed::from_int(50), Fixed::ZERO),
-            Faction::Player,
+            FactionId(0),
             SoldierType::Infantry,
             Fixed::from_int(0),
         );
@@ -2150,7 +2150,7 @@ mod integration_tests {
         let (_enemy_uid, enemy) = spawn_test_soldier(
             &mut world,
             FixedVec2::new(Fixed::from_int(60), Fixed::ZERO),
-            Faction::Enemy,
+            FactionId(1),
             SoldierType::Infantry,
             Fixed::from_int(0),
         );
@@ -2185,7 +2185,7 @@ mod integration_tests {
         let (_player_uid, player) = spawn_test_soldier(
             &mut world,
             FixedVec2::new(Fixed::ZERO, Fixed::ZERO),
-            Faction::Player,
+            FactionId(0),
             SoldierType::Infantry,
             Fixed::from_int(0),
         );
@@ -2201,7 +2201,7 @@ mod integration_tests {
         let (_enemy_uid, enemy) = spawn_test_soldier(
             &mut world,
             FixedVec2::new(Fixed::from_int(50), Fixed::ZERO),
-            Faction::Enemy,
+            FactionId(1),
             SoldierType::Infantry,
             Fixed::from_int(0),
         );
@@ -2245,7 +2245,7 @@ mod integration_tests {
         let (_player_uid, player) = spawn_test_soldier(
             &mut world,
             FixedVec2::new(Fixed::ZERO, Fixed::ZERO),
-            Faction::Player,
+            FactionId(0),
             SoldierType::Infantry,
             Fixed::from_int(0),
         );
@@ -2261,7 +2261,7 @@ mod integration_tests {
         let (_enemy_uid, enemy) = spawn_test_soldier(
             &mut world,
             FixedVec2::new(Fixed::from_int(50), Fixed::ZERO),
-            Faction::Enemy,
+            FactionId(1),
             SoldierType::Infantry,
             Fixed::from_int(0),
         );
@@ -2294,7 +2294,7 @@ mod integration_tests {
         let (_cav_uid, cavalry) = spawn_test_soldier(
             &mut world,
             FixedVec2::new(Fixed::ZERO, Fixed::ZERO),
-            Faction::Player,
+            FactionId(0),
             SoldierType::Cavalry,
             Fixed::from_int(0),
         );
@@ -2310,7 +2310,7 @@ mod integration_tests {
         let (_enemy_uid, enemy) = spawn_test_soldier(
             &mut world,
             FixedVec2::new(Fixed::from_int(50), Fixed::ZERO),
-            Faction::Enemy,
+            FactionId(1),
             SoldierType::Infantry,
             Fixed::from_int(0),
         );
@@ -2345,7 +2345,7 @@ mod integration_tests {
         let (_player_uid, player) = spawn_test_soldier(
             &mut world,
             FixedVec2::new(Fixed::ZERO, Fixed::ZERO),
-            Faction::Player,
+            FactionId(0),
             SoldierType::Infantry,
             Fixed::from_int(0),
         );
@@ -2361,7 +2361,7 @@ mod integration_tests {
         let (_enemy_uid, _enemy) = spawn_test_soldier(
             &mut world,
             FixedVec2::new(Fixed::from_int(50), Fixed::ZERO),
-            Faction::Enemy,
+            FactionId(1),
             SoldierType::Infantry,
             Fixed::from_int(0),
         );
@@ -2403,7 +2403,7 @@ mod integration_tests {
         let (_cav_uid, cav) = spawn_test_soldier(
             &mut world,
             FixedVec2::new(Fixed::ZERO, Fixed::ZERO),
-            Faction::Player,
+            FactionId(0),
             SoldierType::Cavalry,
             Fixed::from_int(0),
         );
@@ -2419,7 +2419,7 @@ mod integration_tests {
         let (_enemy_uid, enemy) = spawn_test_soldier(
             &mut world,
             FixedVec2::new(Fixed::from_int(50), Fixed::ZERO),
-            Faction::Enemy,
+            FactionId(1),
             SoldierType::Infantry,
             Fixed::from_int(0),
         );
@@ -2457,7 +2457,7 @@ mod integration_tests {
         let (_archer_uid, archer_e) = spawn_test_archer(
             &mut world,
             FixedVec2::new(Fixed::ZERO, Fixed::ZERO),
-            Faction::Player,
+            FactionId(0),
             Fixed::from_int(90), // facing up
         );
         {
@@ -2473,7 +2473,7 @@ mod integration_tests {
                 UnitIdComponent(eid),
                 SoldierMarker,
                 LogicalPosition(enemy_pos),
-                FactionComponent(Faction::Enemy),
+                FactionComponent(FactionId(1)),
                 SoldierTypeComponent(SoldierType::Militia),
                 Health {
                     current: 100,

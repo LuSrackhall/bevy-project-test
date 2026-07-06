@@ -69,11 +69,11 @@ pub struct NetworkActive(pub bool);
 /// Which faction the local player controls (set during game start).
 /// In single-player: Player; in network: depends on player_id.
 #[derive(Resource)]
-pub struct LocalPlayerFaction(pub simulation::types::Faction);
+pub struct LocalPlayerFaction(pub simulation::types::FactionId);
 
 impl Default for LocalPlayerFaction {
     fn default() -> Self {
-        Self(simulation::types::Faction::Player)
+        Self(simulation::types::FactionId(0))
     }
 }
 
