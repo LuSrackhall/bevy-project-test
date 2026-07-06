@@ -424,6 +424,11 @@ impl LobbyConnectionStatus {
     pub fn poll(&self) -> Option<Result<(), String>> {
         self.result.lock().unwrap().take()
     }
+
+    /// 获取内部 Arc 引用（用于构造 ConnectionPollRx 等）
+    pub fn inner_arc(&self) -> Arc<Mutex<Option<Result<(), String>>>> {
+        self.result.clone()
+    }
 }
 
 /// Handle that stops the network thread when dropped.
