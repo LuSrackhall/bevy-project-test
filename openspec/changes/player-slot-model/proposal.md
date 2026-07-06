@@ -37,10 +37,10 @@
 | `crates/simulation/src/map/mod.rs` | 城市/单位创建时的 `Faction` 枚举改为 `FactionId` |
 | `crates/simulation/src/combat/` | Faction 比较改为 FactionId 比较 |
 | `crates/simulation/src/unit_index.rs` | 无影响 |
-| `crates/bevy_adapter/src/driver.rs` | `simulation_driver_system` 传入 `PlayerSlots` |
-| `crates/bevy_adapter/src/session/bootstrap.rs` | SessionBootstrap 初始化 `PlayerSlots` |
-| `crates/render_view/src/selection.rs` | 筛选改用 `PlayerSlots`（替换 `Faction::Player` 枚举引用） |
-| `crates/render_view/src/camera.rs` | 居中逻辑改用 `PlayerSlots` |
-| `crates/render_view/src/ui/hud.rs` | HUD 展示逻辑改用 `PlayerSlots` |
+| `crates/bevy_adapter/src/driver.rs` | `simulation_driver_system` 传入 `PlayerSlots`（自动通过 Resource） |
+| `crates/bevy_adapter/src/session/bootstrap.rs` | SessionBootstrap 初始化 `PlayerSlots`（使用默认 single_player，网络模式需后续补充） |
+| `crates/render_view/src/selection.rs` | 筛选改用 `PlayerSlots`（当前通过 `LocalPlayerId` → `FactionId(lid)` 兼容路径） |
+| `crates/render_view/src/camera.rs` | 居中逻辑改用 `PlayerSlots`（当前通过 `LocalPlayerId` 兼容路径） |
+| `crates/render_view/src/ui/hud.rs` | HUD 展示逻辑改用 `PlayerSlots`（部分完成——top bar 用 FactionId，按钮 player_id 仍硬编码 `0`，需下个迭代修） |
 | 测试 | 所有 Faction 枚举引用需更新为 FactionId（`Faction::Player` → `FactionId(0)`） |
 | Replay | Controller 的序列化实现——HumanLocal/HumanRemote/AI 字段需 Serialize/Deserialize |
