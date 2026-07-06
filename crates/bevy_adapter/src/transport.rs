@@ -247,6 +247,75 @@ pub fn spawn_network_client(
     Ok((receiver, sender, handle))
 }
 
+/// 非阻塞变体：启动 TCP 连接后立即返回，连接状态通过 `LobbyConnectionStatus` 轮询。
+pub fn spawn_network_client_nonblocking(
+    relay_addr: String,
+    game_id: u64,
+    player_id: u8,
+    _ruleset_version: u32,
+    event_receiver: NetworkEventReceiver,
+) -> (NetworkReceiver, NetworkSender, NetworkClientHandle, LobbyConnectionStatus) {
+    let receiver = NetworkReceiver::default();
+    let sender = NetworkSender::default();
+    let stop_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let status = LobbyConnectionStatus::default();
+
+    let recv = receiver.clone();
+    let send = sender.clone();
+    let stop = stop_flag.clone();
+    let events = event_receiver;
+    let relay_addr_for_thread = relay_addr.clone();
+    let conn_status = status.clone();
+
+    let thread = std::thread::spawn(move || {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_io()
+            .enable_time()
+            .build()
+            .expect("Failed to build tokio runtime");
+
+        rt.block_on(async move {
+            let mut retry_count = 0u32;
+            loop {
+                if stop.load(std::sync::atomic::Ordering::Relaxed) {
+                    break;
+                }
+
+                let stream = tokio::time::timeout(
+                    Duration::from_secs(5),
+                    tokio::net::TcpStream::connect(&relay_addr_for_thread),
+                )
+                .await;
+
+                let stream = match stream {
+                    Ok(Ok(s)) => s,
+                    _ => {
+                        retry_count = retry_count.saturating_add(1);
+                        let delay = Duration::from_secs((1u64 << retry_count.min(5)).min(30));
+                        eprintln!("Network: retrying in {}s (attempt {})", delay.as_secs(), retry_count);
+                        tokio::time::sleep(delay).await;
+                        continue;
+                    }
+                };
+
+                // TCP connected! Signal via status channel
+                conn_status.result.lock().unwrap().replace(Ok(()));
+                retry_count = 0;
+
+                let clean_exit = run_session(
+                    stream, game_id, player_id, _ruleset_version,
+                    &recv, &send, stop.clone(), &events,
+                ).await;
+
+                if clean_exit { break; }
+            }
+        });
+    });
+
+    let handle = NetworkClientHandle { thread: Some(thread), stop: stop_flag };
+    (receiver, sender, handle, status)
+}
+
 /// Run a single client session over an already-established TCP stream.
 /// Returns `true` on clean disconnect (game over), `false` on connection error.
 async fn run_session(
@@ -342,6 +411,19 @@ async fn run_session(
 
     write_task.abort();
     false
+}
+
+/// 跨线程连接状态，用于 Lobby 非阻塞轮询 TCP 连接进度。
+#[derive(Clone, Default)]
+pub struct LobbyConnectionStatus {
+    pub result: Arc<Mutex<Option<Result<(), String>>>>,
+}
+
+impl LobbyConnectionStatus {
+    /// 检查并消费连接结果。返回 None 表示仍在连接中。
+    pub fn poll(&self) -> Option<Result<(), String>> {
+        self.result.lock().unwrap().take()
+    }
 }
 
 /// Handle that stops the network thread when dropped.
