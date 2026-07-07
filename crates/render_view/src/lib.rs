@@ -4,7 +4,6 @@ use std::path::PathBuf;
 pub mod camera;
 pub mod debug_shape;
 pub mod selection;
-pub mod session;
 pub mod ui;
 pub mod unit_info_bar;
 #[cfg(target_arch = "wasm32")]
