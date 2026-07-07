@@ -293,6 +293,12 @@ pub fn spawn_network_client_nonblocking(
                         retry_count = retry_count.saturating_add(1);
                         let delay = Duration::from_secs((1u64 << retry_count.min(5)).min(30));
                         eprintln!("Network: retrying in {}s (attempt {})", delay.as_secs(), retry_count);
+                        // After 8+ retries (total elapsed ~8.5 minutes), signal failure
+                        if retry_count >= 8 {
+                            conn_status.result.lock().unwrap().replace(
+                                Err(format!("Failed to connect after {} attempts", retry_count))
+                            );
+                        }
                         tokio::time::sleep(delay).await;
                         continue;
                     }
