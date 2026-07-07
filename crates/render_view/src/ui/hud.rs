@@ -596,6 +596,8 @@ pub(crate) fn update_top_bar(
     tick_clock: Res<bevy_adapter::tick::TickClock>,
 ) {
     let world = sim_world.world_ref();
+    let lid = crate::local_player_id(&*sim_world);
+
 
     // Inline count_factions using read-only queries
     use std::collections::BTreeMap;
@@ -622,7 +624,7 @@ pub(crate) fn update_top_bar(
     {
         let mut q = sim_world.query::<(&FactionComponent, &simulation::soldier::CityComponent)>();
         for (f, c) in q.iter(world) {
-            if f.0 == simulation::types::FactionId(0) {
+            if f.0 == simulation::types::FactionId(lid) {
                 pp += c.population;
                 pm += c.max_population;
             }
@@ -653,10 +655,9 @@ pub(crate) fn update_top_bar(
                 .iter()
                 .map(|(faction, (soldiers, cities))| {
                     let label = match faction {
-                        simulation::types::FactionId(0) => "玩家",
-                        simulation::types::FactionId(1) => "敌人",
-                        simulation::types::FactionId(2) => "中立",
-                        simulation::types::FactionId(_) => "其他",
+                        f if *f == simulation::types::FactionId(lid) => "玩家",
+                        _ => "其他",
+
                     };
                     format!("{}: 兵{}/城{}", label, soldiers, cities)
                 })
@@ -1169,6 +1170,8 @@ pub(crate) fn seek_panel_count_system(
     sim_world: bevy::ecs::system::NonSend<SimulationWorld>,
 ) {
     let world = sim_world.world_ref();
+    let lid = crate::local_player_id(&*sim_world);
+
     let has_sel = !selection.selected_unit_ids.is_empty();
 
     // Count soldiers by type
@@ -1178,7 +1181,7 @@ pub(crate) fn seek_panel_count_system(
         let mut q = sim_world.query::<(&UnitIdComponent, &SoldierTypeComponent, &FactionComponent)>();
         for uid in &selection.selected_unit_ids {
             for (id, st, fac) in q.iter(world) {
-                if id.0 == *uid && fac.0 == FactionId(0) {
+                if id.0 == *uid && fac.0 == FactionId(lid) {
                     match st.0 {
                         SoldierType::Militia => {
                             counts[0] += 1;
@@ -1205,7 +1208,7 @@ pub(crate) fn seek_panel_count_system(
         // Global mode: count all Player soldiers
         let mut q = sim_world.query::<(&SoldierTypeComponent, &FactionComponent)>();
         for (st, fac) in q.iter(world) {
-            if fac.0 == FactionId(0) {
+            if fac.0 == FactionId(lid) {
                 match st.0 {
                     SoldierType::Militia => {
                         counts[0] += 1;

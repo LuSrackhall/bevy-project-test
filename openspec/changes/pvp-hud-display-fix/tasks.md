@@ -1,15 +1,15 @@
 ## 1. 修复 HUD 显示层 FactionId 硬编码
 
-- [ ] 1.1 在 `update_top_bar` 中添加 `let lid = crate::local_player_id(&*sim_world);`
-- [ ] 1.2 修复 line 625：`FactionId(0)` → `FactionId(lid)`
-- [ ] 1.3 修复 match arm（line 656）：改为 guard 匹配，简化标签
-- [ ] 1.4 在 `seek_panel_count_system` 中添加 `let lid = crate::local_player_id(&*sim_world);`
-- [ ] 1.5 修复 line 1181 和 1208：`FactionId(0)` → `FactionId(lid)`
+- [x] 1.1 在 `update_top_bar` 中添加 `let lid = crate::local_player_id(&*sim_world);`
+- [x] 1.2 修复 line 625：`FactionId(0)` → `FactionId(lid)`
+- [x] 1.3 修复 match arm（line 656）：改为 guard 匹配，简化标签
+- [x] 1.4 在 `seek_panel_count_system` 中添加 `let lid = crate::local_player_id(&*sim_world);`
+- [x] 1.5 修复 line 1181 和 1208：`FactionId(0)` → `FactionId(lid)`
 
 ## 2. 编译验证
 
-- [ ] 2.1 运行 `cargo check -p render_view` 确认编译通过
-- [ ] 2.2 运行 `cargo test -p simulation` 确认全部通过
+- [x] 2.1 运行 `cargo check -p render_view` 确认编译通过
+- [x] 2.2 运行 `cargo test -p simulation` 确认全部通过
 
 ---
 
