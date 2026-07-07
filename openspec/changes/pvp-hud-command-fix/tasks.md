@@ -6,24 +6,24 @@
 
 ## 2. 修复 HUD 按钮 player_id 硬编码
 
-- [ ] 2.1 修复 SpawnTypeBtn 观察者（line 287）：添加 `NonSend<SimulationWorld>` 参数，使用 `local_player_id()`
-- [ ] 2.2 修复 ShieldButton 观察者（line 367）：使用 `local_player_id()`（已有 `NonSendMut`）
-- [ ] 2.3 修复 SeekIssueBtn 观察者（line 505/510）：使用 `local_player_id()`（已有 `NonSendMut`）
+- [x] 2.1 修复 SpawnTypeBtn 观察者（line 287）：添加 `NonSend<SimulationWorld>` 参数，使用 `local_player_id()`
+- [x] 2.2 修复 ShieldButton 观察者（line 367）：使用 `local_player_id()`（已有 `NonSendMut`）
+- [x] 2.3 修复 SeekIssueBtn 观察者（line 505/510）：使用 `local_player_id()`（已有 `NonSendMut`）
 
 ## 3. 删除死代码
 
-- [ ] 3.1 删除 `render_view/src/session.rs`
-- [ ] 3.2 从 `render_view/src/lib.rs` 移除 `pub mod session`
+- [x] 3.1 删除 `render_view/src/session.rs`
+- [x] 3.2 从 `render_view/src/lib.rs` 移除 `pub mod session`
 
 ## 4. 回归测试
 
-- [ ] 4.1 在 `simulation/src/command.rs` 添加 `test_local_player_id_fallback` 测试
+- [x] 4.1 在 `simulation/src/command.rs` 添加 `test_local_player_id_fallback` 测试
 
 ## 5. 编译验证
 
-- [ ] 5.1 运行 `cargo test -p simulation` 确认全部通过
-- [ ] 5.2 运行 `cargo test` 确认全量 137 测试通过
-- [ ] 5.3 运行 `cargo clippy` 确认无新增警告
+- [x] 5.1 运行 `cargo test -p simulation` 确认全部通过
+- [x] 5.2 运行 `cargo test` 确认全量 137 测试通过
+- [x] 5.3 运行 `cargo clippy` 确认无新增警告
 
 ---
 
