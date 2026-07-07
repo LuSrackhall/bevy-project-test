@@ -1,8 +1,8 @@
 ## 1. 提取公共辅助函数
 
-- [ ] 1.1 在 `render_view/src/lib.rs` 中添加 `pub(crate) fn local_player_id()`
-- [ ] 1.2 将 `selection.rs` 的私有 `local_player_id()` 改为调用公共函数
-- [ ] 1.3 将 `camera.rs` 的内联读取改为调用公共函数
+- [x] 1.1 在 `render_view/src/lib.rs` 中添加 `pub(crate) fn local_player_id()`
+- [x] 1.2 将 `selection.rs` 的私有 `local_player_id()` 改为调用公共函数
+- [x] 1.3 将 `camera.rs` 的内联读取改为调用公共函数
 
 ## 2. 修复 HUD 按钮 player_id 硬编码
 

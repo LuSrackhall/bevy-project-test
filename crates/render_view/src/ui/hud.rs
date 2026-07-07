@@ -277,14 +277,14 @@ pub(crate) fn setup_hud(
                         for (st, label) in [(SoldierType::Militia,"民兵"),(SoldierType::Infantry,"步兵"),(SoldierType::Archer,"弓兵"),(SoldierType::Cavalry,"骑兵")] {
                             p.spawn((WidgetButton, Node { padding: UiRect::all(Val::Px(6.0)), margin: UiRect::all(Val::Px(3.0)), ..default() }, SpawnTypeBtn(st), ButtonTheme::default(), Hovered::default()))
                                 .with_child((Text::new(label), TextFont { font: font.clone().into(), font_size: FontSize::Px(12.0), ..default() }))
-                                .observe(|ev: On<Activate>, q: Query<&SpawnTypeBtn>, selection: Res<SelectionState>, mut cmd_buf: ResMut<CommandBuffer>, tick_clock: Res<TickClock>, game_mode: Res<bevy_adapter::GameMode>| {
+                                .observe(|ev: On<Activate>, q: Query<&SpawnTypeBtn>, selection: Res<SelectionState>, mut cmd_buf: ResMut<CommandBuffer>, tick_clock: Res<TickClock>, sim: bevy::ecs::system::NonSend<bevy_adapter::tick::SimulationWorld>, game_mode: Res<bevy_adapter::GameMode>| {
                                     if *game_mode == bevy_adapter::GameMode::Replay { return; }
                                     let Ok(btn) = q.get(ev.entity) else { return };
                                     if let Some(cid) = selection.selected_city {
                                         // Push command for replay recording — consumed by consume_commands_system
                                         cmd_buf.push(GameCommand {
                                                 tick: tick_clock.current_tick + 1,
-                                                player_id: 0,
+                                                player_id: crate::local_player_id(&*sim),
                                                 action: Action::SetSpawnType { city: cid, soldier_type: btn.0 },
                                             });
                                     }
@@ -363,8 +363,10 @@ pub(crate) fn setup_hud(
                                     };
                                     let target_state = if all_blocking { simulation::types::ShieldState::Normal } else { simulation::types::ShieldState::Blocking };
                                     let next_tick = tick_clock.current_tick + 1;
+                                    let lid = crate::local_player_id(&*sim);
+
                                     for uid in &infantries {
-                                        cmd_buf.push(GameCommand { tick: next_tick, player_id: 0, action: simulation::command::Action::SetShield { unit: *uid, state: target_state } });
+                                        cmd_buf.push(GameCommand { tick: next_tick, player_id: lid, action: simulation::command::Action::SetShield { unit: *uid, state: target_state } });
                                     }
                                 }
                                 3 => force.active = true,
@@ -498,16 +500,18 @@ pub(crate) fn setup_hud(
                     Hovered::default(),
                 )).with_child((Text::new("下发"), TextFont { font: font.clone().into(), font_size: FontSize::Px(12.0), ..default() }))
                 .observe(|_ev: On<Activate>, state: Res<SeekPanelState>, selection: Res<SelectionState>, tick_clock: Res<TickClock>, mut toast: ResMut<ToastMessage>, mut sim: NonSendMut<SimulationWorld>, mut cmd_buf: ResMut<CommandBuffer>, game_mode: Res<bevy_adapter::GameMode>| {
+                        let lid = crate::local_player_id(&*sim);
+
                     if *game_mode == bevy_adapter::GameMode::Replay { return; }
                     let next_tick = tick_clock.current_tick + 1;
                     let has_sel = !selection.selected_unit_ids.is_empty();
                     if has_sel {
-                        cmd_buf.push(GameCommand { tick: next_tick, player_id: 0, action: Action::SetSeekStance { scope: state.scope.clone(), seek_range: state.range_value, unit_ids: selection.selected_unit_ids.clone() } });
+                        cmd_buf.push(GameCommand { tick: next_tick, player_id: lid, action: Action::SetSeekStance { scope: state.scope.clone(), seek_range: state.range_value, unit_ids: selection.selected_unit_ids.clone() } });
                         let count = count_matching(&selection.selected_unit_ids, &state.scope, &sim);
                         let scope_name = scope_label(&state.scope);
                         toast.text = if matches!(state.scope, SeekScope::All) { format!("已下发选中全体({})索敌 范围{}", selection.selected_unit_ids.len(), state.range_value) } else { format!("已下发选中{}({})索敌 范围{}", scope_name, count, state.range_value) };
                     } else {
-                        cmd_buf.push(GameCommand { tick: next_tick, player_id: 0, action: Action::SetSeekStance { scope: state.scope.clone(), seek_range: state.range_value, unit_ids: vec![] } });
+                        cmd_buf.push(GameCommand { tick: next_tick, player_id: lid, action: Action::SetSeekStance { scope: state.scope.clone(), seek_range: state.range_value, unit_ids: vec![] } });
                         let scope_name = scope_label(&state.scope);
                         toast.text = format!("已下发{}索敌 范围{}", scope_name, state.range_value);
                     }
