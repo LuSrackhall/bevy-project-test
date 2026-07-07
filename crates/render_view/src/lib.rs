@@ -314,6 +314,16 @@ pub fn lobby_update_system(
     }
 }
 
+/// 退出 Lobby 时清理网络资源（非取消路径的兜底清理）。
+fn cleanup_lobby_network(
+    mut commands: Commands,
+    mut network_active: ResMut<bevy_adapter::NetworkActive>,
+) {
+    network_active.0 = false;
+    commands.remove_resource::<ConnectionPollRx>();
+    commands.remove_resource::<LobbyConnectionState>();
+}
+
 /// If NeedsGameReset is true, fully resets the simulation world.
 /// Always clears the paused flag.
 #[allow(clippy::too_many_arguments)]
