@@ -4,7 +4,6 @@ use std::path::PathBuf;
 pub mod camera;
 pub mod debug_shape;
 pub mod selection;
-pub mod session;
 pub mod ui;
 pub mod unit_info_bar;
 #[cfg(target_arch = "wasm32")]
@@ -23,6 +22,16 @@ pub enum GameState {
     Playing,
     GameOver,
 }
+
+/// Read the local human player's id from the simulation world.
+/// Returns 0 (Player faction) if not set (single-player default).
+pub(crate) fn local_player_id(sim: &bevy_adapter::tick::SimulationWorld) -> u8 {
+    sim.world_ref()
+        .get_resource::<simulation::types::LocalPlayerId>()
+        .map(|r| r.0)
+        .unwrap_or(0)
+}
+
 
 /// Controls what happens when entering Playing state.
 #[derive(Resource, Default)]

@@ -22,11 +22,7 @@ pub fn center_on_player_city(
         return;
     }
     let world = sim_world.world_ref();
-    // Determine which faction to center on based on local player id
-    let local_id = world
-        .get_resource::<simulation::types::LocalPlayerId>()
-        .map(|r| r.0)
-        .unwrap_or(0);
+    let local_id = crate::local_player_id(&*sim_world);
     let target_faction = simulation::types::FactionId(local_id);
     let mut q = sim_world.query::<(&LogicalPosition, &FactionComponent)>();
     for (pos, faction) in q.iter(world) {
