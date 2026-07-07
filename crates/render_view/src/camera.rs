@@ -22,7 +22,7 @@ pub fn center_on_player_city(
         return;
     }
     let world = sim_world.world_ref();
-    let local_id = crate::local_player_id(&sim_world);
+    let local_id = crate::local_player_id(&*sim_world);
     let target_faction = simulation::types::FactionId(local_id);
     let mut q = sim_world.query::<(&LogicalPosition, &FactionComponent)>();
     for (pos, faction) in q.iter(world) {

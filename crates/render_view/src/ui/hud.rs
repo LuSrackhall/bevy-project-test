@@ -500,9 +500,10 @@ pub(crate) fn setup_hud(
                     Hovered::default(),
                 )).with_child((Text::new("下发"), TextFont { font: font.clone().into(), font_size: FontSize::Px(12.0), ..default() }))
                 .observe(|_ev: On<Activate>, state: Res<SeekPanelState>, selection: Res<SelectionState>, tick_clock: Res<TickClock>, mut toast: ResMut<ToastMessage>, mut sim: NonSendMut<SimulationWorld>, mut cmd_buf: ResMut<CommandBuffer>, game_mode: Res<bevy_adapter::GameMode>| {
-                        let lid = crate::local_player_id(&*sim);
 
                     if *game_mode == bevy_adapter::GameMode::Replay { return; }
+                    let lid = crate::local_player_id(&*sim);
+
                     let next_tick = tick_clock.current_tick + 1;
                     let has_sel = !selection.selected_unit_ids.is_empty();
                     if has_sel {
