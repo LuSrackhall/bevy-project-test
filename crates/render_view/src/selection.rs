@@ -8,14 +8,6 @@ use simulation::command::*;
 use simulation::soldier::*;
 use simulation::types::*;
 
-/// Helper: read the local human player's id from the simulation world.
-/// Returns 0 (Player faction) if not set (single-player default).
-fn local_player_id(sim: &SimulationWorld) -> u8 {
-    sim.world_ref()
-        .get_resource::<simulation::types::LocalPlayerId>()
-        .map(|r| r.0)
-        .unwrap_or(0)
-}
 /// Returns true if the mouse cursor is currently over any UI element.
 /// Uses HoverMap from Bevy's picking system, which is automatically maintained.
 /// Transparent containers have Pickable::IGNORE so they don't appear in HoverMap.
@@ -95,7 +87,7 @@ pub fn selection_click_system(
     sim_world: bevy::ecs::system::NonSend<SimulationWorld>,
     mut selection: ResMut<SelectionState>,
 ) {
-    let lid = local_player_id(&sim_world);
+    let lid = crate::local_player_id(&*sim_world);
     if !mouse.just_pressed(MouseButton::Left) {
         return;
     }
@@ -201,7 +193,7 @@ pub fn drag_select_system(
     sim_world: bevy::ecs::system::NonSend<SimulationWorld>,
     mut selection: ResMut<SelectionState>,
 ) {
-    let lid = local_player_id(&sim_world);
+    let lid = crate::local_player_id(&*sim_world);
     let Ok(window) = q_windows.single() else {
         return;
     };
@@ -290,7 +282,7 @@ pub fn selection_shortcut_system(
     sim_world: bevy::ecs::system::NonSend<SimulationWorld>,
     mut selection: ResMut<SelectionState>,
 ) {
-    let lid = local_player_id(&sim_world);
+    let lid = crate::local_player_id(&*sim_world);
     if keyboard.just_pressed(KeyCode::KeyA)
         && (keyboard.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight])
             || keyboard.any_pressed([KeyCode::SuperLeft, KeyCode::SuperRight]))
@@ -315,7 +307,7 @@ pub fn selection_visual_system(
     selection: Res<SelectionState>,
     sim_world: bevy::ecs::system::NonSend<SimulationWorld>,
 ) {
-    let lid = local_player_id(&sim_world);
+    let lid = crate::local_player_id(&*sim_world);
     let world = sim_world.world_ref();
 
     // O(1) per lookup using UnitIdEntityIndex (rebuilt each tick in run_tick)
@@ -380,7 +372,7 @@ pub fn command_issue_system(
     tick_clock: Res<bevy_adapter::tick::TickClock>,
     force_next: Option<ResMut<ForceMoveNext>>,
 ) {
-    let lid = local_player_id(&sim_world);
+    let lid = crate::local_player_id(&*sim_world);
     if !mouse.just_pressed(MouseButton::Right) {
         return;
     }
@@ -553,7 +545,7 @@ pub fn seek_stance_shortcut_system(
     tick_clock: Res<bevy_adapter::tick::TickClock>,
     sim_world: bevy::ecs::system::NonSend<SimulationWorld>,
 ) {
-    let lid = local_player_id(&sim_world);
+    let lid = crate::local_player_id(&*sim_world);
     if !keyboard.just_pressed(KeyCode::KeyS) {
         return;
     }
