@@ -27,17 +27,38 @@ pub enum GameState {
 /// Controls what happens when entering Playing state.
 #[derive(Resource, Default)]
 pub enum NeedsGameReset {
-    /// Pause recovery — no reset
     #[default]
     None,
-    /// Restart/replay with current map size
     SameSize,
-    /// New game with specified map size
     NewGame(simulation::map::MapSize),
-    /// Load a replay file
     Replay(simulation::replay::ReplayFile),
-    /// Start a network game
     Network { relay_addr: String, player_count: u8, player_id: u8 },
+}
+
+/// Lobby 连接阶段
+#[derive(Debug, Clone)]
+pub enum LobbyPhase {
+    Connecting,
+    Connected,
+    Failed(String),
+}
+
+impl Default for LobbyPhase {
+    fn default() -> Self { Self::Connecting }
+}
+
+/// Lobby 连接状态（由 lobby_update_system 驱动）
+#[derive(Resource, Default)]
+pub struct LobbyConnectionState {
+    pub phase: LobbyPhase,
+}
+
+/// 跨线程 TCP 连接状态轮询器（内部包裹 Arc<Mutex<Option<Result>>>）
+#[derive(Resource)]
+pub struct ConnectionPollRx(pub std::sync::Arc<std::sync::Mutex<Option<Result<(), String>>>>);
+
+impl Default for ConnectionPollRx {
+    fn default() -> Self { Self(std::sync::Arc::new(std::sync::Mutex::new(None))) }
 }
 
 /// Whether to auto-record replays. Defaults to true.
@@ -79,11 +100,11 @@ impl Plugin for RenderViewPlugin {
         app.add_systems(Last, crate::wasm_keyboard::clear_wasm_keyboard_just_pressed);
 
         app
-            // Lobby: entry + wait for GameStarted
+            // Lobby: entry + non-blocking connect + async polling
             .add_systems(OnEnter(GameState::Lobby), setup_lobby_system)
             .add_systems(
                 Update,
-                lobby_wait_system.run_if(in_state(GameState::Lobby)),
+                lobby_update_system.run_if(in_state(GameState::Lobby)),
             )
             // Lifecycle: reset on enter Playing, cleanup on exit
             .add_systems(
@@ -185,14 +206,12 @@ fn check_victory_system(
     }
 }
 
-/// 进入 Lobby 状态：执行网络启动（TCP 连接）、注册传输资源。
-/// 阻塞等待 TCP 连接成功后进入等待房间，由 lobby_wait_system 检测 GameStarted。
+/// 进入 Lobby 状态：发起非阻塞 TCP 连接，插入传输资源。
 fn setup_lobby_system(
     mut commands: Commands,
     mut _driver: ResMut<bevy_adapter::driver::SimulationDriver>,
     mut recorder: ResMut<bevy_adapter::replay::ReplayRecorder>,
     mut cmd_buf: ResMut<simulation::command::CommandBuffer>,
-    mut network_active: ResMut<bevy_adapter::NetworkActive>,
     mut network_start: ResMut<NetworkGameStart>,
     needs_reset: Res<NeedsGameReset>,
 ) {
@@ -203,75 +222,106 @@ fn setup_lobby_system(
         _ => None,
     };
     let Some((relay_addr, player_count, player_id)) = network_config else {
-        bevy::log::error!("[LOBBY] NeedsGameReset is not Network — returning to MainMenu");
+        bevy::log::error!("[LOBBY] NeedsGameReset is not Network");
         commands.insert_resource(NextState::<GameState>::default());
         return;
     };
 
-    // Store the player_id for reset_game_system to use
     network_start.player_id = player_id;
+    bevy::log::info!("[LOBBY] Initializing network (relay={}, player={}/{})", relay_addr, player_id, player_count);
 
-    use bevy_adapter::session::bootstrap::BootstrapPhase;
+    use bevy_adapter::network::NetworkEventReceiver;
+    use bevy_adapter::transport::spawn_network_client_nonblocking;
+    let event_receiver = NetworkEventReceiver::default();
+    let (receiver, sender, handle, status) = spawn_network_client_nonblocking(
+        relay_addr.clone(), 1, player_id, 1, event_receiver.clone(),
+    );
 
-    bevy::log::info!("[LOBBY] Starting network bootstrap (relay={}, player={}/{})", relay_addr, player_id, player_count);
+    // Insert transport resources immediately (tokio thread runs in background)
+    commands.insert_resource(event_receiver);
+    commands.insert_resource(receiver);
+    commands.insert_resource(sender);
+    commands.insert_resource(handle);
+    commands.insert_resource(ConnectionPollRx(status.inner_arc()));
+    commands.insert_resource(LobbyConnectionState { phase: LobbyPhase::Connecting });
 
-    // CRITICAL: Reset phase to Init so wire() accepts the artifacts
-    _driver.bootstrap_phase = BootstrapPhase::Init;
+    // Reset bootstrap phase to Init so wire() works after TCP connects
+    _driver.bootstrap_phase = bevy_adapter::session::bootstrap::BootstrapPhase::Init;
 
-    // Bootstrap session: blocks on TCP connect (30s timeout)
-    let config = bevy_adapter::session::SessionConfig {
-        mode: bevy_adapter::session::SessionMode::Network {
-            relay_addr,
-            player_count,
-            player_id,
-        },
-    };
-    if let Err(e) = bevy_adapter::session::bootstrap::bootstrap_session(
-        &config,
-        &mut _driver,
-        &mut commands,
-        &mut recorder,
-        &mut cmd_buf,
-    ) {
-        bevy::log::error!("[LOBBY] Network bootstrap failed: {}", e);
-        commands.insert_resource(NextState::<GameState>::default());
-        return;
-    }
-
-    // Enable network systems (poll, flush) without starting the tick driver
-    network_active.0 = true;
-    bevy::log::info!("[LOBBY] Network ready — waiting for GameStarted...");
+    bevy::log::info!("[LOBBY] Connection initiated — polling TCP status...");
 }
 
-/// 在 Lobby 状态中轮询 NetworkEventReceiver，等待 GameStarted
-fn lobby_wait_system(
-    mut commands: Commands,
+/// 轮询 TCP 连接状态 + 完成 bootstrap + 等待 GameStarted
+pub fn lobby_update_system(
     mut next_state: ResMut<NextState<GameState>>,
     mut network_start: ResMut<NetworkGameStart>,
+    poll_rx: Option<Res<ConnectionPollRx>>,
+    mut lobby_state: Option<ResMut<LobbyConnectionState>>,
     event_receiver: Option<Res<bevy_adapter::network::NetworkEventReceiver>>,
+    mut _driver: Option<ResMut<bevy_adapter::driver::SimulationDriver>>,
+    mut network_active: Option<ResMut<bevy_adapter::NetworkActive>>,
 ) {
-    use bevy_adapter::network::NetworkEvent;
+    let Some(mut state) = lobby_state else { return };
 
-    let Some(receiver) = event_receiver else {
-        return;
-    };
-    let events = receiver.drain_all();
-    for event in &events {
-        match event {
-            NetworkEvent::GameStarted { game_id: _, seed, player_count: _ } => {
-                bevy::log::info!(
-                    "[LOBBY] GameStarted received! seed={} — entering Playing",
-                    seed
-                );
-                network_start.seed = *seed;
-                network_start.received = true;
-                // Enter Playing state; reset_game_system will create the world
-                // using the relay-provided seed
-                next_state.set(GameState::Playing);
-                return;
+    match state.phase.clone() {
+        LobbyPhase::Connecting => {
+            // Poll TCP connection status
+            if let Some(ref rx) = poll_rx {
+                let conn_result = rx.0.lock().unwrap().take();
+                match conn_result {
+                    Some(Ok(())) => {
+                        bevy::log::info!("[LOBBY] TCP connected — completing bootstrap...");
+                        // Manually wire: set up NetworkCommandSource
+                        use bevy_adapter::driver::CommandSource;
+                        use bevy_adapter::network::NetworkCommandSource;
+                        use bevy_adapter::session::bootstrap::BootstrapPhase;
+                        if let Some(ref mut d) = _driver {
+                            d.source = CommandSource::Network(
+                                NetworkCommandSource::new(1, network_start.player_id, 3),
+                            );
+                            d.bootstrap_phase = BootstrapPhase::Wired;
+                        }
+                        // Enable network systems (poll, flush)
+                        if let Some(ref mut na) = network_active {
+                            na.0 = true;
+                        }
+                        state.phase = LobbyPhase::Connected;
+                    }
+                    Some(Err(e)) => {
+                        bevy::log::error!("[LOBBY] TCP connect failed: {}", e);
+                        state.phase = LobbyPhase::Failed(e);
+                    }
+                    None => {} // Still connecting
+                }
             }
         }
+        LobbyPhase::Connected => {
+            // Check for GameStarted
+            use bevy_adapter::network::NetworkEvent;
+            let Some(receiver) = event_receiver else { return };
+            let events = receiver.drain_all();
+            for event in &events {
+                if let NetworkEvent::GameStarted { game_id: _, seed, .. } = event {
+                    bevy::log::info!("[LOBBY] GameStarted received! seed={}", seed);
+                    network_start.seed = *seed;
+                    network_start.received = true;
+                    next_state.set(GameState::Playing);
+                    return;
+                }
+            }
+        }
+        LobbyPhase::Failed(_) => {} // Handled by UI cancel button
     }
+}
+
+/// 退出 Lobby 时清理网络资源（非取消路径的兜底清理）。
+fn cleanup_lobby_network(
+    mut commands: Commands,
+    mut network_active: ResMut<bevy_adapter::NetworkActive>,
+) {
+    network_active.0 = false;
+    commands.remove_resource::<ConnectionPollRx>();
+    commands.remove_resource::<LobbyConnectionState>();
 }
 
 /// If NeedsGameReset is true, fully resets the simulation world.
