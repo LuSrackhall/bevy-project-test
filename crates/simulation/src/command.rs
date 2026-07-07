@@ -283,3 +283,9 @@ mod tests {
         assert_eq!(commands[2].action.sort_tag(), 3); // Attack
     }
 }
+
+    #[test]
+    fn test_local_player_id_fallback() {
+        // LocalPlayerId default is 0 — matches single-player expectation
+        assert_eq!(crate::types::LocalPlayerId::default().0, 0);
+    }
