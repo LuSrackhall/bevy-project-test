@@ -60,3 +60,11 @@ pub struct PlayerTickFrame {
 | 枚举兼容性 | 尾步新增，旧方 decode Err，长度前缀保帧同步 |
 | Match 穷尽 | 编译器强制，不会遗漏 |
 | 协议测试 | relay 集成测试（原始 TCP）已验证可行 |
+
+## Post-Implementation Confirmation
+
+三个子Agent 确认：
+1. 枚举尾部新增，bincode 兼容（旧方静默丢弃）
+2. Match 穷尽性全部覆盖
+3. 宪法合规，7/7 测试通过
+4. `version` 字段为 wire-only 类型，可接受

@@ -11,7 +11,7 @@ use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 
 use bevy_adapter::network::{
-    BroadcastFrame, RelayClientMessage, RelayServerMessage, RelayServer,
+    BroadcastFrame, LobbyPlayerState, RelayClientMessage, RelayServerMessage, RelayServer,
 };
 
 /// Shared relay context, accessed by all connection tasks.
@@ -167,6 +167,49 @@ async fn handle(ctx: Arc<RelayCtx>, stream: tokio::net::TcpStream) {
                 }
             }
             RelayClientMessage::JoinGame(_) => {}
+                        RelayClientMessage::LobbyReady { game_id, player_id, ready, map_size } => {
+                if !ready { continue; }
+                let all_ready = {
+                    let mut server = ctx.server.lock().unwrap();
+                    server.on_lobby_ready(player_id)
+                };
+
+                // Broadcast LobbyUpdate to all connected clients
+                {
+                    let server = ctx.server.lock().unwrap();
+                    let lobby_players: Vec<LobbyPlayerState> = ctx.clients.lock().unwrap().keys().map(|pid| {
+                        let mask = server.lobby_ready_mask();
+                        LobbyPlayerState {
+                            player_id: *pid,
+                            ready: (mask >> pid) & 1 == 1,
+                            selected_map: None,
+                        }
+                    }).collect();
+                    let update = RelayServerMessage::LobbyUpdate { game_id, players: lobby_players };
+                    let clients = ctx.clients.lock().unwrap();
+                    for sender in clients.values() {
+                        let _ = sender.send(update.clone());
+                    }
+                }
+
+                // If all players are ready, start the game
+                if all_ready {
+                    let seed = {
+                        let server = ctx.server.lock().unwrap();
+                        server.seed()
+                    };
+                    let started_msg = RelayServerMessage::GameStarted {
+                        game_id,
+                        seed,
+                        player_count: ctx.player_count,
+                    };
+                    eprintln!("[RELAY] All players ready! Starting game (seed={})", seed);
+                    let clients = ctx.clients.lock().unwrap();
+                    for sender in clients.values() {
+                        let _ = sender.send(started_msg.clone());
+                    }
+                }
+            }
         }
     }
 

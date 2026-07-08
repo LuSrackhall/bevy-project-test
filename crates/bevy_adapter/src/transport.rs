@@ -129,6 +129,8 @@ pub fn network_flush_system(
         let sid = sender.next_sid();
         let frame = PlayerTickFrame {
             magic: 0xBEEF,
+            version: 1,
+
             game_id: ns.game_id,
             tick: cmd_tick,
             player_id: ns.player_id,
@@ -412,6 +414,10 @@ async fn run_session(
                 write_task.abort();
                 return true;
             }
+            RelayServerMessage::LobbyUpdate { .. } => {
+                // LobbyUpdate handled by Bevy main thread via polling
+            }
+
         }
     }
 

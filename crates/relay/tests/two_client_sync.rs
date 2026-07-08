@@ -58,9 +58,11 @@ async fn test_two_clients_receive_identical_broadcasts() {
     // Both send for tick 1 (empty commands — still tests barrier + broadcast)
     write_msg(&mut c0, &RelayClientMessage::PlayerTick(PlayerTickFrame {
         magic: 0xBEEF, game_id: 1, tick: 1, player_id: 0, commands: vec![], player_sid: 1,
+            version: 1,
     })).await;
     write_msg(&mut c1, &RelayClientMessage::PlayerTick(PlayerTickFrame {
         magic: 0xBEEF, game_id: 1, tick: 1, player_id: 1, commands: vec![], player_sid: 1,
+            version: 1,
     })).await;
 
     // Both must receive Broadcast (not Error, not GameOver)
@@ -103,5 +105,78 @@ async fn test_two_clients_receive_identical_broadcasts() {
     // (when using empty commands from both, the relay should inject no NoOps since both players submitted)
     if batch0.commands.len() == 0 {
         // Empty commands from both = nothing to inject, but sync is verified
+    }
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn test_two_clients_lobby_ready_then_game_started() {
+    let port = find_free_port().await;
+
+    tokio::spawn(async move { start_relay(port, 42, 2).await.unwrap(); });
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    let mut c0 = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+    match read_msg(&mut c0, 5).await {
+        RelayServerMessage::GameJoined { player_id: 0, .. } => {}
+        other => panic!("c0 expected GameJoined(0), got {:?}", other),
+    }
+
+    let mut c1 = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+    match read_msg(&mut c1, 5).await {
+        RelayServerMessage::GameJoined { player_id: 1, .. } => {}
+        other => panic!("c1 expected GameJoined(1), got {:?}", other),
+    }
+
+    // c0 sends LobbyReady → relay broadcasts LobbyUpdate
+    write_msg(&mut c0, &RelayClientMessage::LobbyReady {
+        game_id: 1, player_id: 0, ready: true, map_size: None,
+    }).await;
+
+    // c0: LobbyUpdate (from c0's own ready)
+    match read_msg(&mut c0, 5).await {
+        RelayServerMessage::LobbyUpdate { .. } => {}
+        other => panic!("c0 expected LobbyUpdate, got {:?}", other),
+    }
+
+    // c1: LobbyUpdate (from c0's ready broadcast)
+    match read_msg(&mut c1, 5).await {
+        RelayServerMessage::LobbyUpdate { players, .. } => {
+            assert_eq!(players.len(), 2, "Expected 2 players");
+            let c0_rdy = players.iter().find(|p| p.player_id == 0).map(|p| p.ready).unwrap_or(false);
+            assert!(c0_rdy, "c0 should be ready after sending LobbyReady");
+        }
+        other => panic!("c1 expected LobbyUpdate, got {:?}", other),
+    }
+
+    // c1 sends LobbyReady → all players ready → relay broadcasts LobbyUpdate + GameStarted
+    write_msg(&mut c1, &RelayClientMessage::LobbyReady {
+        game_id: 1, player_id: 1, ready: true, map_size: None,
+    }).await;
+
+    // c1: LobbyUpdate (from c1's own ready broadcast)
+    match read_msg(&mut c1, 5).await {
+        RelayServerMessage::LobbyUpdate { .. } => {}
+        other => panic!("c1 expected LobbyUpdate(2), got {:?}", other),
+    }
+
+    // c0: LobbyUpdate (from c1's ready broadcast)
+    match read_msg(&mut c0, 5).await {
+        RelayServerMessage::LobbyUpdate { .. } => {}
+        other => panic!("c0 expected LobbyUpdate(2), got {:?}", other),
+    }
+
+    // Both should receive GameStarted
+    match read_msg(&mut c1, 5).await {
+        RelayServerMessage::GameStarted { player_count, .. } => {
+            assert_eq!(player_count, 2);
+        }
+        other => panic!("c1 expected GameStarted, got {:?}", other),
+    }
+
+    match read_msg(&mut c0, 5).await {
+        RelayServerMessage::GameStarted { player_count, .. } => {
+            assert_eq!(player_count, 2);
+        }
+        other => panic!("c0 expected GameStarted, got {:?}", other),
     }
 }
