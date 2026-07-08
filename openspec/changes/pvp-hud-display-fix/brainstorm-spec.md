@@ -69,3 +69,9 @@ FactionId(1) → "敌人" 和 FactionId(2) → "中立" 在 `lid ≠ 0` 时会�
 | 单机 lid=0 与改前一致 | 🟢 无 | `local_player_id()` 回退 0 |
 | Match arm 合并后丢失阵营标记 | 🟢 低 | 当前架构只有"本地玩家/其他"概念，简化标签正确 |
 | 遗漏其他 FactionId(0) | 🟢 无 | 已审计 hud.rs 内外共 7 处引用，确认 4 处需改 |
+
+## Post-Implementation Confirmation
+
+### Confirmed: check_victory_system (Scope外)
+
+三个子Agent 一致确认 `render_view/src/lib.rs:199` 的 `check_victory_system` 中 `FactionId(0)`/`FactionId(1)` 硬编码会导致联机模式下 Player 2 的胜负判定异常。此问题不属于本次变更范围，需独立变更修复。
