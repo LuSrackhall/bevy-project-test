@@ -1,12 +1,12 @@
 ## 1. 重写 check_victory_system
 
-- [ ] 1.1 添加 `use simulation::types::PlayerSlots;` 导入（如需要）
-- [ ] 1.2 重写 `check_victory_system`：`LocalPlayerId` + `PlayerSlots` 过滤
+- [x] 1.1 添加 `use simulation::types::PlayerSlots;` 导入（如需要）
+- [x] 1.2 重写 `check_victory_system`：`LocalPlayerId` + `PlayerSlots` 过滤
 
 ## 2. 编译验证
 
-- [ ] 2.1 运行 `cargo check -p render_view` 确认编译通过
-- [ ] 2.2 运行 `cargo test -p simulation` 确认全部通过
+- [x] 2.1 运行 `cargo check -p render_view` 确认编译通过
+- [x] 2.2 运行 `cargo test -p simulation` 确认全部通过
 
 ---
 

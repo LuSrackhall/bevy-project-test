@@ -194,26 +194,42 @@ fn replay_seeking(status: Option<Res<bevy_adapter::replay::ReplayStatus>>) -> bo
     status.is_some_and(|s| s.is_seeking)
 }
 
-/// Check if all cities of one faction are gone.
+/// Check if any active player faction has been eliminated.
 fn check_victory_system(
     sim_world: bevy::ecs::system::NonSend<bevy_adapter::tick::SimulationWorld>,
     mut next_state: ResMut<NextState<GameState>>,
 ) {
-    let mut has_player = false;
-    let mut has_enemy = false;
+    let lid = crate::local_player_id(&*sim_world);
     let world = sim_world.world_ref();
+
+    // Collect active player factions from PlayerSlots (ignoring neutrals like FactionId(2))
+    use simulation::types::PlayerSlots;
+    let active_factions: Vec<simulation::types::FactionId> = world
+        .get_resource::<PlayerSlots>()
+        .map(|s| {
+            s.slots
+                .iter()
+                .filter(|s| s.controller.is_active())
+                .map(|s| s.faction)
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let mut has_my_faction = false;
+    let mut has_enemy = false;
     let mut q = sim_world.query::<(&simulation::soldier::FactionComponent,)>();
     for (f,) in q.iter(world) {
-        match f.0 {
-            simulation::types::FactionId(0) => has_player = true,
-            simulation::types::FactionId(1) => has_enemy = true,
-            _ => {}
+        if f.0 == simulation::types::FactionId(lid) {
+            has_my_faction = true;
+        } else if active_factions.contains(&f.0) && f.0 != simulation::types::FactionId(lid) {
+            has_enemy = true;
         }
     }
-    if !has_player || !has_enemy {
+    if !has_my_faction || !has_enemy {
         next_state.set(GameState::GameOver);
     }
 }
+
 
 /// 进入 Lobby 状态：发起非阻塞 TCP 连接，插入传输资源。
 fn setup_lobby_system(
