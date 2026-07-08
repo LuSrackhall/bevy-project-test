@@ -47,3 +47,13 @@ let active_factions: Vec<FactionId> = world
 | 中立城市干扰 | ✅ 已修复 | `active_factions.contains()` 过滤掉 FactionId(2) |
 | 重放模式 | 🟢 改前即存在 | `check_victory_system` 在回放中运行，改前已如此 |
 | 联机 lockstep 同步 | 🟢 自动同步 | 所有客户端运行相同确定性仿真 |
+
+## Post-Implementation Confirmation
+
+### Implementation Verified
+
+三个子Agent 确认：
+1. 8/8 场景全部通过验证
+2. 使用 `PlayerSlots` 过滤中立阵营——比简单 `else` 方案更精确
+3. 宪法全部合规
+4. PlayerSlots 回退路径（空Vec）为 fail-safe：`!has_my_faction` 触发 GameOver
