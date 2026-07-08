@@ -16,6 +16,15 @@ pub enum PlayerState {
     Disconnected { player_id: u8 },
 }
 
+/// Lobby state for one player.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct LobbyPlayerState {
+    pub player_id: u8,
+    pub ready: bool,
+    pub selected_map: Option<simulation::map::MapSize>,
+}
+
+
 /// Game initialization parameters, seeded and versioned for determinism.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct GameInitParams {
@@ -76,6 +85,8 @@ pub struct BroadcastFrame {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PlayerTickFrame {
     pub magic: u16,          // Protocol magic number for validation
+    pub version: u16,         // Protocol version (currently 1)
+
     pub game_id: u64,
     pub tick: u32,           // Target tick (current_tick + input_delay)
     pub player_id: u8,
@@ -124,6 +135,9 @@ pub enum RelayClientMessage {
     PlayerTick(PlayerTickFrame),
     /// Reconnect after disconnect.
     Reconnect(ReconnectRequest),
+    /// Signal lobby readiness with optional map selection.
+    LobbyReady { game_id: u64, player_id: u8, ready: bool, map_size: Option<simulation::map::MapSize> },
+
 }
 
 /// Messages sent from relay to client.
@@ -141,6 +155,9 @@ pub enum RelayServerMessage {
     GameOver { reason: String },
     /// Error / version mismatch.
     Error { code: u32, message: String },
+    /// Lobby state update — all connected players' ready status.
+    LobbyUpdate { game_id: u64, players: Vec<LobbyPlayerState> },
+
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -317,6 +334,9 @@ pub struct RelayServer {
     /// All players have joined and game is actively running.
     /// Prevents timeout-based tick finalization before all players connect.
     game_started: bool,
+    /// Tracks which players have signaled LobbyReady (bitmask).
+    lobby_ready_mask: u8,
+
 }
 
 impl RelayServer {
@@ -349,7 +369,18 @@ impl RelayServer {
             current_tick: 1,
             created_at_ms: now_ms,
             game_started: false,
+            lobby_ready_mask: 0,
         }
+    }
+
+    /// Process a LobbyReady signal. Returns true when ALL players are ready.
+        pub fn lobby_ready_mask(&self) -> u8 {
+        self.lobby_ready_mask
+    }
+
+    pub fn on_lobby_ready(&mut self, player_id: u8) -> bool {
+        self.lobby_ready_mask |= 1 << player_id;
+        self.lobby_ready_mask.count_ones() as u8 >= self.all_players.len() as u8
     }
 
     /// Process an incoming player frame.
@@ -590,6 +621,7 @@ mod relay_tests {
     fn make_frame(tick: u32, player_id: u8, sid: u64) -> PlayerTickFrame {
         PlayerTickFrame {
             magic: 0xBEEF,
+            version: 1,
             game_id: 1,
             tick,
             player_id,
@@ -610,6 +642,7 @@ mod relay_tests {
     fn make_empty_frame(tick: u32, player_id: u8, sid: u64) -> PlayerTickFrame {
         PlayerTickFrame {
             magic: 0xBEEF,
+            version: 1,
             game_id: 1,
             tick,
             player_id,

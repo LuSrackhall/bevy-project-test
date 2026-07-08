@@ -15,6 +15,16 @@ use bevy_adapter::network::{
 };
 
 /// Find a free port.
+
+/// Helper: read message, skipping GameStarted (which arrives when both players connect)
+async fn read_broadcast(stream: &mut TcpStream, secs: u64) -> RelayServerMessage {
+    let msg = read_msg(stream, secs).await;
+    match msg {
+        RelayServerMessage::GameStarted { .. } => read_msg(stream, secs).await,
+        other => other,
+    }
+}
+
 async fn find_free_port() -> u16 {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
@@ -63,6 +73,7 @@ async fn connect_and_send(port: u16, tick: u32, player_id: u8) -> TcpStream {
     // Send a frame
     let frame = PlayerTickFrame {
         magic: 0xBEEF,
+            version: 1,
         game_id: 1,
         tick,
         player_id,
@@ -93,8 +104,8 @@ async fn test_relay_two_clients_full_cycle() {
     let mut c1 = connect_and_send(port, 1, 1).await;
 
     // Both clients should receive BroadcastFrame for tick 1
-    let b0 = read_msg(&mut c0, 5).await;
-    let b1 = read_msg(&mut c1, 5).await;
+    let b0 = read_broadcast(&mut c0, 5).await;
+    let b1 = read_broadcast(&mut c1, 5).await;
 
     match (&b0, &b1) {
         (
@@ -123,8 +134,8 @@ async fn test_relay_correct_tick_advancement() {
     let mut c1 = connect_and_send(port, 5, 1).await;
 
     // Both send for tick 5 → verify both get tick 5 back
-    let b0 = read_msg(&mut c0, 5).await;
-    let b1 = read_msg(&mut c1, 5).await;
+    let b0 = read_broadcast(&mut c0, 5).await;
+    let b1 = read_broadcast(&mut c1, 5).await;
 
     match (&b0, &b1) {
         (
@@ -158,15 +169,15 @@ async fn test_relay_three_ticks_sequential() {
     // Send frames for tick 1, 2, 3 from both players
     for tick in 1u32..=3 {
         write_msg(&mut c0, &RelayClientMessage::PlayerTick(PlayerTickFrame {
-            magic: 0xBEEF, game_id: 1, tick, player_id: 0, commands: vec![], player_sid: tick as u64,
+            magic: 0xBEEF, version: 1, game_id: 1, tick, player_id: 0, commands: vec![], player_sid: tick as u64,
         })).await;
         write_msg(&mut c1, &RelayClientMessage::PlayerTick(PlayerTickFrame {
-            magic: 0xBEEF, game_id: 1, tick, player_id: 1, commands: vec![], player_sid: tick as u64,
+            magic: 0xBEEF, version: 1, game_id: 1, tick, player_id: 1, commands: vec![], player_sid: tick as u64,
         })).await;
 
         // Both should get the broadcast
-        let msg0 = read_msg(&mut c0, 5).await;
-        let msg1 = read_msg(&mut c1, 5).await;
+        let msg0 = read_broadcast(&mut c0, 5).await;
+        let msg1 = read_broadcast(&mut c1, 5).await;
 
         match (&msg0, &msg1) {
             (
