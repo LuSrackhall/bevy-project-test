@@ -5,6 +5,15 @@ use simulation::soldier::config::SoldierConfig;
 use simulation::soldier::*;
 
 /// Render all simulation entities as colored circles using Gizmos.
+
+fn is_player_faction(f: simulation::types::FactionId, lid: u8) -> bool {
+    f == simulation::types::FactionId(lid)
+}
+fn faction_is_active_enemy(f: simulation::types::FactionId, lid: u8) -> bool {
+    f != simulation::types::FactionId(lid)
+        && (f == simulation::types::FactionId(0) || f == simulation::types::FactionId(1))
+}
+
 pub fn draw_debug_shapes_system(
     mut gizmos: Gizmos,
     sim_world: bevy::ecs::system::NonSend<SimulationWorld>,
@@ -13,6 +22,8 @@ pub fn draw_debug_shapes_system(
     q_proj: Query<&Projection, With<crate::camera::MainCamera>>,
 ) {
     let world = sim_world.world_ref();
+    let lid = crate::local_player_id(&*sim_world);
+
 
     // Compute viewport AABB for culling
     let scale = q_proj.iter().next().and_then(|p| {
@@ -42,11 +53,14 @@ pub fn draw_debug_shapes_system(
             let px = pos.0.x.to_float();
             let py = pos.0.y.to_float();
             if !in_view(px, py) { continue; }
-            let color = match faction.0 {
-                simulation::types::FactionId(0) => Color::srgb(0.2, 0.6, 1.0),
-                simulation::types::FactionId(1) => Color::srgb(1.0, 0.2, 0.2),
-                simulation::types::FactionId(2) | simulation::types::FactionId(_) => Color::srgb(0.6, 0.6, 0.6),
+                        let color = if is_player_faction(faction.0, lid) {
+                Color::srgb(0.2, 0.6, 1.0)
+            } else if faction_is_active_enemy(faction.0, lid) {
+                Color::srgb(1.0, 0.2, 0.2)
+            } else {
+                Color::srgb(0.6, 0.6, 0.6)
             };
+
             let r = radius.0 as f32;
             gizmos.circle_2d(Vec2::new(px, py), r, color);
         }
@@ -65,11 +79,14 @@ pub fn draw_debug_shapes_system(
         for (entity, pos, faction, stype, facing) in q.iter(world) {
             let p = Vec2::new(pos.0.x.to_float(), pos.0.y.to_float());
             if !in_view(p.x, p.y) { continue; }
-            let color = match faction.0 {
-                simulation::types::FactionId(0) => Color::srgb(0.3, 0.5, 0.9),
-                simulation::types::FactionId(1) => Color::srgb(0.9, 0.3, 0.3),
-                simulation::types::FactionId(2) | simulation::types::FactionId(_) => Color::srgb(0.5, 0.5, 0.5),
+                        let color = if is_player_faction(faction.0, lid) {
+                Color::srgb(0.3, 0.5, 0.9)
+            } else if faction_is_active_enemy(faction.0, lid) {
+                Color::srgb(0.9, 0.3, 0.3)
+            } else {
+                Color::srgb(0.5, 0.5, 0.5)
             };
+
             let r = soldier_config.get(stype.0).collision_radius as f32;
             gizmos.circle_2d(p, r, color);
 
@@ -79,11 +96,14 @@ pub fn draw_debug_shapes_system(
                 let angle_rad = angle_deg * std::f32::consts::PI / 180.0;
                 let line_len = r * 1.5;
                 let dir = Vec2::new(angle_rad.cos(), angle_rad.sin());
-                let line_color = match faction.0 {
-                    simulation::types::FactionId(0) => Color::srgb(0.5, 0.7, 1.0),
-                    simulation::types::FactionId(1) => Color::srgb(1.0, 0.5, 0.5),
-                    simulation::types::FactionId(2) | simulation::types::FactionId(_) => Color::srgb(0.7, 0.7, 0.7),
+                                let line_color = if is_player_faction(faction.0, lid) {
+                    Color::srgb(0.5, 0.7, 1.0)
+                } else if faction_is_active_enemy(faction.0, lid) {
+                    Color::srgb(1.0, 0.5, 0.5)
+                } else {
+                    Color::srgb(0.7, 0.7, 0.7)
                 };
+
                 gizmos.line_2d(p, p + dir * line_len, line_color);
             }
 
@@ -92,11 +112,14 @@ pub fn draw_debug_shapes_system(
                 if shield.hp > 0 {
                     let shield_offset = r + 3.0;
                     let shield_pos = p + Vec2::new(shield_offset, 0.0);
-                    let shield_color = match faction.0 {
-                        simulation::types::FactionId(0) => Color::srgb(0.4, 0.6, 1.0),
-                        simulation::types::FactionId(1) => Color::srgb(1.0, 0.4, 0.4),
-                        simulation::types::FactionId(2) | simulation::types::FactionId(_) => Color::srgb(0.6, 0.6, 0.6),
+                                        let shield_color = if is_player_faction(faction.0, lid) {
+                        Color::srgb(0.4, 0.6, 1.0)
+                    } else if faction_is_active_enemy(faction.0, lid) {
+                        Color::srgb(1.0, 0.4, 0.4)
+                    } else {
+                        Color::srgb(0.6, 0.6, 0.6)
                     };
+
                     let hw = 2.0;
                     let hh = 2.5;
                     let corners = [
