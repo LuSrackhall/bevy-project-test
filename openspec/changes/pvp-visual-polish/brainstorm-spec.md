@@ -55,3 +55,11 @@ else => city_gray
 |------|------|-----------|
 | 单机兼容 | 🟢 无 | `lid=0`，行为不变 |
 | `#[cfg]` 门控 | 🟢 无 | debug_render 仅在 debug 模式下编译 |
+
+## Post-Implementation Confirmation
+
+两个子Agent 确认：
+1. 12 种颜色分派组合中所有实际可达场景正确
+2. 宪法合规
+3. 单机兼容
+4. cfg 门控正常
