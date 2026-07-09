@@ -19,6 +19,9 @@ impl Plugin for UiPlugin {
             .add_systems(Update, hud::button_style_system)
             .add_systems(OnEnter(crate::GameState::MainMenu), menu::setup_main_menu)
             .add_systems(OnExit(crate::GameState::MainMenu), menu::cleanup_main_menu)
+            .add_systems(OnEnter(crate::GameState::MainMenu), lan::start_lan_discovery)
+            .add_systems(OnExit(crate::GameState::MainMenu), lan::stop_lan_discovery)
+            .add_systems(Update, lan::update_lan_servers.run_if(in_state(crate::GameState::MainMenu)))
             // Lobby UI
             .add_systems(OnEnter(crate::GameState::Lobby), lobby::setup_lobby_ui)
             .add_systems(OnExit(crate::GameState::Lobby), (lobby::cleanup_lobby_ui, crate::cleanup_lobby_network))

@@ -11,13 +11,13 @@
 
 ## 3. UI
 
-- [ ] 3.1 主菜单 LAN 服务器列表
-- [ ] 3.2 列表项点击直接连接
+- [x] 3.1 主菜单 LAN 服务器列表
+- [x] 3.2 列表项点击直接连接
 
 ## 4. 编译验证
 
-- [ ] 4.1 cargo check
-- [ ] 4.2 cargo test -p simulation
+- [x] 4.1 cargo check
+- [x] 4.2 cargo test -p simulation
 
 ---
 
