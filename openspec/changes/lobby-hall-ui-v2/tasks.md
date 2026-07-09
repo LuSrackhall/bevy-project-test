@@ -16,13 +16,13 @@
 
 ## 4. UI 层
 
-- [ ] 4.1 添加 Ready 按钮 + observer 调用 send_lobby_ready
-- [ ] 4.2 添加玩家就绪状态文本
+- [x] 4.1 添加 Ready 按钮 + observer 调用 send_lobby_ready
+- [x] 4.2 添加玩家就绪状态文本
 
 ## 5. 编译验证
 
-- [ ] 5.1 运行 cargo check 确认编译通过
-- [ ] 5.2 运行 cargo test 确认全部通过
+- [x] 5.1 运行 cargo check 确认编译通过
+- [x] 5.2 运行 cargo test 确认全部通过
 
 ---
 

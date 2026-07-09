@@ -90,6 +90,37 @@ pub fn setup_lobby_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
                     next.set(GameState::MainMenu);
                 },
             );
+
+            // Ready button
+            parent.spawn((
+                bevy::ui_widgets::Button,
+                Node {
+                    padding: UiRect::all(Val::Px(12.0)),
+                    border: UiRect::all(Val::Px(2.0)),
+                    margin: UiRect::top(Val::Px(15.0)),
+                    ..default()
+                },
+                BorderColor::all(Color::srgba(0.2, 0.6, 0.2, 1.0)),
+                LobbyUI,
+            ))
+            .with_child((
+                Text::new("就绪"),
+                TextFont {
+                    font: asset_server.load("fonts/Arial Unicode.ttf").into(),
+                    font_size: FontSize::Px(18.0),
+                    ..default()
+                },
+            ))
+            .observe(
+                |_ev: On<Activate>,
+                 sender: Option<Res<bevy_adapter::transport::NetworkSender>>,
+                 network_start: Option<Res<crate::NetworkGameStart>>| {
+                    if let (Some(s), Some(ns)) = (sender, network_start) {
+                        bevy::log::info!("[LOBBY] Sending LobbyReady (player_id={})", ns.player_id);
+                        s.send_lobby_ready(ns.player_id);
+                    }
+                },
+            );
         });
 }
 
