@@ -7,10 +7,11 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpListener;
+use tokio::net::{TcpListener, UdpSocket};
 use tokio::sync::mpsc;
 
 use bevy_adapter::network::{
+    LanDiscoveryPacket,
     BroadcastFrame, LobbyPlayerState, RelayClientMessage, RelayServerMessage, RelayServer,
 };
 
@@ -51,6 +52,29 @@ pub async fn start_relay(
     let listener = TcpListener::bind(format!("0.0.0.0:{}", port)).await?;
 
     println!("Relay on port {} (players={}, seed={}) [v2: game_started]", port, player_count, seed);
+
+    // Spawn UDP broadcast for LAN discovery
+    let udp_socket = UdpSocket::bind(format!("0.0.0.0:{}", port)).await?;
+    udp_socket.set_broadcast(true)?;
+    let bc_ctx = ctx.clone();
+    let bc_port = port;
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+            let cc = bc_ctx.clients.lock().unwrap().len() as u8;
+            drop(cc);
+            let packet = LanDiscoveryPacket {
+                magic: LanDiscoveryPacket::MAGIC,
+                version: 1,
+                relay_port: bc_port.to_be(),
+                player_count: bc_ctx.player_count,
+                current_players: cc,
+                game_state: 0,
+            };
+            let data = packet.encode();
+            let _ = udp_socket.send_to(&data, "255.255.255.255:9876").await;
+        }
+    });
 
     loop {
         let (stream, addr) = listener.accept().await?;
