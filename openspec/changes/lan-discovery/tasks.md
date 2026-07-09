@@ -1,7 +1,7 @@
 ## 1. 协议和 relay
 
-- [ ] 1.1 LanDiscoveryPacket 结构体（network.rs）
-- [ ] 1.2 relay UDP 广播（relay/src/lib.rs）
+- [x] 1.1 LanDiscoveryPacket 结构体（network.rs）
+- [x] 1.2 relay UDP 广播（relay/src/lib.rs）
 
 ## 2. 客户端监听
 
