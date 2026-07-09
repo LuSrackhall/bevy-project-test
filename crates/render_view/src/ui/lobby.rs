@@ -74,14 +74,8 @@ pub fn setup_lobby_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
             .observe(
                 |_ev: On<Activate>,
                  mut next: ResMut<NextState<GameState>>,
-                 mut commands: Commands,
-                 mut network_active: Option<ResMut<bevy_adapter::NetworkActive>>| {
-                    // Clean up all Lobby-scoped resources
-                    if let Some(ref mut na) = network_active {
-                        na.0 = false;
-                    }
-                    commands.remove_resource::<crate::LobbyConnectionState>();
-                    commands.remove_resource::<crate::ConnectionPollRx>();
+                 mut commands: Commands| {
+                    // Clean up transport resources (OnExit(Lobby) handles lobby-scoped resources)
                     commands.remove_resource::<bevy_adapter::transport::NetworkClientHandle>();
                     commands.remove_resource::<bevy_adapter::network::NetworkEventReceiver>();
                     commands.remove_resource::<bevy_adapter::transport::NetworkReceiver>();
