@@ -352,6 +352,23 @@ impl PlayerSlots {
             ],
         }
     }
+
+    /// Create N-player FFA slot configuration.
+    pub fn multi_player(count: u8, local_player_id: u8) -> Self {
+        assert!(count <= 8, "max 8 players");
+        let slots = (0..count).map(|i| PlayerSlot {
+            slot_id: SlotId(i),
+            controller: if i == local_player_id {
+                Controller::HumanLocal
+            } else {
+                Controller::HumanRemote(SlotId(i))
+            },
+            faction: FactionId(i),
+            team: TeamId(0),
+        }).collect();
+        Self { slots }
+    }
+
 }
 
 /// Bevy ECS Resource stored in the simulation world indicating which player_id
@@ -581,4 +598,26 @@ mod tests {
 
         assert!(d_ab_sq < d_ac_sq); // 25 < 100
     }
+
+    #[test]
+    fn test_multi_player_slots_3() {
+        let slots = PlayerSlots::multi_player(3, 0);
+        assert_eq!(slots.slots.len(), 3);
+        assert_eq!(slots.slots[0].faction, FactionId(0));
+        assert!(matches!(slots.slots[0].controller, Controller::HumanLocal));
+        assert!(matches!(slots.slots[1].controller, Controller::HumanRemote(_)));
+        assert!(matches!(slots.slots[2].controller, Controller::HumanRemote(_)));
+    }
+
+    #[test]
+    fn test_multi_player_slots_4() {
+        let slots = PlayerSlots::multi_player(4, 2);
+        assert_eq!(slots.slots.len(), 4);
+        assert_eq!(slots.slots[2].faction, FactionId(2));
+        assert!(matches!(slots.slots[2].controller, Controller::HumanLocal));
+        for i in 0..4 {
+            assert_eq!(slots.slots[i as usize].faction, FactionId(i));
+        }
+    }
+
 }

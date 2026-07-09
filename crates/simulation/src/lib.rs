@@ -56,6 +56,33 @@ pub fn init_simulation_world(seed: u64) -> World {
     world
 }
 
+/// Initialize simulation world with custom PlayerSlots (multiplayer).
+pub fn init_simulation_world_multi(seed: u64, slots: PlayerSlots) -> World {
+    let mut world = World::new();
+
+    let soldier_config = SoldierConfig::from_ron(include_str!("../../../content/units.ron"))
+        .expect("Failed to parse units.ron");
+    world.insert_resource(soldier_config);
+
+    let city_config = CityGlobalConfig::from_ron(include_str!("../../../content/cities.ron"))
+        .expect("Failed to parse cities.ron");
+    world.insert_resource(city_config);
+
+    let combat_config = CombatGlobalConfig::from_ron(include_str!("../../../content/combat.ron"))
+        .expect("Failed to parse combat.ron");
+    world.insert_resource(combat_config);
+
+    world.insert_resource(DeterministicRng::new(seed));
+    world.insert_resource(IdGenerator::new());
+    world.insert_resource(CommandBuffer::default());
+    world.insert_resource(GlobalSeekDirective::default());
+    world.insert_resource(SimulationEvents::new());
+    world.insert_resource(SimulationSeed(seed));
+    world.insert_resource(slots);
+
+    world
+}
+
 /// Collect active faction IDs from PlayerSlots.
 /// This replaces the old FactionComponent scan — PlayerSlots is the
 /// single source of truth for "which factions receive commands".
