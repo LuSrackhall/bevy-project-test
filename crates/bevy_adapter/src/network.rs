@@ -169,6 +169,9 @@ pub enum RelayServerMessage {
 pub enum NetworkEvent {
     /// All players connected; game is starting.
     GameStarted { game_id: u64, seed: u64, player_count: u8 },
+    /// Lobby state update — player ready statuses.
+    LobbyUpdate { game_id: u64, players: Vec<LobbyPlayerState> },
+
 }
 
 /// Cross-thread channel for NetworkEvents (tokio → Bevy).

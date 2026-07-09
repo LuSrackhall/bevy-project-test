@@ -49,6 +49,7 @@ pub enum NeedsGameReset {
 pub enum LobbyPhase {
     Connecting,
     Connected,
+    Ready,
     Failed(String),
 }
 
@@ -321,13 +322,30 @@ pub fn lobby_update_system(
             }
         }
         LobbyPhase::Connected => {
-            // Check for GameStarted
             use bevy_adapter::network::NetworkEvent;
             let Some(receiver) = event_receiver else { return };
             let events = receiver.drain_all();
             for event in &events {
                 if let NetworkEvent::GameStarted { game_id: _, seed, .. } = event {
                     bevy::log::info!("[LOBBY] GameStarted received! seed={}", seed);
+                    network_start.seed = *seed;
+                    network_start.received = true;
+                    next_state.set(GameState::Playing);
+                    return;
+                }
+                if let NetworkEvent::LobbyUpdate { .. } = event {
+                    state.phase = LobbyPhase::Ready;
+                    return;
+                }
+            }
+        }
+        LobbyPhase::Ready => {
+            use bevy_adapter::network::NetworkEvent;
+            let Some(receiver) = event_receiver else { return };
+            let events = receiver.drain_all();
+            for event in &events {
+                if let NetworkEvent::GameStarted { game_id: _, seed, .. } = event {
+                    bevy::log::info!("[LOBBY] GameStarted received (from Ready)! seed={}", seed);
                     network_start.seed = *seed;
                     network_start.received = true;
                     next_state.set(GameState::Playing);
