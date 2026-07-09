@@ -43,6 +43,8 @@ impl NetworkReceiver {
 pub struct NetworkSender {
     inner: Arc<Mutex<VecDeque<PlayerTickFrame>>>,
     next_sid: Arc<Mutex<u64>>,
+    lobby_ready: Arc<Mutex<Option<RelayClientMessage>>>,
+
 }
 
 impl Default for NetworkSender {
@@ -50,6 +52,8 @@ impl Default for NetworkSender {
         Self {
             inner: Arc::new(Mutex::new(VecDeque::new())),
             next_sid: Arc::new(Mutex::new(0)),
+            lobby_ready: Arc::new(Mutex::new(None)),
+
         }
     }
 }
@@ -68,6 +72,16 @@ impl NetworkSender {
         let mut sid = self.next_sid.lock().unwrap();
         *sid += 1;
         *sid
+    }
+
+    pub fn send_lobby_ready(&self, player_id: u8) {
+        *self.lobby_ready.lock().unwrap() = Some(RelayClientMessage::LobbyReady {
+            game_id: 1, player_id, ready: true, map_size: None,
+        });
+    }
+
+    pub fn take_lobby_ready(&self) -> Option<RelayClientMessage> {
+        self.lobby_ready.lock().unwrap().take()
     }
 }
 
@@ -346,6 +360,14 @@ async fn run_session(
             if stop_arc.load(std::sync::atomic::Ordering::Relaxed) {
                 break;
             }
+            // Check for lobby-ready (one-shot) message before game frames
+            if let Some(lobby_msg) = send.take_lobby_ready() {
+                if let Ok(data) = bincode::serde::encode_to_vec(&lobby_msg, bincode::config::standard()) {
+                    let len_bytes = (data.len() as u32).to_le_bytes();
+                    let _ = writer.write_all(&len_bytes).await;
+                    let _ = writer.write_all(&data).await;
+                }
+            }
             let frames = send.drain_all();
             for frame in frames {
                 let msg = RelayClientMessage::PlayerTick(frame);
@@ -414,9 +436,10 @@ async fn run_session(
                 write_task.abort();
                 return true;
             }
-            RelayServerMessage::LobbyUpdate { .. } => {
-                // LobbyUpdate handled by Bevy main thread via polling
+            RelayServerMessage::LobbyUpdate { game_id, players } => {
+                event_receiver.push(NetworkEvent::LobbyUpdate { game_id, players });
             }
+
 
         }
     }

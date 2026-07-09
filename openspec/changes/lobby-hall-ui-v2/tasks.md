@@ -1,18 +1,18 @@
 ## 1. 通道扩展
 
-- [ ] 1.1 NetworkEvent 新增 LobbyUpdate 变体
-- [ ] 1.2 NetworkSender 新增 lobby_ready + send_lobby_ready()
+- [x] 1.1 NetworkEvent 新增 LobbyUpdate 变体
+- [x] 1.2 NetworkSender 新增 lobby_ready + send_lobby_ready()
 
 ## 2. transport.rs 适配
 
-- [ ] 2.1 run_session() LobbyUpdate arm → push 到 event_receiver
-- [ ] 2.2 write task 添加 lobby_ready 检查发送逻辑
+- [x] 2.1 run_session() LobbyUpdate arm → push 到 event_receiver
+- [x] 2.2 write task 添加 lobby_ready 检查发送逻辑
 
 ## 3. Lobby 状态机 + 轮询
 
-- [ ] 3.1 LobbyPhase 新增 Ready 阶段
-- [ ] 3.2 lobby_update_system 读取 NetworkEvent::LobbyUpdate
-- [ ] 3.3 收到 GameStarted → 转 Playing
+- [x] 3.1 LobbyPhase 新增 Ready 阶段
+- [x] 3.2 lobby_update_system 读取 NetworkEvent::LobbyUpdate
+- [x] 3.3 收到 GameStarted → 转 Playing
 
 ## 4. UI 层
 

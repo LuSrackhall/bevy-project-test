@@ -112,6 +112,9 @@ pub fn update_lobby_status(
             crate::LobbyPhase::Connecting => {
                 text.0 = "正在连接...".to_string();
             }
+            crate::LobbyPhase::Ready => {
+                text.0 = "已准备，等待开始".to_string();
+            }
             crate::LobbyPhase::Connected => {
                 text.0 = "已连接，等待其他玩家...".to_string();
             }
