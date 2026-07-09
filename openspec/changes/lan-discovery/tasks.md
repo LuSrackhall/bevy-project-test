@@ -5,9 +5,9 @@
 
 ## 2. 客户端监听
 
-- [ ] 2.1 LanDiscoveryListener Resource + tokio 线程
-- [ ] 2.2 bevy_adapter/src/lib.rs pub mod lan
-- [ ] 2.3 render_view LanDiscoveryServers + 系统
+- [x] 2.1 LanDiscoveryListener Resource + tokio 线程
+- [x] 2.2 bevy_adapter/src/lib.rs pub mod lan
+- [x] 2.3 render_view LanDiscoveryServers + 系统
 
 ## 3. UI
 
