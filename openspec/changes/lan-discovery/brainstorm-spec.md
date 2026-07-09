@@ -46,3 +46,11 @@ UDP socket 绑定同一端口，`set_broadcast(true)`，每 3s 广播到 `255.25
 | 反序列化攻击 | 固定长度协议，无 bincode |
 | 恶意 UDP 广播 | 验证 magic + 限制包大小 |
 | tokio 线程泄露 | LanDiscoveryListener Drop + OnExit 清理 |
+
+## Post-Implementation Confirmation
+
+三个子Agent 确认：
+1. 协议正确，无反序列化风险
+2. 宪法全部合规
+3. 生命周期完整，OnEnter/OnExit 覆盖
+4. 3 项改进建议已记录（非阻塞）
