@@ -86,6 +86,8 @@ impl Default for AutoRecordReplay {
 pub struct NetworkGameStart {
     pub seed: u64,
     pub player_id: u8,
+    pub player_count: u8,
+
     pub received: bool,
 }
 
@@ -254,6 +256,8 @@ fn setup_lobby_system(
     };
 
     network_start.player_id = player_id;
+    network_start.player_count = player_count;
+
     bevy::log::info!("[LOBBY] Initializing network (relay={}, player={}/{})", relay_addr, player_id, player_count);
 
     use bevy_adapter::network::NetworkEventReceiver;
@@ -424,7 +428,14 @@ fn reset_game_system(
                     .as_secs()
             })
         };
-        let mut world = simulation::init_simulation_world(seed);
+        let mut world = if network_start.received {
+            let slots = simulation::types::PlayerSlots::multi_player(
+                network_start.player_count, network_start.player_id
+            );
+            simulation::init_simulation_world_multi(seed, slots)
+        } else {
+            simulation::init_simulation_world(seed)
+        };
         simulation::map::generate_map(&mut world, map_size);
         // For network mode, store the local player's id so input/selection systems
         // can filter units and issue commands with the correct player_id.
