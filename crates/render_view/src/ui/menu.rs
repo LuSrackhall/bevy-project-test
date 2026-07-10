@@ -137,13 +137,14 @@ pub fn setup_main_menu(
                     BorderColor::all(Color::srgba(0.35, 0.35, 0.40, 1.0))))
                     .with_child((Text::new("开始联机"), TextFont { font: font.clone().into(), font_size: FontSize::Px(16.0), ..default() }))
                     .observe(|_ev: On<Activate>,
-                        q: Query<(&NetworkRelayAddrInput, &NetworkPlayerCount, &NetworkPlayerId)>,
+                        addr_q: Query<&NetworkRelayAddrInput>,
+                        count_q: Query<&NetworkPlayerCount>,
+                        id_q: Query<&NetworkPlayerId>,
                         mut next: ResMut<NextState<crate::GameState>>,
                         mut needs_reset: ResMut<crate::NeedsGameReset>| {
-                        let (addr, count, id) = match q.iter().next() {
-                            Some((addr, count, id)) => (addr.0.clone(), count.0, id.0),
-                            None => ("127.0.0.1:9876".to_string(), 2, 0),
-                        };
+                        let addr = addr_q.iter().next().map_or("127.0.0.1:9876".to_string(), |a| a.0.clone());
+                        let count = count_q.iter().next().map_or(2, |c| c.0);
+                        let id = id_q.iter().next().map_or(0, |i| i.0);
                         *needs_reset = crate::NeedsGameReset::Network {
                             relay_addr: addr,
                             player_count: count,
