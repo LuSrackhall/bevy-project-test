@@ -131,7 +131,7 @@ pub fn setup_main_menu(
                     | {
                         let Ok((mut count, children)) = count_q.get_mut(_ev.entity) else { return };
                         count.0 = if count.0 >= 4 { 2 } else { count.0 + 1 };
-                        if let Some(child) = children.iter().next().copied() {
+                        if let Some(child) = children.iter().next() {
                             if let Ok(mut text) = text_q.get_mut(child) {
                                 text.0 = count.0.to_string();
                             }
@@ -139,7 +139,7 @@ pub fn setup_main_menu(
                         for (mut id, id_children) in id_q.iter_mut() {
                             if id.0 >= count.0 {
                                 id.0 = if count.0 > 0 { count.0 - 1 } else { 0 };
-                                if let Some(child) = id_children.iter().next().copied() {
+                                if let Some(child) = id_children.iter().next() {
                                     if let Ok(mut text) = text_q.get_mut(child) {
                                         text.0 = id.0.to_string();
                                     }
@@ -160,7 +160,7 @@ pub fn setup_main_menu(
                         let Ok((mut id, children)) = q.get_mut(_ev.entity) else { return };
                         let count = count_q.iter().next().map_or(2, |c| c.0);
                         id.0 = if id.0 >= count - 1 { 0 } else { id.0 + 1 };
-                        if let Some(child) = children.iter().next().copied() {
+                        if let Some(child) = children.iter().next() {
                             if let Ok(mut text) = text_q.get_mut(child) {
                                 text.0 = id.0.to_string();
                             }
