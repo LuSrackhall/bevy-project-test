@@ -5,14 +5,14 @@
 
 ## 2. 实现玩家数量（Count）按钮交互
 
-- [ ] 2.1 为 `NetworkPlayerCount` 按钮添加 `.observe(|_ev: On<Activate>, ...)`，点击循环 `2 → 3 → 4 → 2`
-- [ ] 2.2 同步更新按钮子 Text 显示（`children.iter().next()` + if-let 查找）
-- [ ] 2.3 Count 减小时自动 clamp ID：通过 `Query<(&mut NetworkPlayerId, &Children)>` 写入 ID 组件和对应 Text
+- [x] 2.1 为 `NetworkPlayerCount` 按钮添加 `.observe(|_ev: On<Activate>, ...)`，点击循环 `2 → 3 → 4 → 2`
+- [x] 2.2 同步更新按钮子 Text 显示（`children.iter().next()` + if-let 查找）
+- [x] 2.3 Count 减小时自动 clamp ID：通过 `Query<(&mut NetworkPlayerId, &Children)>` 写入 ID 组件和对应 Text
 
 ## 3. 实现玩家 ID 按钮交互
 
-- [ ] 3.1 为 `NetworkPlayerId` 按钮添加 `.observe(|_ev: On<Activate>, ...)`，点击循环 `0 → 1 → … → (count-1) → 0`
-- [ ] 3.2 同步更新按钮子 Text 显示
+- [x] 3.1 为 `NetworkPlayerId` 按钮添加 `.observe(|_ev: On<Activate>, ...)`，点击循环 `0 → 1 → … → (count-1) → 0`
+- [x] 3.2 同步更新按钮子 Text 显示
 
 ## 4. 提交和验证
 

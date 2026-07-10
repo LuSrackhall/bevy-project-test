@@ -123,12 +123,49 @@ pub fn setup_main_menu(
                 row.spawn((WidgetButton, Node { padding: UiRect::all(Val::Px(10.0)), border: UiRect::all(Val::Px(2.0)), min_width: Val::Px(40.0), ..default() },
                     NetworkPlayerCount(2u8), ButtonTheme::dark(), Hovered::default(),
                     BorderColor::all(Color::srgba(0.35, 0.35, 0.40, 1.0))))
-                    .with_child((Text::new("2"), TextFont { font: font.clone().into(), font_size: FontSize::Px(14.0), ..default() }));
+                    .with_child((Text::new("2"), TextFont { font: font.clone().into(), font_size: FontSize::Px(14.0), ..default() }))
+                    .observe(|_ev: On<Activate>,
+                        mut count_q: Query<(&mut NetworkPlayerCount, &Children)>,
+                        mut id_q: Query<(&mut NetworkPlayerId, &Children), Without<NetworkPlayerCount>>,
+                        mut text_q: Query<&mut Text>,
+                    | {
+                        let Ok((mut count, children)) = count_q.get_mut(_ev.entity) else { return };
+                        count.0 = if count.0 >= 4 { 2 } else { count.0 + 1 };
+                        if let Some(child) = children.iter().next().copied() {
+                            if let Ok(mut text) = text_q.get_mut(child) {
+                                text.0 = count.0.to_string();
+                            }
+                        }
+                        for (mut id, id_children) in id_q.iter_mut() {
+                            if id.0 >= count.0 {
+                                id.0 = if count.0 > 0 { count.0 - 1 } else { 0 };
+                                if let Some(child) = id_children.iter().next().copied() {
+                                    if let Ok(mut text) = text_q.get_mut(child) {
+                                        text.0 = id.0.to_string();
+                                    }
+                                }
+                            }
+                        }
+                    });
                 row.spawn((Text::new("  ID:"), TextFont { font: font.clone().into(), font_size: FontSize::Px(16.0), ..default() }));
                 row.spawn((WidgetButton, Node { padding: UiRect::all(Val::Px(10.0)), border: UiRect::all(Val::Px(2.0)), min_width: Val::Px(30.0), ..default() },
                     NetworkPlayerId(0u8), ButtonTheme::dark(), Hovered::default(),
                     BorderColor::all(Color::srgba(0.35, 0.35, 0.40, 1.0))))
-                    .with_child((Text::new("0"), TextFont { font: font.clone().into(), font_size: FontSize::Px(14.0), ..default() }));
+                    .with_child((Text::new("0"), TextFont { font: font.clone().into(), font_size: FontSize::Px(14.0), ..default() }))
+                    .observe(|_ev: On<Activate>,
+                        mut q: Query<(&mut NetworkPlayerId, &Children)>,
+                        count_q: Query<&NetworkPlayerCount>,
+                        mut text_q: Query<&mut Text>,
+                    | {
+                        let Ok((mut id, children)) = q.get_mut(_ev.entity) else { return };
+                        let count = count_q.iter().next().map_or(2, |c| c.0);
+                        id.0 = if id.0 >= count - 1 { 0 } else { id.0 + 1 };
+                        if let Some(child) = children.iter().next().copied() {
+                            if let Ok(mut text) = text_q.get_mut(child) {
+                                text.0 = id.0.to_string();
+                            }
+                        }
+                    });
             });
         parent.spawn(Node { flex_direction: FlexDirection::Row, margin: UiRect::top(Val::Px(10.0)), ..default() })
             .with_children(|row| {
