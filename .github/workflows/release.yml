@@ -94,6 +94,7 @@ jobs:
         run: |
           mkdir -p staging/city-conquest
           cp target/${{ matrix.target }}/release/city-conquest staging/city-conquest/
+          cp target/${{ matrix.target }}/release/relay staging/city-conquest/
           cp -r assets staging/city-conquest/
           cd staging && tar czf ../city-conquest-${{ matrix.target }}.tar.gz city-conquest
 
@@ -102,6 +103,7 @@ jobs:
         run: |
           mkdir -p staging/city-conquest
           cp target/${{ matrix.target }}/release/city-conquest.exe staging/city-conquest/
+          cp target/${{ matrix.target }}/release/relay.exe staging/city-conquest/
           cp -r assets staging/city-conquest/
           cd staging && 7z a ../city-conquest-${{ matrix.target }}.zip city-conquest
         shell: bash
@@ -111,6 +113,7 @@ jobs:
         run: |
           mkdir -p staging/city-conquest
           cp target/${{ matrix.target }}/release/city-conquest staging/city-conquest/
+          cp target/${{ matrix.target }}/release/relay staging/city-conquest/
           cp -r assets staging/city-conquest/
           cd staging && tar czf ../city-conquest-${{ matrix.target }}.tar.gz city-conquest
 
