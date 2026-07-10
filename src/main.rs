@@ -9,7 +9,10 @@ use render_view::RenderViewPlugin;
 use bevy::log::LogPlugin;
 
 fn main() {
-    let window_mode = if cfg!(target_arch = "wasm32") {
+    let args: Vec<String> = std::env::args().collect();
+    let windowed = args.iter().any(|a| a == "--windowed");
+
+    let window_mode = if windowed || cfg!(target_arch = "wasm32") {
         bevy::window::WindowMode::Windowed
     } else {
         bevy::window::WindowMode::BorderlessFullscreen(MonitorSelection::Primary)
