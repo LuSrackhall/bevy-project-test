@@ -15,23 +15,23 @@
 
 ## 4. Session + SessionController
 
-- [ ] 4.1 定义 `pub struct Session { pub room: RoomMetadata, pub relay: Box<dyn RelayHandle> }`
-- [ ] 4.2 定义 `pub struct SessionController { runtime: Box<dyn RelayRuntime>, session: Option<Session> }`
-- [ ] 4.3 实现 `SessionController::new(runtime)`、`is_active()`、`create_session(room)`、`current_session()`、`destroy_session()`
+- [x] 4.1 定义 `pub struct Session { pub room: RoomMetadata, pub relay: Box<dyn RelayHandle> }`
+- [x] 4.2 定义 `pub struct SessionController { runtime: Box<dyn RelayRuntime>, session: Option<Session> }`
+- [x] 4.3 实现 `SessionController::new(runtime)`、`is_active()`、`create_session(room)`、`current_session()`、`destroy_session()`
 
 ## 5. ThreadRelayRuntime + ThreadRelayHandle
 
-- [ ] 5.1 实现 `ThreadRelayRuntime`：bind 127.0.0.1:0 获取 OS 分配端口，spawn 线程 + tokio runtime，调用 relay 逻辑，通过 channel 返回实际端口
-- [ ] 5.2 实现 `ThreadRelayHandle`：存储 `RelayId`、`SocketAddr`、停止信号 `AtomicBool`、线程 `JoinHandle`
-- [ ] 5.3 实现线程安全退出：`shutdown()` 设置停止信号 + 通知 relay 停止 + 等待线程退出
+- [x] 5.1 实现 `ThreadRelayRuntime`：bind 127.0.0.1:0 获取 OS 分配端口，spawn 线程 + tokio runtime，调用 relay 逻辑，通过 channel 返回实际端口
+- [x] 5.2 实现 `ThreadRelayHandle`：存储 `RelayId`、`SocketAddr`、停止信号 `AtomicBool`、线程 `JoinHandle`
+- [x] 5.3 实现线程安全退出：`shutdown()` 设置停止信号 + 通知 relay 停止 + 等待线程退出
 
 ## 6. 单元测试
 
-- [ ] 6.1 测试 `SessionController::create_session` 正常路径
-- [ ] 6.2 测试 `SessionController::destroy_session`（有 session / 无 session）
-- [ ] 6.3 测试 `create_session` 在已有 session 时自动替换
-- [ ] 6.4 测试 `RelayError` Display 格式
-- [ ] 6.5 测试 `Session` 字段可访问
+- [x] 6.1 测试 `SessionController::create_session` 正常路径
+- [x] 6.2 测试 `SessionController::destroy_session`（有 session / 无 session）
+- [x] 6.3 测试 `create_session` 在已有 session 时自动替换
+- [x] 6.4 测试 `RelayError` Display 格式
+- [x] 6.5 测试 `Session` 字段可访问
 
 ---
 
