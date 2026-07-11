@@ -13,6 +13,7 @@ env:
 jobs:
   build:
     runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.continue-on-error || false }}
     strategy:
       fail-fast: false
       matrix:
@@ -41,6 +42,7 @@ jobs:
             os: ubuntu-latest
             target: wasm32-unknown-unknown
             artifact_ext: tar.gz
+            continue-on-error: true
 
     steps:
       - uses: actions/checkout@v4
