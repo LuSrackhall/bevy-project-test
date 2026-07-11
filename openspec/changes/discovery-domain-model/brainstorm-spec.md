@@ -4,7 +4,7 @@
 
 当前 `LanDiscoveryPacket` 只有 `magic`/`version`/`relay_port`，无法支持房间列表展示。更根本的问题是：**房间发现模型和传输层耦合**——`relay_port` 直接嵌入数据包，未来公网大厅无法复用同一套房间数据。
 
-详见 #3 EPIC 设计文档 `docs/architecture/lan-room-list.md`（不变量 I1-I4）。
+详见 #3 EPIC 设计文档 `openspec/changes/lan-room-list/brainstorm-spec.md`（不变量 I1-I4）。
 
 ## Goals / Non-Goals
 
