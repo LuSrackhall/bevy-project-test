@@ -1,3 +1,5 @@
+# 发现领域模型
+
 ## Context
 
 当前 `LanDiscoveryPacket` 只有 `magic`/`version`/`relay_port`，无法支持房间列表展示。更根本的问题是：**房间发现模型和传输层耦合**——`relay_port` 直接嵌入数据包，未来公网大厅无法复用同一套房间数据。
