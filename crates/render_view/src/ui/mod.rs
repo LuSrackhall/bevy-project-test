@@ -1,5 +1,7 @@
 pub mod gameover;
 pub mod hud;
+pub mod lan;
+pub mod lan_lobby;
 pub mod lobby;
 pub mod menu;
 pub mod pause;
@@ -17,11 +19,15 @@ impl Plugin for UiPlugin {
             .init_resource::<hud::HoveredSoldierType>()
             // Button visual feedback — runs in all states
             .add_systems(Update, hud::button_style_system)
+            // Main Menu
             .add_systems(OnEnter(crate::GameState::MainMenu), menu::setup_main_menu)
             .add_systems(OnExit(crate::GameState::MainMenu), menu::cleanup_main_menu)
-            .add_systems(OnEnter(crate::GameState::MainMenu), lan::start_lan_discovery)
-            .add_systems(OnExit(crate::GameState::MainMenu), lan::stop_lan_discovery)
-            .add_systems(Update, lan::update_lan_servers.run_if(in_state(crate::GameState::MainMenu)))
+            // LAN Lobby
+            .add_systems(OnEnter(crate::GameState::LanLobby), lan_lobby::setup_lan_lobby)
+            .add_systems(OnEnter(crate::GameState::LanLobby), lan::start_lan_discovery)
+            .add_systems(OnExit(crate::GameState::LanLobby), lan_lobby::cleanup_lan_lobby)
+            .add_systems(OnExit(crate::GameState::LanLobby), lan::stop_lan_discovery)
+            .add_systems(Update, lan::update_lan_servers.run_if(in_state(crate::GameState::LanLobby)))
             // Lobby UI
             .add_systems(OnEnter(crate::GameState::Lobby), lobby::setup_lobby_ui)
             .add_systems(OnExit(crate::GameState::Lobby), (lobby::cleanup_lobby_ui, crate::cleanup_lobby_network))
@@ -120,4 +126,3 @@ fn handle_pause_input(
         paused.0 = true;
     }
 }
-pub mod lan;

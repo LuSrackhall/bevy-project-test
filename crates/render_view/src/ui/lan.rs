@@ -1,4 +1,3 @@
-use crate::GameState;
 use bevy::prelude::*;
 use bevy_adapter::lan::LanDiscoveryListener;
 use bevy_adapter::network::LanDiscoveryPacket;

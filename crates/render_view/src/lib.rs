@@ -17,6 +17,8 @@ use bevy::prelude::*;
 pub enum GameState {
     #[default]
     MainMenu,
+    /// 局域网大厅 — 房间列表 + 创建/加入
+    LanLobby,
     /// 等待房间 — 网络模式：TCP 已连接但 GameStarted 尚未收到
     Lobby,
     Playing,
