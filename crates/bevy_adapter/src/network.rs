@@ -867,46 +867,5 @@ mod tests {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// LanDiscovery — UDP beacon for LAN server discovery
+// LanDiscovery — see `crate::discovery` for the new model-based impl
 // ═══════════════════════════════════════════════════════════════
-
-/// Fixed-length UDP beacon packet for LAN discovery.
-/// Total 9 bytes. No bincode — manual encode/decode for safety.
-#[derive(Clone, Debug, Default)]
-pub struct LanDiscoveryPacket {
-    pub magic: [u8; 2],       // b"RT"
-    pub version: u8,           // protocol version (1)
-    pub relay_port: u16,       // network byte order (big-endian)
-    pub player_count: u8,
-    pub current_players: u8,
-    pub game_state: u8,        // 0=lobby, 1=playing
-}
-
-impl LanDiscoveryPacket {
-    pub const MAGIC: [u8; 2] = [b'R', b'T'];
-    pub const SIZE: usize = 9;
-
-    pub fn encode(&self) -> [u8; 9] {
-        let mut buf = [0u8; 9];
-        buf[0..2].copy_from_slice(&Self::MAGIC);
-        buf[2] = self.version;
-        buf[3..5].copy_from_slice(&self.relay_port.to_be_bytes());
-        buf[5] = self.player_count;
-        buf[6] = self.current_players;
-        buf[7] = self.game_state;
-        buf[8] = 0; // reserved
-        buf
-    }
-
-    pub fn decode(buf: &[u8]) -> Option<Self> {
-        if buf.len() < 9 || buf[0..2] != Self::MAGIC { return None; }
-        Some(Self {
-            magic: Self::MAGIC,
-            version: buf[2],
-            relay_port: u16::from_be_bytes([buf[3], buf[4]]),
-            player_count: buf[5],
-            current_players: buf[6],
-            game_state: buf[7],
-        })
-    }
-}

@@ -10,8 +10,10 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, UdpSocket};
 use tokio::sync::mpsc;
 
+use bevy_adapter::discovery::{
+    LanDiscoveryPacket, RelayId, RoomAdvertisement, RoomId, RoomMetadata, RoomState,
+};
 use bevy_adapter::network::{
-    LanDiscoveryPacket,
     BroadcastFrame, LobbyPlayerState, RelayClientMessage, RelayServerMessage, RelayServer,
 };
 
@@ -58,21 +60,31 @@ pub async fn start_relay(
     udp_socket.set_broadcast(true)?;
     let bc_ctx = ctx.clone();
     let bc_port = port;
+    let relay_id = RelayId(rand::random::<u64>());
+    let room_id = RoomId(rand::random::<u64>());
     tokio::spawn(async move {
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(3)).await;
             let cc = bc_ctx.clients.lock().unwrap().len() as u8;
-            drop(cc);
-            let packet = LanDiscoveryPacket {
-                magic: LanDiscoveryPacket::MAGIC,
-                version: 1,
-                relay_port: bc_port.to_be(),
-                player_count: bc_ctx.player_count,
-                current_players: cc,
-                game_state: 0,
-            };
-            let data = packet.encode();
-            let _ = udp_socket.send_to(&data, "255.255.255.255:9876").await;
+            let packet = LanDiscoveryPacket::new(RoomAdvertisement {
+                relay_id,
+                endpoint: format!("127.0.0.1:{}", bc_port),
+                room: RoomMetadata {
+                    room_id,
+                    room_name: String::new(),
+                    map_id: format!("grassland_{}", match bc_ctx.player_count {
+                        0..=2 => "small",
+                        3..=4 => "medium",
+                        _ => "large",
+                    }),
+                    current_players: cc,
+                    max_players: bc_ctx.player_count,
+                    state: RoomState::Waiting,
+                },
+            });
+            if let Ok(data) = packet.encode() {
+                let _ = udp_socket.send_to(&data, "255.255.255.255:9876").await;
+            }
         }
     });
 

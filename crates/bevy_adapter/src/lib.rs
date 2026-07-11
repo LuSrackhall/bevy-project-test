@@ -1,12 +1,14 @@
 pub mod binding;
+pub mod discovery;
+pub mod driver;
 pub mod input;
+pub mod lan;
 pub mod lifecycle;
 pub mod mapper;
 pub mod network;
 pub mod replay;
 pub mod session;
 pub mod tick;
-pub mod driver;
 pub mod transport;
 
 use crate::input::ForceMoveNext;
@@ -135,4 +137,3 @@ impl Plugin for BevyAdapterPlugin {
             );
     }
 }
-pub mod lan;

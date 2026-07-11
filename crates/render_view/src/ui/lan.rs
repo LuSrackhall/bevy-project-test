@@ -1,6 +1,6 @@
 use bevy::prelude::*;
+use bevy_adapter::discovery::LanDiscoveryPacket;
 use bevy_adapter::lan::LanDiscoveryListener;
-use bevy_adapter::network::LanDiscoveryPacket;
 use std::time::Instant;
 
 const LAN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
@@ -37,7 +37,9 @@ pub fn update_lan_servers(
     if let Some(listener) = listener {
         let new_packets = listener.drain();
         for pkt in new_packets {
-            let pos = servers.servers.iter().position(|s| s.packet.relay_port == pkt.relay_port);
+            // Deduplicate by relay_id
+            let rid = pkt.advertisement.relay_id;
+            let pos = servers.servers.iter().position(|s| s.packet.advertisement.relay_id == rid);
             if let Some(i) = pos {
                 servers.servers[i].packet = pkt;
                 servers.servers[i].last_seen = Instant::now();
