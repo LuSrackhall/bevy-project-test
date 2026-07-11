@@ -8,6 +8,7 @@ pub mod mapper;
 pub mod network;
 pub mod replay;
 pub mod session;
+pub mod session_host;
 pub mod tick;
 pub mod transport;
 
