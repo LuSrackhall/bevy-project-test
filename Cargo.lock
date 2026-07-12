@@ -4738,6 +4738,7 @@ version = "0.1.0"
 dependencies = [
  "bevy_adapter",
  "bincode",
+ "rand 0.8.6",
  "tokio",
 ]
 
