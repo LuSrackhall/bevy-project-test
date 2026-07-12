@@ -118,7 +118,7 @@ async fn handle(ctx: Arc<RelayCtx>, stream: tokio::net::TcpStream) {
     let (mut reader, writer) = tokio::io::split(stream);
 
     // Send GameJoined
-    let msg = RelayServerMessage::GameJoined { game_id: 1, player_id };
+    let msg = RelayServerMessage::GameJoined { game_id: 1, player_id, player_count: ctx.player_count };
     let mut w = writer;
     relay_write(&mut w, &msg).await;
 

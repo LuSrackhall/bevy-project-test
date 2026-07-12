@@ -129,8 +129,11 @@ pub struct ReconnectResponse {
 /// Messages sent from client to relay.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum RelayClientMessage {
-    /// Join a new game.
-    JoinGame(GameInitParams),
+    /// Join a game session, requesting player_id allocation.
+    JoinGame {
+        room_id: crate::discovery::RoomId,
+        relay_id: crate::discovery::RelayId,
+    },
     /// Submit input commands for a tick.
     PlayerTick(PlayerTickFrame),
     /// Reconnect after disconnect.
@@ -143,8 +146,10 @@ pub enum RelayClientMessage {
 /// Messages sent from relay to client.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum RelayServerMessage {
-    /// Game session accepted.
-    GameJoined { game_id: u64, player_id: u8 },
+    /// Game session accepted — player identity assigned by relay.
+    GameJoined { game_id: u64, player_id: u8, player_count: u8 },
+    /// Join request rejected (room full, identity mismatch, etc.).
+    JoinRejected { reason: String },
     /// All players have connected; game is starting.
     GameStarted { game_id: u64, seed: u64, player_count: u8 },
     /// Reconnect response with full state recovery data.
