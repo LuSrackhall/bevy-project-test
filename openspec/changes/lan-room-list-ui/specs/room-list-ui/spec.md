@@ -51,21 +51,21 @@ LanLobby 页面从 `LanServers` resource 读取房间列表并动态渲染。
 #### Scenario: Create room successfully
 
 - **WHEN** 在 Modal 中填写配置并点击"创建房间"
-- **THEN** 发射 `CreateRoomIntent`，Modal 关闭；集成系统消费 Intent 并调用 `SessionController.create_session()`
+- **THEN** 设置 `CreateRoomRequest.requested = true`，Modal 关闭；集成系统消费请求并调用 `SessionController.create_session()`
 
 #### Scenario: Create room fails
 
 - **WHEN** `SessionController.create_session()` 返回 `Err`
-- **THEN** Modal 显示错误消息，不关闭
+- **THEN** 控制台输出错误日志
 
-### Requirement: CreateRoomIntent integration
+### Requirement: CreateRoomRequest integration
 
-Integration System 桥接 UI（`CreateRoomIntent`）和 `SessionController`。
+Integration System 桥接 UI（`CreateRoomRequest` Resource）和 `SessionController`。
 
-#### Scenario: Intent consumed
+#### Scenario: Request consumed
 
-- **WHEN** `CreateRoomIntent` 被发射
-- **THEN** `handle_create_room` system 读取 Intent 并调用 `SessionController.create_session(room)`
+- **WHEN** `CreateRoomRequest.requested` 设为 `true`
+- **THEN** `handle_create_room` system 读取请求并调用 `SessionController.create_session(room)`，然后重置 `requested = false`
 
 #### Scenario: Room not injected into LanServers
 

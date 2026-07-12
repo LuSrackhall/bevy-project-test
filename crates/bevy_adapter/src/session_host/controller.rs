@@ -1,3 +1,4 @@
+use bevy::prelude::Resource;
 use crate::discovery::{RelayId, RoomMetadata};
 
 use super::error::RelayError;
@@ -17,6 +18,7 @@ pub struct Session {
 /// I2: SessionController does NOT maintain runtime room state.
 /// All runtime fields (current_players, game_state) are authoritatively
 /// updated by the relay, not by the controller.
+#[derive(Resource)]
 pub struct SessionController {
     runtime: Box<dyn RelayRuntime>,
     session: Option<Session>,

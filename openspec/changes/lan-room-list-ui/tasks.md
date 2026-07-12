@@ -3,12 +3,12 @@
 - [x] 1.1 在 `controller.rs` 的 `impl SessionController` 中添加 `pub fn current_relay_id(&self) -> Option<RelayId>`
 - [x] 1.2 编译检查确认不破坏现有 API
 
-## 2. CreateRoomIntent + Integration System
+## 2. CreateRoomRequest Resource + Integration System
 
-- [ ] 2.1 在 `render_view/src/lib.rs` 或 `ui/` 模块中定义 `CreateRoomIntent` Event（包含 `room_name`、`map_id`、`max_players`）
-- [ ] 2.2 实现 `handle_create_room` Integration System：读取 `CreateRoomIntent` → 构建 `RoomMetadata` → 调用 `SessionController::create_session()`
-- [ ] 2.3 在 `render_view` 插件中注册 `CreateRoomIntent` Event 和 `handle_create_room` System
-- [ ] 2.4 确认 `SessionController` 作为 Bevy Resource 在系统中可访问（注入点确认）
+- [x] 2.1 在 `render_view/src/lib.rs` 中定义 `CreateRoomRequest` Resource（包含 `requested`、`room_name`、`map_id`、`max_players`）
+- [x] 2.2 实现 `handle_create_room` Integration System：读取 `CreateRoomRequest` → 构建 `RoomMetadata` → 调用 `SessionController::create_session()`
+- [x] 2.3 在 `render_view` 插件中注册 `CreateRoomRequest` Resource 和 `handle_create_room` System
+- [x] 2.4 SessionController 作为 Bevy Resource 注入（在 BevyAdapterPlugin 中），添加 `Send + Sync` bounds 到 traits
 
 ## 3. 房间列表 UI
 
