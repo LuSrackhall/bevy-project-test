@@ -4,7 +4,7 @@
 
 ## What Changes
 
-- 新增 `bevy_adapter::session` 模块，定义：
+- 新增 `bevy_adapter::session_host` 模块，定义：
   - `RelayRuntime` trait：可替换的 relay 创建策略
   - `RelayHandle` trait：运行中 relay 实例的句柄
   - `RelayError`：统一的 relay 错误类型
@@ -26,7 +26,7 @@
 
 ## Impact
 
-- 新增 `bevy_adapter::session` 模块，4 个 trait/struct + 1 个默认实现
+- 新增 `bevy_adapter::session_host` 模块，4 个 trait/struct + 1 个默认实现
 - 新增错误类型 `RelayError`
 - 依赖：`discovery` 模块（`RoomMetadata`）、`relay` crate（`start_relay`）
 - 不改变现有网络协议或数据面

@@ -29,7 +29,7 @@
 ### AD1: 接口设计
 
 ```rust
-// bevy_adapter::session
+// bevy_adapter::session_host
 
 /// Relay 创建策略。默认实现 ThreadRelayRuntime。
 trait RelayRuntime {
@@ -77,10 +77,20 @@ struct ThreadRelayRuntime;
 
 impl RelayRuntime for ThreadRelayRuntime {
     fn start(&mut self, room: &RoomMetadata) -> Result<Box<dyn RelayHandle>, RelayError> {
-        // 1. 绑定 127.0.0.1:0（OS 分配端口）
-        // 2. spawn 后台线程 + tokio runtime
-        // 3. 在线程中调用 start_relay(actual_port, seed, max_players)
-        // 4. 返回 ThreadRelayHandle { relay_id, endpoint, join }
+        let (port_tx, port_rx) = std::sync::mpsc::channel();
+        let handle = thread::spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_io().enable_time().build()?;
+            rt.block_on(async {
+                let listener = TcpListener::bind("127.0.0.1:0").await?;
+                let actual_port = listener.local_addr()?.port();
+                port_tx.send(Ok(actual_port)).ok();
+                // ... accept loop (placeholder for #8)
+            })
+        });
+        let actual_port = port_rx.recv()
+            .map_err(|_| RelayError::StartFailed("Thread died".into()))??;
+        Ok(Box::new(ThreadRelayHandle { endpoint: SocketAddr::from(([127,0,0,1], actual_port)), ... }))
     }
 }
 ```

@@ -7,7 +7,7 @@
 ## Goals / Non-Goals
 
 **Goals:**
-- `bevy_adapter::session` 模块完整实现：traits + 默认 impl + 错误类型
+- `bevy_adapter::session_host` 模块完整实现：traits + 默认 impl + 错误类型
 - `ThreadRelayRuntime` 能正常启动/停止 relay
 - `SessionController` 管理 `Option<Session>` 生命周期
 - 单元测试覆盖正常路径和错误路径
@@ -22,7 +22,7 @@
 ### 模块结构
 
 ```
-bevy_adapter/src/session/
+bevy_adapter/src/session_host/
 ├── mod.rs          → 重新导出
 ├── controller.rs   → SessionController, Session
 ├── runtime.rs      → RelayRuntime trait, RelayHandle trait
