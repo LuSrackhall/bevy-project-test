@@ -9,7 +9,7 @@ use super::error::RelayError;
 /// `start()` creates a new relay instance. The relay's lifetime is managed
 /// through the returned `RelayHandle`. There is no `stop()` on the runtime
 /// itself — lifecycle is fully delegated to the handle.
-pub trait RelayRuntime {
+pub trait RelayRuntime: Send + Sync {
     /// Start a relay for the given room.
     ///
     /// Returns a handle to the running relay, or an error if startup fails.
@@ -20,7 +20,7 @@ pub trait RelayRuntime {
 ///
 /// Provides access to the relay's identity and connection endpoint,
 /// and the ability to shut it down.
-pub trait RelayHandle {
+pub trait RelayHandle: Send + Sync {
     /// Unique identifier for this relay instance.
     fn relay_id(&self) -> RelayId;
     /// Network endpoint where the relay is listening.

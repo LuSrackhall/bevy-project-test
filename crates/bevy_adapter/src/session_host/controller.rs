@@ -1,4 +1,5 @@
-use crate::discovery::RoomMetadata;
+use bevy::prelude::Resource;
+use crate::discovery::{RelayId, RoomMetadata};
 
 use super::error::RelayError;
 use super::runtime::{RelayHandle, RelayRuntime};
@@ -17,6 +18,7 @@ pub struct Session {
 /// I2: SessionController does NOT maintain runtime room state.
 /// All runtime fields (current_players, game_state) are authoritatively
 /// updated by the relay, not by the controller.
+#[derive(Resource)]
 pub struct SessionController {
     runtime: Box<dyn RelayRuntime>,
     session: Option<Session>,
@@ -51,6 +53,12 @@ impl SessionController {
     /// Returns a reference to the current session, if any.
     pub fn current_session(&self) -> Option<&Session> {
         self.session.as_ref()
+    }
+
+    /// Returns the relay_id of the current session, if active.
+    /// Used by UI to determine if a discovered room is "our own" room.
+    pub fn current_relay_id(&self) -> Option<RelayId> {
+        self.session.as_ref().map(|s| s.relay.relay_id())
     }
 
     /// Destroy the current session, stopping the relay.
@@ -169,6 +177,15 @@ mod tests {
         assert_eq!(format!("{}", err), "Relay start failed: port in use");
         let err = RelayError::ShutdownFailed("timeout".into());
         assert_eq!(format!("{}", err), "Relay shutdown failed: timeout");
+    }
+
+    #[test]
+    fn test_current_relay_id() {
+        let mut ctrl = SessionController::new(Box::new(MockRelayRuntime { fail_on_start: false }));
+        assert_eq!(ctrl.current_relay_id(), None);
+
+        ctrl.create_session(make_room()).unwrap();
+        assert_eq!(ctrl.current_relay_id(), Some(RelayId(42)));
     }
 
     #[test]

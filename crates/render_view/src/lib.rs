@@ -175,6 +175,12 @@ impl Plugin for RenderViewPlugin {
                     crate::camera::camera_zoom_system,
                     crate::camera::center_on_player_city,
                 ),
+            )
+            // LAN Room Creation: Request Resource + Integration System
+            .init_resource::<CreateRoomRequest>()
+            .add_systems(
+                Update,
+                handle_create_room.run_if(in_state(GameState::LanLobby)),
             );
 
         // Debug-only visual systems (gated behind debug_render feature per constitution §21)
@@ -580,4 +586,50 @@ fn chrono_timestamp() -> String {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default();
     format!("{}", d.as_secs())
+}
+
+// ═══════════════════════════════════════════════════════════════
+// LAN Room Creation — Intent Resource + Integration System
+// ═══════════════════════════════════════════════════════════════
+
+/// Request to create a LAN room. Set by UI, consumed by the integration system.
+#[derive(Resource, Default)]
+pub struct CreateRoomRequest {
+    pub requested: bool,
+    pub room_name: String,
+    pub map_id: String,
+    pub max_players: u8,
+}
+
+/// Integration system: reads CreateRoomRequest and calls SessionController.
+fn handle_create_room(
+    mut request: ResMut<CreateRoomRequest>,
+    mut controller: ResMut<bevy_adapter::session_host::SessionController>,
+) {
+    if !request.requested {
+        return;
+    }
+    request.requested = false; // Consume the request
+
+    use bevy_adapter::discovery::{RoomId, RoomMetadata, RoomState};
+    let room = RoomMetadata {
+        room_id: RoomId(0),
+        room_name: if request.room_name.is_empty() {
+            format!("房间_{}", chrono_timestamp().chars().take(6).collect::<String>())
+        } else {
+            request.room_name.clone()
+        },
+        map_id: request.map_id.clone(),
+        current_players: 1,
+        max_players: request.max_players,
+        state: RoomState::Waiting,
+    };
+    match controller.create_session(room) {
+        Ok(_) => {
+            bevy::log::info!("[LAN] Room created successfully");
+        }
+        Err(e) => {
+            bevy::log::error!("[LAN] Failed to create room: {}", e);
+        }
+    }
 }

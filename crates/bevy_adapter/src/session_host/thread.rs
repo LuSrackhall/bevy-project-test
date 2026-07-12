@@ -2,6 +2,7 @@ use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::thread;
 use std::time::SystemTime;
 
@@ -62,7 +63,7 @@ impl RelayRuntime for ThreadRelayRuntime {
             relay_id,
             endpoint: SocketAddr::from(([127, 0, 0, 1], actual_port)),
             stop: stop_inner,
-            handle: Some(handle),
+            handle: Mutex::new(Some(handle)),
         }))
     }
 }
@@ -122,7 +123,7 @@ pub struct ThreadRelayHandle {
     relay_id: RelayId,
     endpoint: SocketAddr,
     stop: Arc<AtomicBool>,
-    handle: Option<thread::JoinHandle<()>>,
+    handle: Mutex<Option<thread::JoinHandle<()>>>,
 }
 
 impl RelayHandle for ThreadRelayHandle {
@@ -134,9 +135,9 @@ impl RelayHandle for ThreadRelayHandle {
         self.endpoint
     }
 
-    fn shutdown(mut self: Box<Self>) -> Result<(), RelayError> {
+    fn shutdown(self: Box<Self>) -> Result<(), RelayError> {
         self.stop.store(true, Ordering::Relaxed);
-        if let Some(h) = self.handle.take() {
+        if let Some(h) = self.handle.lock().unwrap().take() {
             h.join().map_err(|_| RelayError::ShutdownFailed("Thread join failed".into()))?;
         }
         Ok(())
