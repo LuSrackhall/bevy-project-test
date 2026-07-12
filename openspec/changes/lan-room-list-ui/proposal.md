@@ -5,7 +5,7 @@ LanLobby 已有占位页面（#9）和 `LanServers` 发现数据源（#5），�
 ## What Changes
 
 - 重写 `lan_lobby.rs`：单列房间列表，从 `LanServers` 动态渲染
-- 新增 `CreateRoomIntent` Event + Integration System（消费 Intent 调用 `SessionController`）
+- 新增 `CreateRoomRequest` Resource + Integration System（Resource 替代 Event，兼容 Bevy 0.19）
 - 新增 `SessionController::current_relay_id()` 查询方法（供 UI 判断"自己的房间"）
 - 新增 `CreateRoomModal`：弹出层配置房间名/地图/人数
 - 新增 `LanLobbyRoomRow` 组件：每行显示房间名、地图、人数、状态、操作按钮
@@ -14,7 +14,7 @@ LanLobby 已有占位页面（#9）和 `LanServers` 发现数据源（#5），�
 ## Capabilities
 
 ### New Capabilities
-- `room-list-ui`: 房间列表 UI + CreateRoomModal + CreateRoomIntent Integration System
+- `room-list-ui`: 房间列表 UI + CreateRoomModal + CreateRoomRequest Integration System
 
 ### Modified Capabilities
 <!-- 无现有 spec 变更 -->

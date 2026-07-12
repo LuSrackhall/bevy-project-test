@@ -1,6 +1,6 @@
 ## Context
 
-详见 `brainstorm-spec.md` 中的 AD1-AD4 设计决策。实现分三层：UI 层（lan_lobby.rs）、Intent 层（CreateRoomIntent Event）、Integration 层（handle_create_room system）。
+详见 `brainstorm-spec.md` 中的 AD1-AD4 设计决策。实现分三层：UI 层（lan_lobby.rs）、Resource 层（CreateRoomRequest）、Integration 层（handle_create_room system）。
 
 ## Goals / Non-Goals
 
@@ -24,7 +24,7 @@ UDP Beacon → LanDiscoveryListener → LanServers resource
                                           ↓
 lan_lobby.rs (动态渲染列表) ← update_lan_servers system
      ↓
-[创建房间按钮] → CreateRoomIntent Event
+[创建房间按钮] → CreateRoomRequest Resource (requested=true)
                        ↓
 handle_create_room system (Integration Layer)
                        ↓
@@ -53,7 +53,7 @@ app.insert_resource(SessionController::new(Box::new(ThreadRelayRuntime)));
 ### 测试策略
 
 - UI 测试：通过 Bevy 的 App 测试框架验证 `LanServers` → 房间行渲染
-- Integration 测试：验证 `CreateRoomIntent` → `SessionController.create_session` 被调用
+- Integration 测试：验证 `CreateRoomRequest` → `SessionController.create_session` 被调用
 - 自己的房间逻辑：验证 `current_relay_id` 匹配/不匹配时的 UI 状态
 
 ## Risks / Trade-offs

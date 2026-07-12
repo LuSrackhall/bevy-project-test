@@ -9,7 +9,7 @@ LanLobby 已作为占位页面存在（#9），显示"正在扫描局域网房�
 - 每行显示：房间名、地图、人数、状态、操作按钮
 - 空状态、TTL 消失、Playing/已满房间禁用
 - CreateRoomModal：配置房间名 + 地图 + 人数
-- `CreateRoomIntent` → Integration System → `SessionController`
+- `CreateRoomRequest` Resource → Integration System → `SessionController`
 - 自己的房间不显示"加入"按钮（通过 `Controller.current_relay_id()` 比对 `RoomAdvertisement.relay_id`）
 - 创建成功后只关闭 Modal，不手动写入 LanServers（等待 LAN Discovery 自然更新）
 - 新增 `SessionController.current_relay_id()` 查询方法
@@ -43,35 +43,29 @@ LanLobby 已作为占位页面存在（#9），显示"正在扫描局域网房�
 房间 TTL：5 秒无心跳自动移除（复用现有 `LAN_TIMEOUT`）。
 自己的房间：`session_controller.current_relay_id() == Some(adv.relay_id)`。
 
-### AD2: Intent 驱动的创建流程
+### AD2: Resource 驱动的创建流程
 
 ```rust
-// UI 层只发射 Intent
-struct CreateRoomIntent {
-    room_name: String,
-    map_id: String,
-    max_players: u8,
+// UI 层设置 Resource（替代 Event，兼容 Bevy 0.19）
+#[derive(Resource, Default)]
+pub struct CreateRoomRequest {
+    pub requested: bool,
+    pub room_name: String,
+    pub map_id: String,
+    pub max_players: u8,
 }
 
 // Integration System（属于 #7，不在 UI 组件内）
 fn handle_create_room(
-    mut intents: EventReader<CreateRoomIntent>,
+    mut request: ResMut<CreateRoomRequest>,
     mut controller: ResMut<SessionController>,
-    mut commands: Commands,
 ) {
-    for intent in intents.read() {
-        let room = RoomMetadata {
-            room_id: RoomId(/* 由 SessionController 生成 */),
-            room_name: intent.room_name,
-            map_id: intent.map_id,
-            current_players: 1,
-            max_players: intent.max_players,
-            state: RoomState::Waiting,
-        };
-        match controller.create_session(room) {
-            Ok(_) => { /* 关闭 Modal */ }
-            Err(e) => { /* 显示错误 */ }
-        }
+    if !request.requested { return; }
+    request.requested = false;
+    let room = RoomMetadata { ... };
+    match controller.create_session(room) {
+        Ok(_) => { /* 关闭 Modal */ }
+        Err(e) => { /* log 错误 */ }
     }
 }
 ```
@@ -92,11 +86,11 @@ impl SessionController {
 ### AD4: Modal 配置项
 
 创建房间 Modal 包含：
-- 房间名：文本输入（可选，默认自动生成）
-- 地图：下拉选择 Small / Medium / Large / Huge
-- 人数：下拉选择 2-8
+- 房间名：按钮占位（MVP 自动生成默认名）
+- 地图：按钮（MVP 固定 grassland_small）
+- 人数：按钮 2（MVP 固定 2）
 
-使用 Bevy UI Widgets 的 Button + 计数循环（复用现有 `menu.rs` 的玩家数量选择器模式）。
+MVP 使用简单按钮占位，未来可扩展为文本输入和下拉选择。
 
 ## Risks / Trade-offs
 
