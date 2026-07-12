@@ -1,8 +1,9 @@
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc;
 use std::sync::Arc;
 use std::thread;
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
 
 use tokio::net::TcpListener;
 
@@ -11,9 +12,6 @@ use crate::network::RelayServer;
 
 use super::error::RelayError;
 use super::runtime::{RelayHandle, RelayRuntime};
-
-/// Default relay port for LAN sessions.
-const DEFAULT_RELAY_PORT: u16 = 9876;
 
 /// RelayRuntime implementation that starts relay in a background thread
 /// with its own tokio runtime.
@@ -28,6 +26,9 @@ impl RelayRuntime for ThreadRelayRuntime {
         let seed: u64 = room.room_id.0;
         let max_players = room.max_players;
 
+        // Channel for thread to report the actual bound port (or error)
+        let (port_tx, port_rx) = mpsc::channel();
+
         let handle = thread::Builder::new()
             .name("relay-host".into())
             .spawn(move || {
@@ -38,11 +39,18 @@ impl RelayRuntime for ThreadRelayRuntime {
                     .expect("Failed to build relay tokio runtime");
 
                 rt.block_on(async move {
-                    run_local_relay(DEFAULT_RELAY_PORT, seed, max_players, &stop_for_thread).await;
+                    run_local_relay(&port_tx, seed, max_players, &stop_for_thread).await;
                 });
             })
             .map_err(|e| RelayError::StartFailed(format!("Thread spawn failed: {}", e)))?;
 
+        // Wait for the thread to bind and report the port
+        let actual_port = port_rx
+            .recv()
+            .map_err(|_| RelayError::StartFailed("Thread died before binding".into()))??;
+
+        // 仅用于网络层元数据（连接跟踪/日志），不回流至 simulation，
+        // 不影响确定性仿真（宪法 §2.6）。
         let relay_id = RelayId(
             SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)
@@ -52,7 +60,7 @@ impl RelayRuntime for ThreadRelayRuntime {
 
         Ok(Box::new(ThreadRelayHandle {
             relay_id,
-            endpoint: SocketAddr::from(([127, 0, 0, 1], DEFAULT_RELAY_PORT)),
+            endpoint: SocketAddr::from(([127, 0, 0, 1], actual_port)),
             stop: stop_inner,
             handle: Some(handle),
         }))
@@ -60,8 +68,14 @@ impl RelayRuntime for ThreadRelayRuntime {
 }
 
 /// Run a minimal local relay on a background thread.
-/// Simplified version of `relay::start_relay` that runs until stopped.
-async fn run_local_relay(port: u16, seed: u64, max_players: u8, stop: &AtomicBool) {
+/// Binds to port 0 (OS allocation) and sends the actual port back.
+/// Binds to port 0 (OS allocation) and sends the actual port back.
+async fn run_local_relay(
+    port_tx: &mpsc::Sender<Result<u16, RelayError>>,
+    seed: u64,
+    max_players: u8,
+    stop: &AtomicBool,
+) {
     let now_ms = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
@@ -71,13 +85,20 @@ async fn run_local_relay(port: u16, seed: u64, max_players: u8, stop: &AtomicBoo
         1, 1, seed, 0, (0..max_players).collect(), 3, now_ms,
     );
 
-    let listener = match TcpListener::bind(format!("127.0.0.1:{}", port)).await {
+    // Bind to port 0 — OS allocates a free port
+    let listener = match TcpListener::bind("127.0.0.1:0").await {
         Ok(l) => l,
         Err(e) => {
-            eprintln!("[SessionHost] Failed to bind relay: {}", e);
+            let _ = port_tx.send(Err(RelayError::StartFailed(format!(
+                "TCP bind failed: {}",
+                e
+            ))));
             return;
         }
     };
+
+    let actual_port = listener.local_addr().map(|a| a.port()).unwrap_or(9876);
+    let _ = port_tx.send(Ok(actual_port));
 
     // Accept connections until stop signal
     loop {
@@ -85,7 +106,7 @@ async fn run_local_relay(port: u16, seed: u64, max_players: u8, stop: &AtomicBoo
             break;
         }
 
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         // Note: full relay accept loop is handled by relay crate.
         // For LAN MVP this starts the relay. A complete accept loop
         // will replace the placeholder once #8 integrates the join flow.
