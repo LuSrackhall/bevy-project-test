@@ -28,6 +28,9 @@ impl Plugin for UiPlugin {
             .add_systems(OnExit(crate::GameState::LanLobby), lan_lobby::cleanup_lan_lobby)
             .add_systems(OnExit(crate::GameState::LanLobby), lan::stop_lan_discovery)
             .add_systems(Update, lan::update_lan_servers.run_if(in_state(crate::GameState::LanLobby)))
+            // LanLobby room list and modal
+            .add_systems(Update, lan_lobby::update_room_list.run_if(in_state(crate::GameState::LanLobby)))
+            .init_resource::<lan_lobby::ModalState>()
             // Lobby UI
             .add_systems(OnEnter(crate::GameState::Lobby), lobby::setup_lobby_ui)
             .add_systems(OnExit(crate::GameState::Lobby), (lobby::cleanup_lobby_ui, crate::cleanup_lobby_network))
