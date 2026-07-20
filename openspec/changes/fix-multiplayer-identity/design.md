@@ -17,7 +17,7 @@
 
 ### Fix A 实现
 
-在 `transport.rs` 的 `GameJoined` 处理器中，推送 `NetworkEvent::GameJoined { player_id, player_count }`（已有定义，无需新增）。在 `render_view/src/lib.rs` 的 `lobby_update_system` 中读取该事件，更新 `SimulationDriver.source`：
+在 `transport.rs` 的 `GameJoined` 处理器中，推送 `NetworkEvent::GameJoined { player_id, player_count }`（新增变体）。在 `render_view/src/lib.rs` 的 `lobby_update_system` 中读取该事件，更新 `SimulationDriver.source`：
 
 ```rust
 if let NetworkEvent::GameJoined { player_id, .. } = event {
