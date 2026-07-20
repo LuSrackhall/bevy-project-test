@@ -298,6 +298,7 @@ fn setup_lobby_system(
 
 /// 轮询 TCP 连接状态 + 完成 bootstrap + 等待 GameStarted
 pub fn lobby_update_system(
+    mut commands: Commands,
     mut next_state: ResMut<NextState<GameState>>,
     mut network_start: ResMut<NetworkGameStart>,
     poll_rx: Option<Res<ConnectionPollRx>>,
@@ -342,9 +343,25 @@ pub fn lobby_update_system(
         }
         LobbyPhase::Connected => {
             use bevy_adapter::network::NetworkEvent;
+            use bevy_adapter::driver::CommandSource;
             let Some(receiver) = event_receiver else { return };
             let events = receiver.drain_all();
             for event in &events {
+                if let NetworkEvent::GameJoined { player_id, player_count } = event {
+                    bevy::log::info!("[LOBBY] Identity assigned: player={}/{}", player_id, player_count);
+                    // Update NetworkCommandSource with relay-assigned player_id
+                    if let Some(ref mut d) = _driver {
+                        if let CommandSource::Network(ref mut ns) = d.source {
+                            ns.player_id = *player_id;
+                        }
+                    }
+                    // Update LocalPlayerIdentity
+                    let mut identity = crate::LocalPlayerIdentity::default();
+                    identity.player_id = *player_id;
+                    identity.player_count = *player_count;
+                    identity.assigned = true;
+                    commands.insert_resource(identity);
+                }
                 if let NetworkEvent::GameStarted { game_id: _, seed, .. } = event {
                     bevy::log::info!("[LOBBY] GameStarted received! seed={}", seed);
                     network_start.seed = *seed;
