@@ -420,9 +420,13 @@ async fn run_session(
             RelayServerMessage::GameJoined {
                 game_id: g,
                 player_id: p,
-                player_count: _,
+                player_count,
             } => {
-                eprintln!("[NET] Joined game {} as player {}", g, p);
+                eprintln!("[NET] Joined game {} as player {} (of {})", g, p, player_count);
+                event_receiver.push(NetworkEvent::GameJoined {
+                    player_id: p,
+                    player_count,
+                });
             }
             RelayServerMessage::ReconnectResponse(resp) => {
                 eprintln!("[NET] Reconnect OK ({} ticks)", resp.ticks.len());

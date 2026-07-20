@@ -174,6 +174,8 @@ pub enum RelayServerMessage {
 /// Events from the network tokio thread to the Bevy main thread.
 #[derive(Clone, Debug)]
 pub enum NetworkEvent {
+    /// Relay has accepted the player and assigned identity.
+    GameJoined { player_id: u8, player_count: u8 },
     /// All players connected; game is starting.
     GameStarted { game_id: u64, seed: u64, player_count: u8 },
     /// Lobby state update — player ready statuses.

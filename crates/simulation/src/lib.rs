@@ -21,7 +21,7 @@ use crate::command::*;
 pub use crate::events::SimulationEvents;
 use crate::replay::ReplayFile;
 use crate::soldier::config::SoldierConfig;
-use crate::soldier::FactionComponent;
+use crate::soldier::{FactionComponent, UnitIdComponent};
 use crate::types::*;
 pub use bevy_ecs::world::World;
 
@@ -108,6 +108,62 @@ fn collect_command_players(world: &mut World) -> Vec<u8> {
     }
 }
 
+/// Validate commands before execution — Simulation Validation Boundary.
+///
+/// Filters commands where `player_id` does not match the target unit's
+/// `FactionId`. NoOp always passes. Single-player mode (no PlayerSlots
+/// resource) uses `FactionId(player_id)` as fallback.
+///
+/// See: openspec/changes/fix-multiplayer-identity/brainstorm-spec.md AD2
+fn validate_commands(world: &mut World, commands: Vec<GameCommand>, _known_players: &[u8]) -> Vec<GameCommand> {
+    // Pre-collect PlayerSlots → FactionId mapping into owned data
+    let slot_factions: std::collections::HashMap<u8, types::FactionId> = world
+        .get_resource::<types::PlayerSlots>()
+        .map(|slots| {
+            slots
+                .slots
+                .iter()
+                .map(|slot| (slot.slot_id.0, slot.faction))
+                .collect()
+        })
+        .unwrap_or_default();
+    commands
+        .into_iter()
+        .filter(|cmd| {
+            if matches!(cmd.action, Action::NoOp) {
+                return true;
+            }
+            let cmd_faction = slot_factions
+                .get(&cmd.player_id)
+                .copied()
+                .unwrap_or(types::FactionId(cmd.player_id));
+            let target_unit = match cmd.action {
+                Action::MoveTo { unit, .. }
+                | Action::ForceMove { unit, .. }
+                | Action::Attack { unit, .. }
+                | Action::SetShield { unit, .. }
+                | Action::ReturnToCity { unit, .. } => Some(unit),
+                Action::SetSpawnType { city, .. } => Some(city),
+                Action::SetSeekStance { ref unit_ids, .. } => {
+                    if unit_ids.is_empty() {
+                        return true;
+                    }
+                    unit_ids.first().copied()
+                }
+                Action::NoOp => return true,
+            };
+            let Some(target) = target_unit else { return true };
+            let Some(entity) = crate::soldier::find_entity_by_unit_id(world, target) else {
+                return false;
+            };
+            let Some(faction) = world.entity(entity).get::<FactionComponent>() else {
+                return false;
+            };
+            faction.0 == cmd_faction
+        })
+        .collect()
+}
+
 /// Run one complete simulation tick with explicit config.
 /// Implements constitution §3.1 six-step Tick timing:
 ///   1. Command collection
@@ -124,7 +180,7 @@ pub fn run_tick(world: &mut World, tick_number: u32, config: &RunConfig) -> Simu
     let known_players = collect_command_players(world);
     let present_players: std::collections::HashSet<u8> =
         commands.iter().map(|c| c.player_id).collect();
-    for player_id in known_players {
+    for &player_id in &known_players {
         if !present_players.contains(&player_id) {
             commands.push(GameCommand {
                 tick: tick_number,
@@ -137,7 +193,13 @@ pub fn run_tick(world: &mut World, tick_number: u32, config: &RunConfig) -> Simu
     // ── Step 3: Command sorting ──
     commands.sort_by_key(|c| (c.player_id, c.action.sort_tag()));
 
-    // ── Step 4: Command archiving (optional) ──
+    // ── Step 4: Simulation Validation ──
+    // Filters commands that violate simulation integrity rules.
+    // This is a Simulation Validation Boundary, not a security boundary.
+    // See openspec/changes/fix-multiplayer-identity/brainstorm-spec.md AD2.
+    commands = validate_commands(world, commands, &known_players);
+
+    // ── Step 5: Command archiving (optional) ──
     if let Some(mut recorder) = world.get_resource_mut::<ReplayFile>() {
         recorder.record_tick(tick_number, commands.clone());
     }
