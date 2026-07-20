@@ -43,7 +43,7 @@ pub enum NeedsGameReset {
     SameSize,
     NewGame(simulation::map::MapSize),
     Replay(simulation::replay::ReplayFile),
-    Network { relay_addr: String, player_count: u8, player_id: u8 },
+    Network { relay_addr: String, player_count: u8, player_id: Option<u8> },
 }
 
 /// Lobby 连接阶段
@@ -102,6 +102,9 @@ impl Plugin for RenderViewPlugin {
             .init_resource::<AutoRecordReplay>()
             .init_resource::<NetworkGameStart>()
             .init_resource::<crate::selection::SelectionState>()
+            .init_resource::<CreateRoomRequest>()
+            .init_resource::<JoinRoomRequest>()
+            .init_resource::<LocalPlayerIdentity>()
             .add_plugins(crate::ui::UiPlugin)
             .add_systems(Startup, crate::camera::setup_camera)
             .init_resource::<crate::unit_info_bar::UnitInfoBarSettings>();
@@ -181,6 +184,9 @@ impl Plugin for RenderViewPlugin {
             .add_systems(
                 Update,
                 handle_create_room.run_if(in_state(GameState::LanLobby)),
+            )
+            .add_systems(Update,
+                handle_join_room.run_if(in_state(GameState::LanLobby)),
             );
 
         // Debug-only visual systems (gated behind debug_render feature per constitution §21)
@@ -263,16 +269,17 @@ fn setup_lobby_system(
         return;
     };
 
-    network_start.player_id = player_id;
+    network_start.player_id = player_id.unwrap_or(0);
     network_start.player_count = player_count;
 
-    bevy::log::info!("[LOBBY] Initializing network (relay={}, player={}/{})", relay_addr, player_id, player_count);
+    let effective_id = player_id.unwrap_or(0);
+    bevy::log::info!("[LOBBY] Initializing network (relay={}, player={}/{})", relay_addr, effective_id, player_count);
 
     use bevy_adapter::network::NetworkEventReceiver;
     use bevy_adapter::transport::spawn_network_client_nonblocking;
     let event_receiver = NetworkEventReceiver::default();
     let (receiver, sender, handle, status) = spawn_network_client_nonblocking(
-        relay_addr.clone(), 1, player_id, 1, event_receiver.clone(),
+        relay_addr.clone(), 1, effective_id, 1, event_receiver.clone(),
     );
 
     // Insert transport resources immediately (tokio thread runs in background)
@@ -601,6 +608,34 @@ pub struct CreateRoomRequest {
     pub max_players: u8,
 }
 
+/// Request to join a LAN room. Set by UI, consumed by Join Integration System.
+#[derive(Resource)]
+pub struct JoinRoomRequest {
+    pub requested: bool,
+    pub room_id: bevy_adapter::discovery::RoomId,
+    pub relay_id: bevy_adapter::discovery::RelayId,
+    pub endpoint: String,
+}
+
+impl Default for JoinRoomRequest {
+    fn default() -> Self {
+        Self {
+            requested: false,
+            room_id: bevy_adapter::discovery::RoomId(0),
+            relay_id: bevy_adapter::discovery::RelayId(0),
+            endpoint: String::new(),
+        }
+    }
+}
+
+/// Relay-authoritative player identity. Written only on GameJoined.
+#[derive(Resource, Default)]
+pub struct LocalPlayerIdentity {
+    pub player_id: u8,
+    pub player_count: u8,
+    pub assigned: bool,
+}
+
 /// Integration system: reads CreateRoomRequest and calls SessionController.
 fn handle_create_room(
     mut request: ResMut<CreateRoomRequest>,
@@ -632,4 +667,34 @@ fn handle_create_room(
             bevy::log::error!("[LAN] Failed to create room: {}", e);
         }
     }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// LAN Join Flow — JoinRoomRequest + Integration System
+// ═══════════════════════════════════════════════════════════════
+
+/// Integration system: reads JoinRoomRequest and triggers TCP connection + Lobby transition.
+fn handle_join_room(
+    mut request: ResMut<JoinRoomRequest>,
+    mut needs_reset: ResMut<NeedsGameReset>,
+    mut next_state: ResMut<NextState<GameState>>,
+) {
+    if !request.requested {
+        return;
+    }
+    request.requested = false;
+
+    let max_players = 2u8;
+    *needs_reset = NeedsGameReset::Network {
+        relay_addr: request.endpoint.clone(),
+        player_count: max_players,
+        player_id: None, // Relay assigns player_id
+    };
+    next_state.set(GameState::Lobby);
+
+    bevy::log::info!(
+        "[LAN] Joining room (room_id={:?}, endpoint={})",
+        request.room_id,
+        request.endpoint,
+    );
 }

@@ -52,7 +52,7 @@ fn main() {
             app.insert_resource(render_view::NeedsGameReset::Network {
                 relay_addr: relay_addr.clone(),
                 player_count,
-                player_id,
+                player_id: Some(player_id),
             });
             app.add_systems(Startup, |mut next: ResMut<NextState<render_view::GameState>>| {
                 next.set(render_view::GameState::Lobby);

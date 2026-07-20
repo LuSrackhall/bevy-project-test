@@ -420,6 +420,7 @@ async fn run_session(
             RelayServerMessage::GameJoined {
                 game_id: g,
                 player_id: p,
+                player_count: _,
             } => {
                 eprintln!("[NET] Joined game {} as player {}", g, p);
             }
@@ -439,8 +440,11 @@ async fn run_session(
             RelayServerMessage::LobbyUpdate { game_id, players } => {
                 event_receiver.push(NetworkEvent::LobbyUpdate { game_id, players });
             }
-
-
+            RelayServerMessage::JoinRejected { reason } => {
+                eprintln!("[NET] Join rejected: {}", reason);
+                write_task.abort();
+                return true;
+            }
         }
     }
 

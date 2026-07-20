@@ -83,7 +83,7 @@ async fn run_local_relay(
         .unwrap_or(0);
 
     let server = RelayServer::new(
-        1, 1, seed, 0, (0..max_players).collect(), 3, now_ms,
+        1, crate::discovery::RelayId(seed), 1, seed, 0, (0..max_players).collect(), 3, now_ms,
     );
 
     // Bind to port 0 — OS allocates a free port

@@ -3,6 +3,8 @@
 //! Data structures for relay-backed deterministic lockstep multiplayer.
 //! See: openspec/changes/network-command-stream/brainstorm-spec.md §3.1
 
+pub use crate::discovery::{RelayId, RoomId, RoomMetadata, RoomState};
+
 use serde::{Deserialize, Serialize};
 use simulation::command::GameCommand;
 use std::collections::{HashMap, VecDeque};
@@ -129,8 +131,11 @@ pub struct ReconnectResponse {
 /// Messages sent from client to relay.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum RelayClientMessage {
-    /// Join a new game.
-    JoinGame(GameInitParams),
+    /// Join a game session, requesting player_id allocation.
+    JoinGame {
+        room_id: crate::discovery::RoomId,
+        relay_id: crate::discovery::RelayId,
+    },
     /// Submit input commands for a tick.
     PlayerTick(PlayerTickFrame),
     /// Reconnect after disconnect.
@@ -143,8 +148,10 @@ pub enum RelayClientMessage {
 /// Messages sent from relay to client.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum RelayServerMessage {
-    /// Game session accepted.
-    GameJoined { game_id: u64, player_id: u8 },
+    /// Game session accepted — player identity assigned by relay.
+    GameJoined { game_id: u64, player_id: u8, player_count: u8 },
+    /// Join request rejected (room full, identity mismatch, etc.).
+    JoinRejected { reason: String },
     /// All players have connected; game is starting.
     GameStarted { game_id: u64, seed: u64, player_count: u8 },
     /// Reconnect response with full state recovery data.
@@ -304,6 +311,8 @@ impl NetworkCommandSource {
 pub struct RelayServer {
     /// Game session configuration.
     game_id: u64,
+    /// Unique relay instance identifier for JoinGame verification.
+    relay_id: RelayId,
     ruleset_version: u32,
     seed: u64,
     map_spec_hash: u64,
@@ -339,6 +348,8 @@ pub struct RelayServer {
     game_started: bool,
     /// Tracks which players have signaled LobbyReady (bitmask).
     lobby_ready_mask: u8,
+    /// Next player_id to assign for JoinGame.
+    next_player_id: u8,
 
 }
 
@@ -346,6 +357,7 @@ impl RelayServer {
     /// Create a new relay server for a game session.
     pub fn new(
         game_id: u64,
+        relay_id: RelayId,
         ruleset_version: u32,
         seed: u64,
         map_spec_hash: u64,
@@ -355,6 +367,7 @@ impl RelayServer {
     ) -> Self {
         Self {
             game_id,
+            relay_id,
             ruleset_version,
             seed,
             map_spec_hash,
@@ -373,7 +386,29 @@ impl RelayServer {
             created_at_ms: now_ms,
             game_started: false,
             lobby_ready_mask: 0,
+            next_player_id: 0,
         }
+    }
+
+    /// Relay identity for JoinGame verification.
+    pub fn relay_id(&self) -> RelayId {
+        self.relay_id
+    }
+
+    /// Process a JoinGame request.
+    /// Returns Ok(player_id) on acceptance, or Err(reason) on rejection.
+    pub fn on_join_game(&mut self, request_relay_id: RelayId) -> Result<u8, String> {
+        // Verify relay identity
+        if request_relay_id != self.relay_id {
+            return Err("Relay identity mismatch".into());
+        }
+        // Check if room is full
+        if (self.next_player_id as usize) >= self.all_players.len() {
+            return Err("Room is full".into());
+        }
+        let player_id = self.next_player_id;
+        self.next_player_id += 1;
+        Ok(player_id)
     }
 
     /// Process a LobbyReady signal. Returns true when ALL players are ready.
@@ -639,7 +674,8 @@ mod relay_tests {
 
     /// Helper to create a relay with 2 players.
     fn relay_2p() -> RelayServer {
-        RelayServer::new(1, 1, 42, 0xABC, vec![0, 1], 3, 1000)
+        let rid = crate::discovery::RelayId(42);
+        RelayServer::new(1, rid, 1, 42, 0xABC, vec![0, 1], 3, 1000)
     }
 
     fn make_empty_frame(tick: u32, player_id: u8, sid: u64) -> PlayerTickFrame {
