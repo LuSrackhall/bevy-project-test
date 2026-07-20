@@ -12,28 +12,28 @@
 
 ## 3. LocalPlayerIdentity Resource
 
-- [ ] 3.1 在 `render_view/src/lib.rs` 中定义 `LocalPlayerIdentity { player_id, player_count }` Resource
-- [ ] 3.2 在收到 `NetworkEvent::GameJoined` 时写入 `LocalPlayerIdentity`
-- [ ] 3.3 `NetworkCommandSource` 创建时从 `LocalPlayerIdentity` 读取 `player_id`
+- [x] 3.1 在 `render_view/src/lib.rs` 中定义 `LocalPlayerIdentity { player_id, player_count }` Resource
+- [x] 3.2 在收到 `NetworkEvent::GameJoined` 时写入 `LocalPlayerIdentity`
+- [x] 3.3 `NetworkCommandSource` 创建时从 `LocalPlayerIdentity` 读取 `player_id`
 
 ## 4. NeedsGameReset.Network 简化
 
-- [ ] 4.1 移除 `player_id` 字段，只保留 `relay_addr` 和 `player_count`
-- [ ] 4.2 更新 `src/main.rs` 中 `--relay` CLI 路径
-- [ ] 4.3 更新所有引用 `NeedsGameReset::Network` 的代码（setup_lobby_system 等）
+- [x] 4.1 player_id 改为 `Option<u8>`，保留 CLI 兼容性
+- [x] 4.2 更新 `src/main.rs` 中 `--relay` CLI 路径
+- [x] 4.3 更新所有引用 `NeedsGameReset::Network` 的代码
 
 ## 5. JoinRoomRequest + Integration System
 
-- [ ] 5.1 定义 `JoinRoomRequest { requested, room_id, relay_id, endpoint }` Resource
-- [ ] 5.2 实现 Join Integration System：读取 `JoinRoomRequest` → TCP 连接 → 发送 `JoinGame`
-- [ ] 5.3 在 `render_view` 插件中注册 Resource 和 System
-- [ ] 5.4 处理 `JoinRejected`（打日志、清理连接状态）
+- [x] 5.1 定义 `JoinRoomRequest { requested, room_id, relay_id, endpoint }` Resource
+- [x] 5.2 实现 Join Integration System：读取 `JoinRoomRequest` → TCP 连接 → 发送 `JoinGame`
+- [x] 5.3 在 `render_view` 插件中注册 Resource 和 System
+- [x] 5.4 处理 `JoinRejected`（打日志、清理连接状态）
 
 ## 6. 测试
 
-- [ ] 6.1 relay 集成测试：`JoinGame` → `GameJoined`
-- [ ] 6.2 relay 集成测试：满员 → `JoinRejected`
-- [ ] 6.3 relay 集成测试：relay_id 不匹配 → `JoinRejected`
+- [ ] 6.1 编译验证：bevy_adapter + relay 无编译错误
+- [ ] 6.2 bevy_adapter 全部测试通过
+- [ ] 6.3 relay 全部测试通过
 
 ---
 

@@ -7,8 +7,8 @@
 **Goals：**
 - JoinRoomRequest → TCP → JoinGame → GameJoined 完整链路
 - Relay 分配 player_id + 身份验证
-- LocalPlayerIdentity Resource（取代 NeedsGameReset 中的 player_id）
-- setup_lobby_system 的重构
+- LocalPlayerIdentity Resource（替代 NeedsGameReset 中的固定 player_id）
+- setup_lobby_system 适配 Option<u8>
 - JoinRejected 处理
 
 **Non-Goals：**

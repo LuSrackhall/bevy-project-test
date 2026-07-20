@@ -95,13 +95,13 @@ pub struct LocalPlayerIdentity {
 
 ```rust
 NeedsGameReset::Network {
-    relay_addr: String,   // 仅保留连接地址
-    player_count: u8,     // 保留 room 容量
-    // player_id 删除 — 由 relay 分配
+    relay_addr: String,    // 连接地址
+    player_count: u8,      // room 容量
+    player_id: Option<u8>, // None = 由 relay 分配, Some = CLI 调试路径
 }
 ```
 
-CLI `--relay --player-id` 后门保留用于调试，但不影响 `JoinGame` 协议。
+CLI `--relay --player-id` 后门保留用于调试，走 `Some(player_id)` 路径，不影响 `JoinGame` 协议。
 
 ### AD5: JoinRoomIntent
 
