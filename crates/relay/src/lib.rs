@@ -46,8 +46,10 @@ pub async fn start_relay(
         .duration_since(SystemTime::UNIX_EPOCH)?
         .as_millis() as u64;
 
+    let relay_id = RelayId(rand::random::<u64>());
+
     let server = RelayServer::new(
-        1, 1, seed, 0, (0..player_count).collect(), 3, now_ms,
+        1, relay_id, 1, seed, 0, (0..player_count).collect(), 3, now_ms,
     );
 
     let ctx = RelayCtx::new(server, player_count);
@@ -60,14 +62,14 @@ pub async fn start_relay(
     udp_socket.set_broadcast(true)?;
     let bc_ctx = ctx.clone();
     let bc_port = port;
-    let relay_id = RelayId(rand::random::<u64>());
+    let bc_relay_id = relay_id;
     let room_id = RoomId(rand::random::<u64>());
     tokio::spawn(async move {
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(3)).await;
             let cc = bc_ctx.clients.lock().unwrap().len() as u8;
             let packet = LanDiscoveryPacket::new(RoomAdvertisement {
-                relay_id,
+                relay_id: bc_relay_id,
                 endpoint: format!("127.0.0.1:{}", bc_port),
                 room: RoomMetadata {
                     room_id,
@@ -98,27 +100,61 @@ pub async fn start_relay(
 
 /// Handle a single client connection.
 async fn handle(ctx: Arc<RelayCtx>, stream: tokio::net::TcpStream) {
+    let (mut reader, writer) = tokio::io::split(stream);
+
+    // Step 1: Wait for JoinGame message before assigning identity
     let player_id = {
-        let mut next = ctx.next_player_id.lock().unwrap();
-        if *next >= ctx.player_count {
-            eprintln!("Game full");
+        let mut len_buf = [0u8; 4];
+        if reader.read_exact(&mut len_buf).await.is_err() {
             return;
         }
-        let pid = *next;
-        *next += 1;
-        pid
+        let len = u32::from_le_bytes(len_buf) as usize;
+        let mut buf = vec![0u8; len];
+        if reader.read_exact(&mut buf).await.is_err() {
+            return;
+        }
+        let Ok((request, _)) = bincode::serde::decode_from_slice::<RelayClientMessage, _>(
+            &buf, bincode::config::standard(),
+        ) else {
+            return;
+        };
+
+        match request {
+            RelayClientMessage::JoinGame { room_id: _, relay_id } => {
+                let result = {
+                    let mut server = ctx.server.lock().unwrap();
+                    server.on_join_game(relay_id)
+                };
+                match result {
+                    Ok(pid) => pid,
+                    Err(reason) => {
+                        let reject = RelayServerMessage::JoinRejected { reason };
+                        let mut w = writer;
+                        relay_write(&mut w, &reject).await;
+                        return;
+                    }
+                }
+            }
+            _ => {
+                eprintln!("[RELAY] Expected JoinGame, got unexpected message");
+                return;
+            }
+        }
     };
 
+    // Step 2: Register client
     let (tx, mut rx) = mpsc::unbounded_channel::<RelayServerMessage>();
     {
         let mut clients = ctx.clients.lock().unwrap();
         clients.insert(player_id, tx);
     }
 
-    let (mut reader, writer) = tokio::io::split(stream);
-
-    // Send GameJoined
-    let msg = RelayServerMessage::GameJoined { game_id: 1, player_id, player_count: ctx.player_count };
+    // Step 3: Send GameJoined with assigned player_id
+    let msg = RelayServerMessage::GameJoined {
+        game_id: 1,
+        player_id,
+        player_count: ctx.player_count,
+    };
     let mut w = writer;
     relay_write(&mut w, &msg).await;
 
@@ -147,6 +183,9 @@ async fn handle(ctx: Arc<RelayCtx>, stream: tokio::net::TcpStream) {
         };
 
         match request {
+            RelayClientMessage::JoinGame { .. } => {
+                // Already joined — ignore redundant JoinGame
+            }
             RelayClientMessage::PlayerTick(frame) => {
                 let now_ms = SystemTime::now()
                     .duration_since(SystemTime::UNIX_EPOCH)
@@ -202,7 +241,7 @@ async fn handle(ctx: Arc<RelayCtx>, stream: tokio::net::TcpStream) {
                     }
                 }
             }
-            RelayClientMessage::JoinGame(_) => {}
+            RelayClientMessage::JoinGame { .. } => {}
                         RelayClientMessage::LobbyReady { game_id, player_id, ready, map_size } => {
                 if !ready { continue; }
                 let all_ready = {

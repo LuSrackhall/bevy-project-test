@@ -6,9 +6,9 @@
 
 ## 2. Relay JoinGame 处理器
 
-- [ ] 2.1 在 `RelayServer` 中实现 `on_join_game` 方法：验证 `relay_id`、分配 slot、返回 `GameJoined` 或 `JoinRejected`
-- [ ] 2.2 在 `relay/src/lib.rs` 的 `handle` 函数中将 `JoinGame` 从空实现改为调用 `on_join_game`
-- [ ] 2.3 满员拒绝：`current_players >= max_players` → `JoinRejected`
+- [x] 2.1 在 `RelayServer` 中实现 `on_join_game` 方法：验证 `relay_id`、分配 slot、返回 `GameJoined` 或 `JoinRejected`
+- [x] 2.2 在 `relay/src/lib.rs` 的 `handle` 函数中将 `JoinGame` 从空实现改为调用 `on_join_game`
+- [x] 2.3 满员拒绝：`current_players >= max_players` → `JoinRejected`
 
 ## 3. LocalPlayerIdentity Resource
 
