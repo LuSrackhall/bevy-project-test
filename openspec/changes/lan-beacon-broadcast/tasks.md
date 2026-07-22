@@ -12,9 +12,9 @@
 
 ## 3. 验证
 
-- [ ] 3.1 编译通过（`cargo build -p bevy_adapter`）
-- [ ] 3.2 运行 `cargo run -- --windowed`，创建房间，确认自己房间出现在列表中
-- [ ] 3.3 现有测试通过（`cargo test -p bevy_adapter`）
+- [x] 3.1 编译通过（`cargo build -p bevy_adapter`）
+- [x] 3.2 运行 `cargo run -- --windowed`，创建房间，确认自己房间出现在列表中
+- [x] 3.3 现有测试通过（`cargo test -p bevy_adapter`）
 
 ---
 

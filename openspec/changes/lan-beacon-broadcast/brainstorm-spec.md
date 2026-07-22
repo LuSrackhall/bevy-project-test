@@ -52,14 +52,15 @@ tokio `UdpSocket` 默认不允许发送广播。缺少此调用时 `send_to("255
 
 ### D3: 信标集成到主循环（`tokio::select!`）
 
-不 `tokio::spawn` 独立任务（避免 `&AtomicBool` 生命周期不满足 `'static`），而是用 `tokio::select!` 将 beacon 间隔与 stop 检查集成到同一个循环：
+不 `tokio::spawn` 独立任务（避免 `&AtomicBool` 生命周期不满足 `'static`），而是用 `tokio::select!` 将 beacon 间隔与 stop 检查集成到同一个循环，并设置 `MissedTickBehavior::Skip` 防止积压：
 
 ```rust
-let mut beacon_interval = tokio::time::interval(Duration::from_secs(3));
+let mut interval = tokio::time::interval(Duration::from_secs(3));
+interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 loop {
     if stop.load(Ordering::Relaxed) { break; }
     tokio::select! {
-        _ = beacon_interval.tick() => { /* 发送 beacon */ }
+        _ = interval.tick() => { /* 发送 beacon */ }
         _ = tokio::time::sleep(Duration::from_millis(100)) => {}
     }
 }

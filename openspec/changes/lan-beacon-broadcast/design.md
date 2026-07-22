@@ -18,10 +18,11 @@
 
 ### D1: 集成到主循环而非 spawn 独立任务
 
-`stop: Arc<AtomicBool>`（从 `&AtomicBool` 改为 `Arc`）以配合 tokio 任务生命周期。但为保持简单，使用 `tokio::select!` 将 beacon 间隔与 stop 检查集成到同一个循环，避免 spawn 的开销和关闭竞态。
+使用 `tokio::select!` 将 beacon 间隔与 stop 检查集成到同一个循环，避免 spawn 的开销和 `'static` 生命周期约束。`run_local_relay` 的 `stop` 参数仍为 `&AtomicBool`（`select!` 不需要 `'static`，保持简洁）。
 
 ```
 let mut interval = tokio::time::interval(Duration::from_secs(3));
+interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 loop {
     if stop.load(Ordering::Relaxed) { break; }
     tokio::select! {
@@ -47,7 +48,7 @@ async fn run_local_relay(
     port_tx: &mpsc::Sender<Result<u16, RelayError>>,
     relay_id: RelayId,
     room: &RoomMetadata,
-    stop: &Arc<AtomicBool>,
+    stop: &AtomicBool,
 )
 ```
 
