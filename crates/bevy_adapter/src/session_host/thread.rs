@@ -4,11 +4,11 @@ use std::sync::mpsc;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::thread;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
-use tokio::net::TcpListener;
+use tokio::net::{TcpListener, UdpSocket};
 
-use crate::discovery::{RelayId, RoomMetadata};
+use crate::discovery::{LanDiscoveryPacket, RelayId, RoomAdvertisement, RoomMetadata};
 use crate::network::RelayServer;
 
 use super::error::RelayError;
@@ -24,8 +24,16 @@ impl RelayRuntime for ThreadRelayRuntime {
         let stop_inner = stop.clone();
         let stop_for_thread = stop.clone();
 
-        let seed: u64 = room.room_id.0;
-        let max_players = room.max_players;
+        // Generate relay_id BEFORE spawning the thread so it's shared between
+        // the beacon (for dedup by relay_id) and the RelayHandle (for UI matching).
+        let relay_id = RelayId(
+            SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .map(|d| d.as_nanos() as u64)
+                .unwrap_or(42),
+        );
+
+        let room_clone = room.clone();
 
         // Channel for thread to report the actual bound port (or error)
         let (port_tx, port_rx) = mpsc::channel();
@@ -40,7 +48,7 @@ impl RelayRuntime for ThreadRelayRuntime {
                     .expect("Failed to build relay tokio runtime");
 
                 rt.block_on(async move {
-                    run_local_relay(&port_tx, seed, max_players, &stop_for_thread).await;
+                    run_local_relay(&port_tx, relay_id, &room_clone, &stop_for_thread).await;
                 });
             })
             .map_err(|e| RelayError::StartFailed(format!("Thread spawn failed: {}", e)))?;
@@ -49,15 +57,6 @@ impl RelayRuntime for ThreadRelayRuntime {
         let actual_port = port_rx
             .recv()
             .map_err(|_| RelayError::StartFailed("Thread died before binding".into()))??;
-
-        // 仅用于网络层元数据（连接跟踪/日志），不回流至 simulation，
-        // 不影响确定性仿真（宪法 §2.6）。
-        let relay_id = RelayId(
-            SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .map(|d| d.as_nanos() as u64)
-                .unwrap_or(42),
-        );
 
         Ok(Box::new(ThreadRelayHandle {
             relay_id,
@@ -70,11 +69,10 @@ impl RelayRuntime for ThreadRelayRuntime {
 
 /// Run a minimal local relay on a background thread.
 /// Binds to port 0 (OS allocation) and sends the actual port back.
-/// Binds to port 0 (OS allocation) and sends the actual port back.
 async fn run_local_relay(
     port_tx: &mpsc::Sender<Result<u16, RelayError>>,
-    seed: u64,
-    max_players: u8,
+    relay_id: RelayId,
+    room: &RoomMetadata,
     stop: &AtomicBool,
 ) {
     let now_ms = SystemTime::now()
@@ -82,8 +80,9 @@ async fn run_local_relay(
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0);
 
+    let seed = room.room_id.0;
     let server = RelayServer::new(
-        1, crate::discovery::RelayId(seed), 1, seed, 0, (0..max_players).collect(), 3, now_ms,
+        1, relay_id, 1, seed, 0, (0..room.max_players).collect(), 3, now_ms,
     );
 
     // Bind to port 0 — OS allocates a free port
@@ -101,16 +100,51 @@ async fn run_local_relay(
     let actual_port = listener.local_addr().map(|a| a.port()).unwrap_or(9876);
     let _ = port_tx.send(Ok(actual_port));
 
-    // Accept connections until stop signal
+    // Create UDP socket for LAN discovery beacon broadcasting.
+    // Room creation is NOT blocked by UDP failure — errors only log.
+    let udp_socket = match UdpSocket::bind(format!("0.0.0.0:{}", actual_port)).await {
+        Ok(s) => {
+            if let Err(e) = s.set_broadcast(true) {
+                eprintln!("[BEACON] set_broadcast(true) failed: {}", e);
+            }
+            Some(s)
+        }
+        Err(e) => {
+            eprintln!("[BEACON] UDP bind failed (beacon disabled): {}", e);
+            None
+        }
+    };
+
+    // Beacon broadcast + stop-check loop
+    let mut interval = tokio::time::interval(Duration::from_secs(3));
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
         if stop.load(Ordering::Relaxed) {
             break;
         }
 
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        // Note: full relay accept loop is handled by relay crate.
-        // For LAN MVP this starts the relay. A complete accept loop
-        // will replace the placeholder once #8 integrates the join flow.
+        tokio::select! {
+            _ = interval.tick() => {
+                if let Some(ref socket) = udp_socket {
+                    let pkt = LanDiscoveryPacket::new(RoomAdvertisement {
+                        relay_id,
+                        endpoint: format!("127.0.0.1:{}", actual_port),
+                        room: room.clone(),
+                    });
+                    if let Ok(data) = pkt.encode() {
+                        // LAN broadcast for cross-machine discovery
+                        if let Err(e) = socket.send_to(&data, "255.255.255.255:9876").await {
+                            eprintln!("[BEACON] send_to 255.255.255.255:9876 failed: {}", e);
+                        }
+                        // Local loopback for single-machine multi-window testing
+                        if let Err(e) = socket.send_to(&data, "127.0.0.1:9876").await {
+                            eprintln!("[BEACON] send_to 127.0.0.1:9876 failed: {}", e);
+                        }
+                    }
+                }
+            }
+            _ = tokio::time::sleep(Duration::from_millis(100)) => {}
+        }
     }
 
     // Keep server alive to prevent drop
