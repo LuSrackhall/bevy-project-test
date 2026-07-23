@@ -9,7 +9,7 @@ use std::time::{Duration, SystemTime};
 use tokio::net::{TcpListener, UdpSocket};
 
 use crate::discovery::{LanDiscoveryPacket, RelayId, RoomAdvertisement, RoomMetadata};
-use crate::network::RelayServer;
+use crate::relay_core::{self, RelayConfig};
 
 use super::error::RelayError;
 use super::runtime::{RelayHandle, RelayRuntime};
@@ -67,24 +67,13 @@ impl RelayRuntime for ThreadRelayRuntime {
     }
 }
 
-/// Run a minimal local relay on a background thread.
-/// Binds to port 0 (OS allocation) and sends the actual port back.
+/// Run the full local relay: TCP bind, UDP beacon, shared relay loop.
 async fn run_local_relay(
     port_tx: &mpsc::Sender<Result<u16, RelayError>>,
     relay_id: RelayId,
     room: &RoomMetadata,
-    stop: &AtomicBool,
+    stop: &Arc<AtomicBool>,
 ) {
-    let now_ms = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0);
-
-    let seed = room.room_id.0;
-    let server = RelayServer::new(
-        1, relay_id, 1, seed, 0, (0..room.max_players).collect(), 3, now_ms,
-    );
-
     // Bind to port 0 — OS allocates a free port
     let listener = match TcpListener::bind("127.0.0.1:0").await {
         Ok(l) => l,
@@ -101,7 +90,6 @@ async fn run_local_relay(
     let _ = port_tx.send(Ok(actual_port));
 
     // Create UDP socket for LAN discovery beacon broadcasting.
-    // Room creation is NOT blocked by UDP failure — errors only log.
     let udp_socket = match UdpSocket::bind(format!("0.0.0.0:{}", actual_port)).await {
         Ok(s) => {
             if let Err(e) = s.set_broadcast(true) {
@@ -115,41 +103,43 @@ async fn run_local_relay(
         }
     };
 
-    // Beacon broadcast + stop-check loop
-    let mut interval = tokio::time::interval(Duration::from_secs(3));
-    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    loop {
-        if stop.load(Ordering::Relaxed) {
-            break;
-        }
-
-        tokio::select! {
-            _ = interval.tick() => {
-                if let Some(ref socket) = udp_socket {
-                    let pkt = LanDiscoveryPacket::new(RoomAdvertisement {
-                        relay_id,
-                        endpoint: format!("127.0.0.1:{}", actual_port),
-                        room: room.clone(),
-                    });
-                    if let Ok(data) = pkt.encode() {
-                        // LAN broadcast for cross-machine discovery
-                        if let Err(e) = socket.send_to(&data, "255.255.255.255:9876").await {
-                            eprintln!("[BEACON] send_to 255.255.255.255:9876 failed: {}", e);
-                        }
-                        // Local loopback for single-machine multi-window testing
-                        if let Err(e) = socket.send_to(&data, "127.0.0.1:9876").await {
-                            eprintln!("[BEACON] send_to 127.0.0.1:9876 failed: {}", e);
-                        }
-                    }
+    // Spawn beacon as a separate task on this runtime so it runs
+    // concurrently with the relay accept loop.
+    if let Some(socket) = udp_socket {
+        let stop_beacon = Arc::clone(stop);
+        let beacon_room = room.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(3));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                if stop_beacon.load(Ordering::Relaxed) {
+                    break;
+                }
+                interval.tick().await;
+                let pkt = LanDiscoveryPacket::new(RoomAdvertisement {
+                    relay_id,
+                    endpoint: format!("127.0.0.1:{}", actual_port),
+                    room: beacon_room.clone(),
+                });
+                if let Ok(data) = pkt.encode() {
+                    let _ = socket.send_to(&data, "255.255.255.255:9876").await;
+                    let _ = socket.send_to(&data, "127.0.0.1:9876").await;
                 }
             }
-            _ = tokio::time::sleep(Duration::from_millis(100)) => {}
-        }
+        });
     }
 
-    // Keep server alive to prevent drop
-    let _ = server;
-    let _ = listener;
+    // Delegate to shared relay runtime for TCP accept + client handling
+    let config = RelayConfig {
+        relay_id,
+        game_id: 1,
+        ruleset_version: 1,
+        seed: room.room_id.0,
+        map_spec_hash: 0,
+        player_count: room.max_players,
+        input_delay: 3,
+    };
+    relay_core::run_relay(listener, config, stop).await;
 }
 
 /// Handle for a thread-based relay instance.

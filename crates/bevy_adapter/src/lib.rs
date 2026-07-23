@@ -6,6 +6,7 @@ pub mod lan;
 pub mod lifecycle;
 pub mod mapper;
 pub mod network;
+pub mod relay_core;
 pub mod replay;
 pub mod session;
 pub mod session_host;
