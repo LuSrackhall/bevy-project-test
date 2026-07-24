@@ -103,11 +103,10 @@ tokio::select! {
 
 ```rust
 async fn run_local_relay(port_tx, relay_id, room, stop) {
-    // 1. RelayServer 创建（保持不变）
-    // 2. TCP bind + port_tx.send（保持不变）
-    // 3. UDP socket + beacon（保持不变，Change A 添加）
-    // 4. relay_core::run_relay(listener, config, stop).await
-    // 5. 保持 server / listener drop guard（beacon loop 退出后）
+    // 1. TCP bind + port_tx.send（保持不变）
+    // 2. UDP socket + beacon（保持不变，spawn 独立任务）
+    // 3. relay_core::run_relay(listener, config, stop).await
+    //    （RelayServer 由 run_relay 内部创建，不再解构 RoomMetadata）
 }
 ```
 

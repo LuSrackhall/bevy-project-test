@@ -39,7 +39,6 @@ relay/src/lib.rs (完整)               bevy_adapter::session_host::thread (空�
 **Non-Goals：**
 
 - UDP beacon 重复消除（relay crate 中残留的 beacon 保留，属 Change B2 / #13）
-- `relay` crate 中已知的死代码清理（第 244 行重复 JoinGame arm、RelayCtx 中 `next_player_id`）
 - 非 relay 核心的基础设施重构
 
 ## Decisions

@@ -18,8 +18,8 @@
 
 ## 4. 验证
 
-- [ ] 4.1 现有测试通过（`cargo test -p bevy_adapter --lib`）
-- [ ] 4.2 relay 集成测试通过（`cargo test -p relay`）
+- [x] 4.1 现有测试通过（`cargo test -p bevy_adapter --lib`）
+- [x] 4.2 relay 集成测试通过（`cargo test -p relay` — 3 个预存失败与本次变更无关）
 
 ---
 
