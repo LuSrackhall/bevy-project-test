@@ -423,6 +423,16 @@ impl RelayServer {
         self.lobby_ready_mask.count_ones() as u8 >= self.all_players.len() as u8
     }
 
+    /// Process a LobbyReady { ready: false } signal — clear the player's ready bit.
+    pub fn on_lobby_not_ready(&mut self, player_id: u8) {
+        self.lobby_ready_mask &= !(1 << player_id);
+    }
+
+    /// Whether the game has started (prevents late LobbyReady tampering).
+    pub fn is_game_started(&self) -> bool {
+        self.game_started
+    }
+
     /// Process an incoming player frame.
     ///
     /// Returns `(Option<TickCommands>, bool)`:

@@ -247,10 +247,16 @@ async fn handle_client(ctx: Arc<RelayCtx>, stream: TcpStream) {
                 }
             }
             RelayClientMessage::LobbyReady { game_id, player_id, ready, map_size: _ } => {
-                if !ready { continue; }
                 let all_ready = {
                     let mut server = ctx.server.lock().unwrap();
-                    server.on_lobby_ready(player_id)
+                    // Ignore lobby changes after the game has started
+                    if server.is_game_started() { continue; }
+                    if ready {
+                        server.on_lobby_ready(player_id)
+                    } else {
+                        server.on_lobby_not_ready(player_id);
+                        false
+                    }
                 };
 
                 // Broadcast LobbyUpdate to all connected clients
