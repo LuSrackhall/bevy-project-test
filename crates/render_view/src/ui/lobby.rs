@@ -259,19 +259,37 @@ pub fn update_lobby_player_list(
     }
 }
 
+/// Toggle button visibility based on host status.
+pub fn toggle_button_visibility(
+    is_host: Option<Res<crate::IsHost>>,
+    mut q: Query<(&mut Node, &LobbyActionButton), With<LobbyUI>>,
+) {
+    let host = is_host.map(|h| h.0).unwrap_or(false);
+    for (mut node, btn_type) in q.iter_mut() {
+        match btn_type {
+            LobbyActionButton::Ready => {
+                node.display = if host { Display::None } else { Display::Flex };
+            }
+            LobbyActionButton::StartGame => {
+                node.display = if host { Display::Flex } else { Display::None };
+            }
+        }
+    }
+}
+
 /// Update ready button text after local player clicks ready.
 pub fn update_ready_button(
     ready_state: Res<ReadyState>,
-    is_host: Option<Res<crate::IsHost>>,
-    mut q: Query<&mut Text, (With<LobbyActionButton>, Without<LobbyPlayerListContainer>)>,
+    mut q: Query<(&mut Text, &LobbyActionButton), With<LobbyUI>>,
 ) {
-    let host = is_host.map(|h| h.0).unwrap_or(false);
-    for mut text in q.iter_mut() {
-        if ready_state.0 {
-            if host {
-                text.0 = "已开始".to_string();
-            } else {
+    for (mut text, btn_type) in q.iter_mut() {
+        if !ready_state.0 { continue; }
+        match btn_type {
+            LobbyActionButton::Ready => {
                 text.0 = "已就绪".to_string();
+            }
+            LobbyActionButton::StartGame => {
+                text.0 = "已开始".to_string();
             }
         }
     }
