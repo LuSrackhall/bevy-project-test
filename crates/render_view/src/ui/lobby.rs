@@ -161,11 +161,11 @@ pub fn setup_lobby_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
                         // Host uses the Start Game button instead
                         let host = is_host.map(|h| h.0).unwrap_or(false);
                         if host { return; }
-                        if ready_state.0 { return; }
                         if let (Some(s), Some(ns)) = (sender, network_start) {
-                            bevy::log::info!("[LOBBY] Sending LobbyReady (player_id={})", ns.player_id);
-                            s.send_lobby_ready(ns.player_id);
-                            ready_state.0 = true;
+                            let new_ready = !ready_state.0;
+                            bevy::log::info!("[LOBBY] Sending LobbyReady (player_id={}, ready={})", ns.player_id, new_ready);
+                            s.send_lobby_ready(ns.player_id, new_ready);
+                            ready_state.0 = new_ready;
                         }
                     },
                 );
@@ -201,7 +201,7 @@ pub fn setup_lobby_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
                         if ready_state.0 { return; }
                         if let (Some(s), Some(ns)) = (sender, network_start) {
                             bevy::log::info!("[LOBBY] Host starting game (player_id={})", ns.player_id);
-                            s.send_lobby_ready(ns.player_id);
+                            s.send_lobby_ready(ns.player_id, true);
                             ready_state.0 = true;
                         }
                     },
@@ -277,20 +277,17 @@ pub fn toggle_button_visibility(
     }
 }
 
-/// Update ready button text after local player clicks ready.
+/// Update ready button text based on ready state.
 pub fn update_ready_button(
     ready_state: Res<ReadyState>,
     mut q: Query<(&mut Text, &LobbyActionButton), With<LobbyUI>>,
 ) {
     for (mut text, btn_type) in q.iter_mut() {
-        if !ready_state.0 { continue; }
-        match btn_type {
-            LobbyActionButton::Ready => {
-                text.0 = "已就绪".to_string();
-            }
-            LobbyActionButton::StartGame => {
-                text.0 = "已开始".to_string();
-            }
+        match (btn_type, ready_state.0) {
+            (LobbyActionButton::Ready, true) => text.0 = "已就绪".to_string(),
+            (LobbyActionButton::Ready, false) => text.0 = "就绪".to_string(),
+            (LobbyActionButton::StartGame, true) => text.0 = "已开始".to_string(),
+            (LobbyActionButton::StartGame, false) => text.0 = "开始游戏".to_string(),
         }
     }
 }

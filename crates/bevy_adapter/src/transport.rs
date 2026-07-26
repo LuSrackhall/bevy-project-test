@@ -75,9 +75,9 @@ impl NetworkSender {
         *sid
     }
 
-    pub fn send_lobby_ready(&self, player_id: u8) {
+    pub fn send_lobby_ready(&self, player_id: u8, ready: bool) {
         *self.lobby_ready.lock().unwrap() = Some(RelayClientMessage::LobbyReady {
-            game_id: 1, player_id, ready: true, map_size: None,
+            game_id: 1, player_id, ready, map_size: None,
         });
     }
 
