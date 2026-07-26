@@ -31,10 +31,13 @@ impl Plugin for UiPlugin {
             // LanLobby room list and modal
             .add_systems(Update, lan_lobby::update_room_list.run_if(in_state(crate::GameState::LanLobby)))
             .init_resource::<lan_lobby::ModalState>()
+            .init_resource::<lobby::ReadyState>()
             // Lobby UI
             .add_systems(OnEnter(crate::GameState::Lobby), lobby::setup_lobby_ui)
             .add_systems(OnExit(crate::GameState::Lobby), (lobby::cleanup_lobby_ui, crate::cleanup_lobby_network))
             .add_systems(Update, lobby::update_lobby_status.after(crate::lobby_update_system).run_if(in_state(crate::GameState::Lobby)))
+            .add_systems(Update, lobby::update_lobby_player_list.after(crate::lobby_update_system).run_if(in_state(crate::GameState::Lobby)))
+            .add_systems(Update, lobby::update_ready_button.after(lobby::update_lobby_status).run_if(in_state(crate::GameState::Lobby)))
             // HUD setup is registered in RenderViewPlugin (after reset_game_system)
             // update_top_bar runs even during replay (top bar shows real-time faction stats)
             // It has NO gate — not even Paused — since the replay seek driver updates world state
