@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use bevy::window::MonitorSelection;
 
+use bevy_adapter::discovery::RelayId;
 use bevy_adapter::tick::SimulationWorld;
 use bevy_adapter::BevyAdapterPlugin;
 use presentation::PresentationPlugin;
@@ -53,6 +54,7 @@ fn main() {
                 relay_addr: relay_addr.clone(),
                 player_count,
                 player_id: Some(player_id),
+                relay_id: RelayId(0),
             });
             app.add_systems(Startup, |mut next: ResMut<NextState<render_view::GameState>>| {
                 next.set(render_view::GameState::Lobby);

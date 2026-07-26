@@ -47,7 +47,7 @@ pub enum NeedsGameReset {
 }
 
 /// Whether the local client created the room (is the host).
-#[derive(Resource)]
+#[derive(Resource, Default)]
 pub struct IsHost(pub bool);
 
 /// Player list displayed in the lobby waiting room.
@@ -114,6 +114,7 @@ impl Plugin for RenderViewPlugin {
             .init_resource::<JoinRoomRequest>()
             .init_resource::<LocalPlayerIdentity>()
             .init_resource::<LobbyPlayerList>()
+            .init_resource::<IsHost>()
             .add_plugins(crate::ui::UiPlugin)
             .add_systems(Startup, crate::camera::setup_camera)
             .init_resource::<crate::unit_info_bar::UnitInfoBarSettings>();

@@ -18,5 +18,5 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let seed: u64 = parse_arg(&args, "--seed").unwrap_or(42);
     let players: u8 = parse_arg(&args, "--players").unwrap_or(2);
 
-    start_relay(port, seed, players).await
+    start_relay(port, seed, players, None).await
 }
