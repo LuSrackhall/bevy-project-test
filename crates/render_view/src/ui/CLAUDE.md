@@ -42,3 +42,14 @@ Widgets must not own domain or gameplay state, and must never contain:
 Do not couple application architecture to Bevy's current implementation details.
 
 When Bevy evolves (input model, UI architecture, declarative UI system, ECS relationships, or runtime UI model), preserve these architectural principles instead of preserving specific APIs or implementation patterns.
+
+## Bevy 0.19 UI 开发参考
+
+Bevy UI 功能开发时（特别是文本输入、焦点管理、Widget），优先查阅官方文档而非 AI 训练数据：
+
+- **Bevy API 文档（主入口）**：<https://docs.rs/bevy/0.19.0/bevy/index.html>
+- **UI Widgets**：`bevy::ui_widgets` 模块（Button, EditableText 等）
+- **文本输入（EditableText）**：<https://docs.rs/bevy/0.19.0/bevy/text/struct.EditableText.html>
+  - 示例：`<bevy_repo>/examples/ui/text/text_input.rs`
+- **输入焦点管理**：`bevy::input_focus` 模块（AutoFocus, TabGroup, TabIndex, InputFocus）
+- **光标样式**：`bevy::text::TextCursorStyle`
