@@ -4,7 +4,8 @@
 
 use bevy::prelude::*;
 
-use crate::driver::{CommandSource};
+use crate::discovery::{RelayId, RoomId};
+use crate::driver::CommandSource;
 use crate::network::{
     BroadcastFrame, NetworkEvent, NetworkEventReceiver, PlayerTickFrame, RelayClientMessage,
     RelayServerMessage,
@@ -160,6 +161,23 @@ pub fn network_flush_system(
 // Network client thread
 // ═══════════════════════════════════════════════════════════════
 
+/// Send RelayClientMessage::JoinGame over the established TCP stream.
+/// Must be called after TCP connect, before run_session.
+async fn send_join_game(
+    stream: &mut tokio::net::TcpStream,
+    relay_id: RelayId,
+) {
+    let join_msg = RelayClientMessage::JoinGame {
+        room_id: RoomId(0),
+        relay_id,
+    };
+    if let Ok(data) = bincode::serde::encode_to_vec(&join_msg, bincode::config::standard()) {
+        let len_bytes = (data.len() as u32).to_le_bytes();
+        let _ = stream.write_all(&len_bytes).await;
+        let _ = stream.write_all(&data).await;
+    }
+}
+
 /// Spawn a tokio runtime thread that connects to the relay.
 ///
 /// **Blocks** until TCP connection is established (30s timeout).
@@ -173,6 +191,7 @@ pub fn spawn_network_client(
     player_id: u8,
     _ruleset_version: u32,
     event_receiver: NetworkEventReceiver,
+    relay_id: RelayId,
 ) -> Result<(NetworkReceiver, NetworkSender, NetworkClientHandle), String> {
     let receiver = NetworkReceiver::default();
     let sender = NetworkSender::default();
@@ -207,7 +226,7 @@ pub fn spawn_network_client(
                 )
                 .await;
 
-                let stream = match stream {
+                let mut stream = match stream {
                     Ok(Ok(s)) => s,
                     _ => {
                         retry_count = retry_count.saturating_add(1);
@@ -227,6 +246,9 @@ pub fn spawn_network_client(
                 // TCP connected! Signal the main thread (spawn_network_client unblocks)
                 let _ = connected_tx.send(());
                 retry_count = 0;
+
+                // Send JoinGame before entering session loop
+                send_join_game(&mut stream, relay_id).await;
 
                 // Enter read/write session
                 let clean_exit = run_session(
@@ -270,6 +292,7 @@ pub fn spawn_network_client_nonblocking(
     player_id: u8,
     _ruleset_version: u32,
     event_receiver: NetworkEventReceiver,
+    relay_id: RelayId,
 ) -> (NetworkReceiver, NetworkSender, NetworkClientHandle, LobbyConnectionStatus) {
     let receiver = NetworkReceiver::default();
     let sender = NetworkSender::default();
@@ -303,7 +326,7 @@ pub fn spawn_network_client_nonblocking(
                 )
                 .await;
 
-                let stream = match stream {
+                let mut stream = match stream {
                     Ok(Ok(s)) => s,
                     _ => {
                         retry_count = retry_count.saturating_add(1);
@@ -323,6 +346,9 @@ pub fn spawn_network_client_nonblocking(
                 // TCP connected! Signal via status channel
                 conn_status.result.lock().unwrap().replace(Ok(()));
                 retry_count = 0;
+
+                // Send JoinGame before entering session loop
+                send_join_game(&mut stream, relay_id).await;
 
                 let clean_exit = run_session(
                     stream, game_id, player_id, _ruleset_version,

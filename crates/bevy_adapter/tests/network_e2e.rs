@@ -115,6 +115,7 @@ fn test_network_pipeline_e2e() {
         0, // player_id
         1, // ruleset_version
         event_receiver.clone(),
+        bevy_adapter::discovery::RelayId(1),
     )
     .expect("spawn_network_client should connect within 5s");
     // Wait for TCP handshake + GameJoined message
