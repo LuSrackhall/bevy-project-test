@@ -91,7 +91,7 @@ async fn test_relay_two_clients_full_cycle() {
 
     // Start relay in background task
     tokio::spawn(async move {
-        start_relay(port, 42, 2).await.unwrap();
+        start_relay(port, 42, 2, None).await.unwrap();
     });
 
     // Allow relay to start
@@ -126,7 +126,7 @@ async fn test_relay_correct_tick_advancement() {
     let port = find_free_port().await;
 
     tokio::spawn(async move {
-        start_relay(port, 42, 2).await.unwrap();
+        start_relay(port, 42, 2, None).await.unwrap();
     });
     tokio::time::sleep(Duration::from_millis(200)).await;
 
@@ -154,7 +154,7 @@ async fn test_relay_three_ticks_sequential() {
     let port = find_free_port().await;
 
     tokio::spawn(async move {
-        start_relay(port, 42, 2).await.unwrap();
+        start_relay(port, 42, 2, None).await.unwrap();
     });
     tokio::time::sleep(Duration::from_millis(200)).await;
 

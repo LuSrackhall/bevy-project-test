@@ -39,7 +39,7 @@ async fn read_msg(stream: &mut TcpStream, secs: u64) -> RelayServerMessage {
 async fn test_two_clients_receive_identical_broadcasts() {
     let port = find_free_port().await;
 
-    tokio::spawn(async move { start_relay(port, 42, 2).await.unwrap(); });
+    tokio::spawn(async move { start_relay(port, 42, 2, None).await.unwrap(); });
     tokio::time::sleep(Duration::from_millis(200)).await;
 
     // Both clients connect
@@ -112,7 +112,7 @@ async fn test_two_clients_receive_identical_broadcasts() {
 async fn test_two_clients_lobby_ready_then_game_started() {
     let port = find_free_port().await;
 
-    tokio::spawn(async move { start_relay(port, 42, 2).await.unwrap(); });
+    tokio::spawn(async move { start_relay(port, 42, 2, None).await.unwrap(); });
     tokio::time::sleep(Duration::from_millis(200)).await;
 
     let mut c0 = TcpStream::connect(("127.0.0.1", port)).await.unwrap();

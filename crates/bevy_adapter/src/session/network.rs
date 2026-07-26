@@ -1,5 +1,6 @@
 //! Network mode initializer — TCP 连接 + 握手 + 返回 bootstrap facts。
 
+use crate::discovery::RelayId;
 use crate::network::NetworkEventReceiver;
 use crate::session::SessionConfig;
 use crate::transport::{NetworkClientHandle, NetworkReceiver, NetworkSender};
@@ -28,7 +29,7 @@ pub fn initialize(config: &SessionConfig) -> Result<NetworkBootstrapResult, Stri
 
     let event_receiver = NetworkEventReceiver::default();
     let (receiver, sender, handle) =
-        crate::transport::spawn_network_client(relay_addr, 1, player_id, 1, event_receiver.clone())?;
+        crate::transport::spawn_network_client(relay_addr, 1, player_id, 1, event_receiver.clone(), RelayId(0))?;
 
     Ok(NetworkBootstrapResult {
         player_id,

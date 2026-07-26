@@ -43,8 +43,16 @@ pub enum NeedsGameReset {
     SameSize,
     NewGame(simulation::map::MapSize),
     Replay(simulation::replay::ReplayFile),
-    Network { relay_addr: String, player_count: u8, player_id: Option<u8> },
+    Network { relay_addr: String, player_count: u8, player_id: Option<u8>, relay_id: bevy_adapter::discovery::RelayId },
 }
+
+/// Whether the local client created the room (is the host).
+#[derive(Resource, Default)]
+pub struct IsHost(pub bool);
+
+/// Player list displayed in the lobby waiting room.
+#[derive(Resource, Default)]
+pub struct LobbyPlayerList(pub Vec<bevy_adapter::network::LobbyPlayerState>);
 
 /// Lobby 连接阶段
 #[derive(Debug, Clone)]
@@ -105,6 +113,8 @@ impl Plugin for RenderViewPlugin {
             .init_resource::<CreateRoomRequest>()
             .init_resource::<JoinRoomRequest>()
             .init_resource::<LocalPlayerIdentity>()
+            .init_resource::<LobbyPlayerList>()
+            .init_resource::<IsHost>()
             .add_plugins(crate::ui::UiPlugin)
             .add_systems(Startup, crate::camera::setup_camera)
             .init_resource::<crate::unit_info_bar::UnitInfoBarSettings>();
@@ -258,12 +268,12 @@ fn setup_lobby_system(
     needs_reset: Res<NeedsGameReset>,
 ) {
     let network_config = match &*needs_reset {
-        NeedsGameReset::Network { relay_addr, player_count, player_id } => {
-            Some((relay_addr.clone(), *player_count, *player_id))
+        NeedsGameReset::Network { relay_addr, player_count, player_id, relay_id } => {
+            Some((relay_addr.clone(), *player_count, *player_id, *relay_id))
         }
         _ => None,
     };
-    let Some((relay_addr, player_count, player_id)) = network_config else {
+    let Some((relay_addr, player_count, player_id, relay_id)) = network_config else {
         bevy::log::error!("[LOBBY] NeedsGameReset is not Network");
         commands.insert_resource(NextState::<GameState>::default());
         return;
@@ -279,7 +289,7 @@ fn setup_lobby_system(
     use bevy_adapter::transport::spawn_network_client_nonblocking;
     let event_receiver = NetworkEventReceiver::default();
     let (receiver, sender, handle, status) = spawn_network_client_nonblocking(
-        relay_addr.clone(), 1, effective_id, 1, event_receiver.clone(),
+        relay_addr.clone(), 1, effective_id, 1, event_receiver.clone(), relay_id,
     );
 
     // Insert transport resources immediately (tokio thread runs in background)
@@ -369,9 +379,17 @@ pub fn lobby_update_system(
                     next_state.set(GameState::Playing);
                     return;
                 }
-                if let NetworkEvent::LobbyUpdate { .. } = event {
-                    state.phase = LobbyPhase::Ready;
-                    return;
+                if let NetworkEvent::LobbyUpdate { players, .. } = event {
+                    // Store player list for UI rendering (C2)
+                    commands.insert_resource(LobbyPlayerList(players.clone()));
+                    // Only set Ready if the local player is ready
+                    let local_ready = players.iter().any(|p| {
+                        p.player_id == network_start.player_id && p.ready
+                    });
+                    if local_ready {
+                        state.phase = LobbyPhase::Ready;
+                        return;
+                    }
                 }
             }
         }
@@ -657,6 +675,9 @@ pub struct LocalPlayerIdentity {
 fn handle_create_room(
     mut request: ResMut<CreateRoomRequest>,
     mut controller: ResMut<bevy_adapter::session_host::SessionController>,
+    mut needs_reset: ResMut<NeedsGameReset>,
+    mut next_state: ResMut<NextState<GameState>>,
+    mut commands: Commands,
 ) {
     if !request.requested {
         return;
@@ -679,6 +700,19 @@ fn handle_create_room(
     match controller.create_session(room) {
         Ok(_) => {
             bevy::log::info!("[LAN] Room created successfully");
+            // Transition host into Lobby by connecting to the local relay
+            if let Some(session) = controller.current_session() {
+                let endpoint = session.relay.endpoint();
+                let relay_id = session.relay.relay_id();
+                *needs_reset = NeedsGameReset::Network {
+                    relay_addr: format!("127.0.0.1:{}", endpoint.port()),
+                    player_count: request.max_players,
+                    player_id: Some(0), // Host is player 0
+                    relay_id,
+                };
+                commands.insert_resource(IsHost(true));
+                next_state.set(GameState::Lobby);
+            }
         }
         Err(e) => {
             bevy::log::error!("[LAN] Failed to create room: {}", e);
@@ -695,6 +729,7 @@ fn handle_join_room(
     mut request: ResMut<JoinRoomRequest>,
     mut needs_reset: ResMut<NeedsGameReset>,
     mut next_state: ResMut<NextState<GameState>>,
+    mut commands: Commands,
 ) {
     if !request.requested {
         return;
@@ -706,7 +741,9 @@ fn handle_join_room(
         relay_addr: request.endpoint.clone(),
         player_count: max_players,
         player_id: None, // Relay assigns player_id
+        relay_id: request.relay_id,
     };
+    commands.insert_resource(IsHost(false));
     next_state.set(GameState::Lobby);
 
     bevy::log::info!(

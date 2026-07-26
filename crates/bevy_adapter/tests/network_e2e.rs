@@ -17,6 +17,7 @@ use std::thread;
 use std::time::Duration;
 
 use bevy::prelude::*;
+use bevy_adapter::discovery::RelayId;
 use bevy_adapter::driver::{
     CommandSource, SimulationDriver, SchedulerState, TickClock, simulation_driver_system,
 };
@@ -44,7 +45,7 @@ fn find_free_port() -> u16 {
 }
 
 /// Spawn the relay server on a background tokio thread.
-fn spawn_relay(port: u16, seed: u64, players: u8) -> thread::JoinHandle<()> {
+fn spawn_relay(port: u16, seed: u64, players: u8, relay_id: RelayId) -> thread::JoinHandle<()> {
     thread::Builder::new()
         .name("relay".into())
         .spawn(move || {
@@ -53,7 +54,7 @@ fn spawn_relay(port: u16, seed: u64, players: u8) -> thread::JoinHandle<()> {
                 .enable_time()
                 .build()
                 .expect("relay tokio runtime");
-            rt.block_on(relay::start_relay(port, seed, players))
+            rt.block_on(relay::start_relay(port, seed, players, Some(relay_id)))
                 .expect("relay server")
         })
         .expect("relay thread")
@@ -83,7 +84,7 @@ fn make_cmd(tick: u32, unit_id: Option<UnitId>) -> GameCommand {
 fn test_network_pipeline_e2e() {
     // ── Phase 1: Relay server (background thread) ──────────
     let port = find_free_port();
-    let _relay = spawn_relay(port, 42, 1);
+    let _relay = spawn_relay(port, 42, 1, RelayId(1));
     thread::sleep(Duration::from_millis(200));
 
     // ── Phase 2: Seed the simulation world ─────────────────
@@ -115,6 +116,7 @@ fn test_network_pipeline_e2e() {
         0, // player_id
         1, // ruleset_version
         event_receiver.clone(),
+        bevy_adapter::discovery::RelayId(1),
     )
     .expect("spawn_network_client should connect within 5s");
     // Wait for TCP handshake + GameJoined message
