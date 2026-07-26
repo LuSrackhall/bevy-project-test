@@ -37,7 +37,7 @@ Node { flex_grow: 1.0, flex_direction: Column }
 
 ### D3: 就绪/开始按钮
 
-- 非房主：显示"就绪"按钮 → 点击发送 LobbyReady(true) → 按钮文本改为"已就绪"并禁用
-- 房主：显示"开始游戏"按钮 → 点击发送 LobbyReady(true)
-
-通过 `Res<IsHost>` 判断显示哪个按钮。使用 `AlreadyReady(bool)` Resource 跟踪本地就绪状态。
+- 非房主：显示"就绪"按钮 → 点击发送 LobbyReady(true) → 按钮文本改为"已就绪"
+- 房主：显示"开始游戏"按钮 → 点击发送 LobbyReady(true) → 按钮文本改为"已开始"
+- 按钮可见性通过 `toggle_button_visibility` 系统按 `IsHost` 切换（ Display::Flex / Display::None ）
+- `ReadyState(bool)` Resource 跟踪本地就绪状态，`OnEnter(Lobby)` 时重置为 false
