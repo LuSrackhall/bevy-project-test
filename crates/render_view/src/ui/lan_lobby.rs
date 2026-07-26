@@ -1,4 +1,6 @@
+use bevy::input_focus::AutoFocus;
 use bevy::prelude::*;
+use bevy::text::EditableText;
 use bevy::ui_widgets::{Activate, Button as WidgetButton};
 
 use crate::ui::hud::ButtonTheme;
@@ -300,13 +302,17 @@ fn open_create_room_modal(
                 Node { margin: UiRect::top(Val::Px(15.0)), ..default() },
             ));
             parent.spawn((
-                // Placeholder for text input — for MVP use a button to generate default name
-                WidgetButton,
-                Node { padding: UiRect::all(Val::Px(8.0)), min_width: Val::Px(200.0), ..default() },
-                ButtonTheme::dark(),
+                EditableText {
+                    visible_width: Some(15.),
+                    allow_newlines: false,
+                    ..default()
+                },
+                TextFont { font: font.clone().into(), font_size: FontSize::Px(16.0), ..default() },
+                Node { padding: UiRect::all(Val::Px(8.0)), min_width: Val::Px(200.0), border: UiRect::all(Val::Px(1.0)), ..default() },
+                BorderColor::all(Color::srgba(0.5, 0.5, 0.6, 1.0)),
+                AutoFocus,
                 ModalRoomName,
-            ))
-            .with_child((Text::new("默认房间名"), TextFont { font: font.clone().into(), font_size: FontSize::Px(14.0), ..default() }));
+            ));
 
             // Map size (simple UI for MVP: click to cycle)
             parent.spawn((
@@ -376,13 +382,24 @@ fn open_create_room_modal(
                     mut request: ResMut<crate::CreateRoomRequest>,
                     modal_state: Option<Res<ModalState>>,
                     mut commands: Commands,
-                    q: Query<Entity, With<LanLobbyModal>>| {
+                    q: Query<Entity, With<LanLobbyModal>>,
+                    editable_text_q: Query<&EditableText, With<ModalRoomName>>| {
                     let state = match modal_state {
                         Some(s) => s,
                         None => return,
                     };
                     request.requested = true;
-                    request.room_name = state.room_name.clone();
+                    // Read room name from EditableText input, fall back to ModalState
+                    if let Some(editable) = editable_text_q.iter().next() {
+                        let name = editable.value().to_string();
+                        request.room_name = if name.is_empty() {
+                            state.room_name.clone()
+                        } else {
+                            name
+                        };
+                    } else {
+                        request.room_name = state.room_name.clone();
+                    }
                     request.map_id = state.map_id.clone();
                     request.max_players = state.max_players;
                     // Close modal
