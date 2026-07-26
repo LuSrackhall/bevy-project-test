@@ -87,15 +87,20 @@ pub enum NeedsGameReset {
 }
 ```
 
-### D4: IsHost 资源 + LobbyPlayerList
+### D4: IsHost 资源 + LobbyPlayerList + relay_id 传递链延伸
 
 ```rust
-#[derive(Resource)]
+#[derive(Resource, Default)]
 pub struct IsHost(pub bool);
 
 #[derive(Resource, Default)]
 pub struct LobbyPlayerList(pub Vec<bevy_adapter::network::LobbyPlayerState>);
 ```
+
+`relay_id` 传递链延伸至 CLI 入口和测试：
+- `src/main.rs` 的 `--relay` CLI 路径也适配了 `relay_id` 字段
+- `relay::start_relay(port, seed, players, relay_id: Option<RelayId>)` 增加可选参数，使测试能指定已知 relay_id
+- `network_e2e` 测试使用 `RelayId(1)` 确保 JoinGame 正确握手
 
 ### D5: LobbyUpdate 修复
 
