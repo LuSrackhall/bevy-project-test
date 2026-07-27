@@ -74,8 +74,8 @@ async fn run_local_relay(
     room: &RoomMetadata,
     stop: &Arc<AtomicBool>,
 ) {
-    // Bind to port 0 — OS allocates a free port
-    let listener = match TcpListener::bind("127.0.0.1:0").await {
+    // Bind to 0.0.0.0:0 — accept connections from LAN, OS allocates port
+    let listener = match TcpListener::bind("0.0.0.0:0").await {
         Ok(l) => l,
         Err(e) => {
             let _ = port_tx.send(Err(RelayError::StartFailed(format!(
@@ -103,11 +103,16 @@ async fn run_local_relay(
         }
     };
 
+    // Detect LAN IP so remote clients can connect (not 127.0.0.1)
+    let lan_ip = detect_lan_ip();
+    eprintln!("[RELAY] LAN IP: {}, port: {}", lan_ip, actual_port);
+
     // Spawn beacon as a separate task on this runtime so it runs
     // concurrently with the relay accept loop.
     if let Some(socket) = udp_socket {
         let stop_beacon = Arc::clone(stop);
         let beacon_room = room.clone();
+        let beacon_endpoint = format!("{}:{}", lan_ip, actual_port);
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(Duration::from_secs(3));
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -118,7 +123,7 @@ async fn run_local_relay(
                 interval.tick().await;
                 let pkt = LanDiscoveryPacket::new(RoomAdvertisement {
                     relay_id,
-                    endpoint: format!("127.0.0.1:{}", actual_port),
+                    endpoint: beacon_endpoint.clone(),
                     room: beacon_room.clone(),
                 });
                 if let Ok(data) = pkt.encode() {
@@ -166,4 +171,13 @@ impl RelayHandle for ThreadRelayHandle {
         }
         Ok(())
     }
+}
+
+/// Detect this machine's LAN IP by opening a UDP socket to an external address.
+/// Falls back to 127.0.0.1 if detection fails (e.g., no network).
+fn detect_lan_ip() -> std::net::IpAddr {
+    std::net::UdpSocket::bind("0.0.0.0:0")
+        .and_then(|s| s.connect("8.8.8.8:80").and_then(|_| s.local_addr()))
+        .map(|a| a.ip())
+        .unwrap_or(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST))
 }
