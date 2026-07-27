@@ -206,13 +206,21 @@ pub fn update_room_list(
                 if is_own {
                     row.spawn((Text::new("⚡"), TextFont { font: font.clone().into(), font_size: FontSize::Px(16.0), ..default() }, Node { flex_grow: 1.0, ..default() }));
                 } else if can_join {
+                    let pkt_for_join = pkt.clone();
                     row.spawn((
                         WidgetButton,
                         Node { padding: UiRect::all(Val::Px(4.0)), border: UiRect::all(Val::Px(1.0)), flex_grow: 1.0, ..default() },
                         RoomRowJoinBtn(pkt),
                         BorderColor::all(Color::srgba(0.2, 0.6, 0.2, 1.0)),
                     ))
-                    .with_child((Text::new("加入"), TextFont { font: font.clone().into(), font_size: FontSize::Px(14.0), ..default() }));
+                    .with_child((Text::new("加入"), TextFont { font: font.clone().into(), font_size: FontSize::Px(14.0), ..default() }))
+                    .observe(move |_ev: On<Activate>,
+                        mut request: ResMut<crate::JoinRoomRequest>| {
+                        request.requested = true;
+                        request.relay_id = pkt_for_join.advertisement.relay_id;
+                        request.endpoint = pkt_for_join.advertisement.endpoint.clone();
+                        request.room_id = pkt_for_join.advertisement.room.room_id;
+                    });
                 } else {
                     row.spawn((Text::new("满员"), TextFont { font: font.clone().into(), font_size: FontSize::Px(16.0), ..default() }, Node { flex_grow: 1.0, ..default() }));
                 }
