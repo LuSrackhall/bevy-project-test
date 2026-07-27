@@ -210,6 +210,7 @@ pub fn update_room_list(
                     row.spawn((
                         WidgetButton,
                         Node { padding: UiRect::all(Val::Px(4.0)), border: UiRect::all(Val::Px(1.0)), flex_grow: 1.0, ..default() },
+                        ButtonTheme::default(),
                         RoomRowJoinBtn(pkt),
                         BorderColor::all(Color::srgba(0.2, 0.6, 0.2, 1.0)),
                     ))
