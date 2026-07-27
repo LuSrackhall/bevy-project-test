@@ -217,6 +217,7 @@ pub fn update_room_list(
                     .with_child((Text::new("加入"), TextFont { font: font.clone().into(), font_size: FontSize::Px(14.0), ..default() }))
                     .observe(move |_ev: On<Activate>,
                         mut request: ResMut<crate::JoinRoomRequest>| {
+                        eprintln!("[JOIN_BTN] observer fired — setting JoinRoomRequest");
                         request.requested = true;
                         request.relay_id = pkt_for_join.advertisement.relay_id;
                         request.endpoint = pkt_for_join.advertisement.endpoint.clone();
