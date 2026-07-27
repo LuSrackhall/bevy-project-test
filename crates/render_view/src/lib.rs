@@ -279,6 +279,8 @@ fn setup_lobby_system(
         return;
     };
 
+    eprintln!("[SETUP_LOBBY] relay_addr={}, player={:?}, count={}", relay_addr, player_id, player_count);
+
     network_start.player_id = player_id.unwrap_or(0);
     network_start.player_count = player_count;
 
@@ -735,6 +737,7 @@ fn handle_join_room(
         return;
     }
     request.requested = false;
+    eprintln!("[HANDLE_JOIN] called — endpoint={}, relay_id={:?}", request.endpoint, request.relay_id);
 
     let max_players = 2u8;
     *needs_reset = NeedsGameReset::Network {

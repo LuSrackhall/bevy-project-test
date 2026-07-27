@@ -163,19 +163,24 @@ pub fn network_flush_system(
 
 /// Send RelayClientMessage::JoinGame over the established TCP stream.
 /// Must be called after TCP connect, before run_session.
+/// Returns Ok(()) on success, Err(String) on failure.
 async fn send_join_game(
     stream: &mut tokio::net::TcpStream,
     relay_id: RelayId,
-) {
+) -> Result<(), String> {
     let join_msg = RelayClientMessage::JoinGame {
         room_id: RoomId(0),
         relay_id,
     };
-    if let Ok(data) = bincode::serde::encode_to_vec(&join_msg, bincode::config::standard()) {
-        let len_bytes = (data.len() as u32).to_le_bytes();
-        let _ = stream.write_all(&len_bytes).await;
-        let _ = stream.write_all(&data).await;
-    }
+    let data = bincode::serde::encode_to_vec(&join_msg, bincode::config::standard())
+        .map_err(|e| format!("JoinGame encode failed: {}", e))?;
+    let len_bytes = (data.len() as u32).to_le_bytes();
+    stream.write_all(&len_bytes).await
+        .map_err(|e| format!("JoinGame write len failed: {}", e))?;
+    stream.write_all(&data).await
+        .map_err(|e| format!("JoinGame write data failed: {}", e))?;
+    eprintln!("[NET] JoinGame sent (relay_id={:?}, {} bytes)", relay_id, data.len());
+    Ok(())
 }
 
 /// Spawn a tokio runtime thread that connects to the relay.
@@ -248,7 +253,10 @@ pub fn spawn_network_client(
                 retry_count = 0;
 
                 // Send JoinGame before entering session loop
-                send_join_game(&mut stream, relay_id).await;
+                if let Err(e) = send_join_game(&mut stream, relay_id).await {
+                    eprintln!("[NET] JoinGame failed: {} — retrying", e);
+                    continue;
+                }
 
                 // Enter read/write session
                 let clean_exit = run_session(
@@ -348,7 +356,10 @@ pub fn spawn_network_client_nonblocking(
                 retry_count = 0;
 
                 // Send JoinGame before entering session loop
-                send_join_game(&mut stream, relay_id).await;
+                if let Err(e) = send_join_game(&mut stream, relay_id).await {
+                    eprintln!("[NET] JoinGame failed: {} — retrying", e);
+                    continue;
+                }
 
                 let clean_exit = run_session(
                     stream, game_id, player_id, _ruleset_version,
