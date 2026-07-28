@@ -4,7 +4,7 @@ use bevy::text::EditableText;
 use bevy::ui_widgets::{Activate, Button as WidgetButton};
 
 use crate::ui::hud::ButtonTheme;
-use bevy_adapter::discovery::{LanDiscoveryPacket, RoomState};
+use bevy_adapter::discovery::{LanDiscoveryPacket, RelayId, RoomState};
 
 #[derive(Component)]
 pub struct LanLobbyUI;
@@ -17,6 +17,21 @@ pub struct LanLobbyEmptyText;
 
 #[derive(Component)]
 pub struct LanLobbyRow;
+
+#[derive(Component)]
+pub struct LanLobbyRowData(pub RelayId);
+
+#[derive(Component)]
+pub struct RoomNameLabel;
+
+#[derive(Component)]
+pub struct MapLabel;
+
+#[derive(Component)]
+pub struct PlayersLabel;
+
+#[derive(Component)]
+pub struct StateLabel;
 
 #[derive(Component)]
 pub struct LanLobbyModal;
@@ -131,46 +146,64 @@ pub fn setup_lan_lobby(mut commands: Commands, asset_server: Res<AssetServer>) {
 }
 
 /// Dynamic room list: syncs LanServers → room rows each frame.
+/// Uses incremental update (not full rebuild) to keep button entities stable
+/// across frames, preserving WidgetButton's Pressed state for Activate events.
 pub fn update_room_list(
     mut commands: Commands,
     servers: Res<crate::ui::lan::LanServers>,
     controller: Option<Res<bevy_adapter::session_host::SessionController>>,
     room_list: Query<Entity, With<LanLobbyRoomList>>,
-    mut existing_rows: Query<Entity, (With<LanLobbyRow>, Without<LanLobbyRoomList>)>,
+    existing_rows: Query<(Entity, &LanLobbyRowData), (With<LanLobbyRow>, Without<LanLobbyRoomList>)>,
     mut empty_text: Query<&mut Node, With<LanLobbyEmptyText>>,
     asset_server: Res<AssetServer>,
+    children_q: Query<&Children>,
 ) {
     let list_entity = match room_list.iter().next() {
         Some(e) => e,
         None => return,
     };
     let font = asset_server.load("fonts/Arial Unicode.ttf");
-
-    // Despawn existing rows
-    for e in existing_rows.iter() {
-        commands.entity(e).despawn();
-    }
-
     let own_relay_id = controller.as_ref().and_then(|c| c.current_relay_id());
 
-    // Show empty state if no servers
-    if servers.servers.is_empty() {
+    // Sort servers by relay_id for stable row ordering
+    let mut sorted_servers: Vec<_> = servers.servers.iter().collect();
+    sorted_servers.sort_by_key(|s| s.packet.advertisement.relay_id.0);
+
+    // Build map of existing rows by relay_id
+    let existing_map: std::collections::HashMap<RelayId, Entity> = existing_rows
+        .iter()
+        .map(|(e, d)| (d.0, e))
+        .collect();
+
+    // Toggle empty state
+    if sorted_servers.is_empty() {
         if let Some(mut node) = empty_text.iter_mut().next() {
             node.display = Display::Flex;
         }
+        // Despawn all rows
+        for (_, &entity) in existing_map.iter() {
+            commands.entity(entity).despawn();
+        }
         return;
     }
-
-    // Hide empty state
     if let Some(mut node) = empty_text.iter_mut().next() {
         node.display = Display::None;
     }
 
-    // Spawn room rows
-    for entry in &servers.servers {
-        let adv = &entry.packet.advertisement;
+    // Remove stale rows (disappeared from discovery)
+    for (&relay_id, &entity) in &existing_map {
+        if !sorted_servers.iter().any(|s| s.packet.advertisement.relay_id == relay_id) {
+            commands.entity(entity).despawn();
+        }
+    }
+
+    // Add new rows / update existing rows
+    for entry in &sorted_servers {
+        let pkt = &entry.packet;
+        let adv = &pkt.advertisement;
         let room = &adv.room;
-        let is_own = own_relay_id == Some(adv.relay_id);
+        let relay_id = adv.relay_id;
+        let is_own = own_relay_id == Some(relay_id);
         let is_playing = room.state == RoomState::Playing;
         let is_full = room.current_players >= room.max_players;
         let can_join = !is_own && !is_playing && !is_full;
@@ -181,59 +214,74 @@ pub fn update_room_list(
             RoomState::Playing => "游戏中",
         };
 
-        let pkt = entry.packet.clone();
-        commands.entity(list_entity).with_children(|parent| {
-            parent.spawn((
-                Node {
-                    flex_direction: FlexDirection::Row,
-                    padding: UiRect::axes(Val::Px(8.0), Val::Px(6.0)),
-                    border: UiRect::all(Val::Px(1.0)),
-                    ..default()
-                },
-                LanLobbyRow,
-            ))
-            .with_children(|row| {
-                // Room name
-                row.spawn((Text::new(&room.room_name), TextFont { font: font.clone().into(), font_size: FontSize::Px(16.0), ..default() }, Node { flex_grow: 3.0, ..default() }));
-                // Map
-                row.spawn((Text::new(&room.map_id), TextFont { font: font.clone().into(), font_size: FontSize::Px(16.0), ..default() }, Node { flex_grow: 2.0, ..default() }));
-                // Players
-                row.spawn((Text::new(format!("{}/{}", room.current_players, room.max_players)), TextFont { font: font.clone().into(), font_size: FontSize::Px(16.0), ..default() }, Node { flex_grow: 1.0, ..default() }));
-                // State
-                row.spawn((Text::new(state_label), TextFont { font: font.clone().into(), font_size: FontSize::Px(16.0), ..default() }, Node { flex_grow: 1.0, ..default() }));
+        if let Some(&existing_entity) = existing_map.get(&relay_id) {
+            // Update text on existing row children (keeps button entity stable)
+            let players_text = format!("{}/{}", room.current_players, room.max_players);
+            if let Ok(children) = children_q.get(existing_entity) {
+                for (i, child) in children.iter().enumerate() {
+                    let new_text = match i {
+                        0 => &room.room_name,
+                        1 => &room.map_id,
+                        2 => &players_text,
+                        3 => state_label,
+                        _ => continue,
+                    };
+                    commands.entity(child).insert(Text::new(new_text.to_string()));
+                }
+            }
+        } else {
+            // Spawn new row
+            let pkt_clone = pkt.clone();
+            commands.entity(list_entity).with_children(|parent| {
+                parent.spawn((
+                    Node {
+                        flex_direction: FlexDirection::Row,
+                        padding: UiRect::axes(Val::Px(8.0), Val::Px(6.0)),
+                        border: UiRect::all(Val::Px(1.0)),
+                        ..default()
+                    },
+                    LanLobbyRow,
+                    LanLobbyRowData(relay_id),
+                ))
+                .with_children(|row| {
+                    // Room name
+                    row.spawn((Text::new(&room.room_name), TextFont { font: font.clone().into(), font_size: FontSize::Px(16.0), ..default() }, Node { flex_grow: 3.0, ..default() }, RoomNameLabel));
+                    // Map
+                    row.spawn((Text::new(&room.map_id), TextFont { font: font.clone().into(), font_size: FontSize::Px(16.0), ..default() }, Node { flex_grow: 2.0, ..default() }, MapLabel));
+                    // Players
+                    row.spawn((Text::new(format!("{}/{}", room.current_players, room.max_players)), TextFont { font: font.clone().into(), font_size: FontSize::Px(16.0), ..default() }, Node { flex_grow: 1.0, ..default() }, PlayersLabel));
+                    // State
+                    row.spawn((Text::new(state_label), TextFont { font: font.clone().into(), font_size: FontSize::Px(16.0), ..default() }, Node { flex_grow: 1.0, ..default() }, StateLabel));
 
-                // Action button
-                if is_own {
-                    row.spawn((Text::new("⚡"), TextFont { font: font.clone().into(), font_size: FontSize::Px(16.0), ..default() }, Node { flex_grow: 1.0, ..default() }));
-                } else if can_join {
-                    let pkt_for_join = pkt.clone();
-                    row.spawn((
-                        WidgetButton,
-                        Node { padding: UiRect::all(Val::Px(4.0)), border: UiRect::all(Val::Px(1.0)), flex_grow: 1.0, ..default() },
-                        ButtonTheme::default(),
-                        RoomRowJoinBtn(pkt),
-                        BorderColor::all(Color::srgba(0.2, 0.6, 0.2, 1.0)),
-                    ))
-<<<<<<< HEAD
-                    .with_children(|btn| {
-                        btn.spawn((
-                            Text::new("加入"),
-                            TextFont { font: font.clone().into(), font_size: FontSize::Px(14.0), ..default() },
+                    // Action button
+                    if is_own {
+                        row.spawn((Text::new("⚡"), TextFont { font: font.clone().into(), font_size: FontSize::Px(16.0), ..default() }, Node { flex_grow: 1.0, ..default() }));
+                    } else if can_join {
+                        let pkt_for_join = pkt_clone.clone();
+                        row.spawn((
+                            WidgetButton,
+                            Node { padding: UiRect::all(Val::Px(4.0)), border: UiRect::all(Val::Px(1.0)), flex_grow: 1.0, ..default() },
+                            ButtonTheme::default(),
+                            RoomRowJoinBtn(pkt_clone.clone()),
+                            BorderColor::all(Color::srgba(0.2, 0.6, 0.2, 1.0)),
                         ))
-                        .observe(move |_ev: On<Pointer<Click>>,
+                        .with_child((Text::new("加入"), TextFont { font: font.clone().into(), font_size: FontSize::Px(14.0), ..default() }))
+                        .observe(move |_ev: On<Activate>,
                             mut request: ResMut<crate::JoinRoomRequest>| {
-                            eprintln!("[JOIN_BTN] text clicked — setting JoinRoomRequest");
+                            eprintln!("[JOIN_BTN] activate — setting JoinRoomRequest");
                             request.requested = true;
                             request.relay_id = pkt_for_join.advertisement.relay_id;
                             request.endpoint = pkt_for_join.advertisement.endpoint.clone();
                             request.room_id = pkt_for_join.advertisement.room.room_id;
                         });
-                    });
-                } else {
-                    row.spawn((Text::new("满员"), TextFont { font: font.clone().into(), font_size: FontSize::Px(16.0), ..default() }, Node { flex_grow: 1.0, ..default() }));
-                }
+                    } else if is_playing {
+                        row.spawn((Text::new("游戏中"), TextFont { font: font.clone().into(), font_size: FontSize::Px(16.0), ..default() }, Node { flex_grow: 1.0, ..default() }));
+                    } else {
+                        row.spawn((Text::new("满员"), TextFont { font: font.clone().into(), font_size: FontSize::Px(16.0), ..default() }, Node { flex_grow: 1.0, ..default() }));
+                    }
+                });
             });
-        });
+        }
     }
 }
 
