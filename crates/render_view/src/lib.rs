@@ -755,3 +755,63 @@ fn handle_join_room(
         request.endpoint,
     );
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_join_app() -> App {
+        let mut app = App::new();
+        app.add_plugins(bevy::state::app::StatesPlugin);
+        app.init_resource::<JoinRoomRequest>();
+        app.init_resource::<NeedsGameReset>();
+        app.init_resource::<IsHost>();
+        app.add_systems(Update, handle_join_room.run_if(in_state(GameState::LanLobby)));
+        app.insert_state(GameState::LanLobby);
+        app
+    }
+
+    #[test]
+    fn test_handle_join_room_ignores_if_not_requested() {
+        let mut app = make_join_app();
+        app.update();
+        assert!(matches!(*app.world().resource::<NeedsGameReset>(), NeedsGameReset::None));
+    }
+
+    #[test]
+    fn test_handle_join_room_sets_network_reset() {
+        let mut app = make_join_app();
+        {
+            let mut req = app.world_mut().resource_mut::<JoinRoomRequest>();
+            req.requested = true;
+            req.endpoint = "192.168.1.157:55347".into();
+            req.relay_id = bevy_adapter::discovery::RelayId(42);
+        }
+        app.update();
+        match &*app.world().resource::<NeedsGameReset>() {
+            NeedsGameReset::Network { relay_addr, player_count, player_id, relay_id } => {
+                assert_eq!(relay_addr, "192.168.1.157:55347");
+                assert_eq!(*player_count, 2);
+                assert!(player_id.is_none());
+                assert_eq!(*relay_id, bevy_adapter::discovery::RelayId(42));
+            }
+            _ => panic!("Expected NeedsGameReset::Network"),
+        }
+    }
+
+    #[test]
+    fn test_handle_join_room_sets_is_host_false() {
+        let mut app = make_join_app();
+        app.world_mut().resource_mut::<JoinRoomRequest>().requested = true;
+        app.update();
+        assert!(!app.world().resource::<IsHost>().0);
+    }
+
+    #[test]
+    fn test_handle_join_room_consumes_request() {
+        let mut app = make_join_app();
+        app.world_mut().resource_mut::<JoinRoomRequest>().requested = true;
+        app.update();
+        assert!(!app.world().resource::<JoinRoomRequest>().requested);
+    }
+}
