@@ -214,7 +214,6 @@ pub fn update_room_list(
                         RoomRowJoinBtn(pkt),
                         BorderColor::all(Color::srgba(0.2, 0.6, 0.2, 1.0)),
                     ))
-<<<<<<< HEAD
                     .with_children(|btn| {
                         btn.spawn((
                             Text::new("加入"),
