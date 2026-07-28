@@ -214,18 +214,21 @@ pub fn update_room_list(
                         RoomRowJoinBtn(pkt),
                         BorderColor::all(Color::srgba(0.2, 0.6, 0.2, 1.0)),
                     ))
-                    .observe(move |_ev: On<Pointer<Click>>,
-                        mut request: ResMut<crate::JoinRoomRequest>| {
-                        eprintln!("[JOIN_BTN] clicked — setting JoinRoomRequest");
-                        request.requested = true;
-                        request.relay_id = pkt_for_join.advertisement.relay_id;
-                        request.endpoint = pkt_for_join.advertisement.endpoint.clone();
-                        request.room_id = pkt_for_join.advertisement.room.room_id;
-                    })
-                    .with_child((
-                        Text::new("加入"),
-                        TextFont { font: font.clone().into(), font_size: FontSize::Px(14.0), ..default() },
-                    ));
+<<<<<<< HEAD
+                    .with_children(|btn| {
+                        btn.spawn((
+                            Text::new("加入"),
+                            TextFont { font: font.clone().into(), font_size: FontSize::Px(14.0), ..default() },
+                        ))
+                        .observe(move |_ev: On<Pointer<Click>>,
+                            mut request: ResMut<crate::JoinRoomRequest>| {
+                            eprintln!("[JOIN_BTN] text clicked — setting JoinRoomRequest");
+                            request.requested = true;
+                            request.relay_id = pkt_for_join.advertisement.relay_id;
+                            request.endpoint = pkt_for_join.advertisement.endpoint.clone();
+                            request.room_id = pkt_for_join.advertisement.room.room_id;
+                        });
+                    });
                 } else {
                     row.spawn((Text::new("满员"), TextFont { font: font.clone().into(), font_size: FontSize::Px(16.0), ..default() }, Node { flex_grow: 1.0, ..default() }));
                 }
