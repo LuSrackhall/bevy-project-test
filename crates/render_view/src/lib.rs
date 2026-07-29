@@ -373,6 +373,10 @@ pub fn lobby_update_system(
                     identity.player_count = *player_count;
                     identity.assigned = true;
                     commands.insert_resource(identity);
+                    // Also update NetworkGameStart so reset_game_system uses the
+                    // relay-assigned player_id (not the temporary 0 from setup_lobby_system)
+                    network_start.player_id = *player_id;
+                    network_start.player_count = *player_count;
                 }
                 if let NetworkEvent::GameStarted { game_id: _, seed, .. } = event {
                     bevy::log::info!("[LOBBY] GameStarted received! seed={}", seed);
@@ -652,6 +656,7 @@ pub struct JoinRoomRequest {
     pub room_id: bevy_adapter::discovery::RoomId,
     pub relay_id: bevy_adapter::discovery::RelayId,
     pub endpoint: String,
+    pub max_players: u8,
 }
 
 impl Default for JoinRoomRequest {
@@ -661,6 +666,7 @@ impl Default for JoinRoomRequest {
             room_id: bevy_adapter::discovery::RoomId(0),
             relay_id: bevy_adapter::discovery::RelayId(0),
             endpoint: String::new(),
+            max_players: 2,
         }
     }
 }
@@ -739,7 +745,7 @@ fn handle_join_room(
     request.requested = false;
     eprintln!("[HANDLE_JOIN] called — endpoint={}, relay_id={:?}", request.endpoint, request.relay_id);
 
-    let max_players = 2u8;
+    let max_players = request.max_players;
     *needs_reset = NeedsGameReset::Network {
         relay_addr: request.endpoint.clone(),
         player_count: max_players,

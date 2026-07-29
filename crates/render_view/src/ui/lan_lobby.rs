@@ -273,6 +273,7 @@ pub fn update_room_list(
                             request.relay_id = pkt_for_join.advertisement.relay_id;
                             request.endpoint = pkt_for_join.advertisement.endpoint.clone();
                             request.room_id = pkt_for_join.advertisement.room.room_id;
+                            request.max_players = pkt_for_join.advertisement.room.max_players;
                         });
                     } else if is_playing {
                         row.spawn((Text::new("游戏中"), TextFont { font: font.clone().into(), font_size: FontSize::Px(16.0), ..default() }, Node { flex_grow: 1.0, ..default() }));
