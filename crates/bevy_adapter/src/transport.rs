@@ -128,25 +128,27 @@ pub fn network_flush_system(
     };
     if let CommandSource::Network(ref ns) = driver.source {
         let current_tick = driver.clock.current_tick;
-        // Send PlayerTickFrame for the NEXT tick the relay expects
-        // Use current_tick + 1 (not delayed) so the relay processes the right tick
-        let cmd_tick = current_tick + 1;
-
-        // Take commands for this tick (removes from cmd_buf to avoid re-sending)
-        let cmds = cmd_buf.take_for_tick(cmd_tick);
-
-        let sid = sender.next_sid();
-        let frame = PlayerTickFrame {
-            magic: 0xBEEF,
-            version: 1,
-
-            game_id: ns.game_id,
-            tick: cmd_tick,
-            player_id: ns.player_id,
-            commands: cmds,
-            player_sid: sid,
-        };
-        sender.push(frame);
+        // Send frames for the ENTIRE window [current_tick+1, current_tick+input_delay].
+        // The relay finalizes ticks in order and must receive every intermediate
+        // tick (empty frames) to keep lockstep. Commands for the delayed tick
+        // (current_tick + input_delay) are buffered so the relay cannot have
+        // finalized them yet — preventing the "move command sometimes dropped" bug.
+        let start = current_tick + 1;
+        let end = ns.delayed_tick(current_tick);
+        for tick in start..=end {
+            let cmds = cmd_buf.take_for_tick(tick);
+            let sid = sender.next_sid();
+            let frame = PlayerTickFrame {
+                magic: 0xBEEF,
+                version: 1,
+                game_id: ns.game_id,
+                tick,
+                player_id: ns.player_id,
+                commands: cmds,
+                player_sid: sid,
+            };
+            sender.push(frame);
+        }
     }
 }
 
