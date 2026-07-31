@@ -277,13 +277,13 @@ pub(crate) fn setup_hud(
                         for (st, label) in [(SoldierType::Militia,"民兵"),(SoldierType::Infantry,"步兵"),(SoldierType::Archer,"弓兵"),(SoldierType::Cavalry,"骑兵")] {
                             p.spawn((WidgetButton, Node { padding: UiRect::all(Val::Px(6.0)), margin: UiRect::all(Val::Px(3.0)), ..default() }, SpawnTypeBtn(st), ButtonTheme::default(), Hovered::default()))
                                 .with_child((Text::new(label), TextFont { font: font.clone().into(), font_size: FontSize::Px(12.0), ..default() }))
-                                .observe(|ev: On<Activate>, q: Query<&SpawnTypeBtn>, selection: Res<SelectionState>, mut cmd_buf: ResMut<CommandBuffer>, tick_clock: Res<TickClock>, sim: bevy::ecs::system::NonSend<bevy_adapter::tick::SimulationWorld>, game_mode: Res<bevy_adapter::GameMode>| {
+                                .observe(|ev: On<Activate>, q: Query<&SpawnTypeBtn>, selection: Res<SelectionState>, mut cmd_buf: ResMut<CommandBuffer>, tick_clock: Res<TickClock>, driver: Res<bevy_adapter::driver::SimulationDriver>, sim: bevy::ecs::system::NonSend<bevy_adapter::tick::SimulationWorld>, game_mode: Res<bevy_adapter::GameMode>| {
                                     if *game_mode == bevy_adapter::GameMode::Replay { return; }
                                     let Ok(btn) = q.get(ev.entity) else { return };
                                     if let Some(cid) = selection.selected_city {
                                         // Push command for replay recording — consumed by consume_commands_system
                                         cmd_buf.push(GameCommand {
-                                                tick: tick_clock.current_tick + 1,
+                                                tick: tick_clock.current_tick + driver.command_delay(),
                                                 player_id: crate::local_player_id(&*sim),
                                                 action: Action::SetSpawnType { city: cid, soldier_type: btn.0 },
                                             });
@@ -337,7 +337,7 @@ pub(crate) fn setup_hud(
                     let mut cmd = p.spawn((WidgetButton, Node { padding: UiRect::all(Val::Px(6.0)), ..default() }, ToolbarButton(marker), ButtonTheme::default(), Hovered::default()));
                     if marker == 2 { cmd.insert(ShieldButton); }
                     cmd.with_child((Text::new(label), TextFont { font: font.clone().into(), font_size: FontSize::Px(13.0), ..default() }))
-                        .observe(|ev: On<Activate>, q: Query<&ToolbarButton>, mut sel: ResMut<SelectionState>, mut force: ResMut<ForceMoveNext>, mut sim: NonSendMut<SimulationWorld>, mut cmd_buf: ResMut<CommandBuffer>, tick_clock: Res<TickClock>, game_mode: Res<bevy_adapter::GameMode>| {
+                        .observe(|ev: On<Activate>, q: Query<&ToolbarButton>, mut sel: ResMut<SelectionState>, mut force: ResMut<ForceMoveNext>, mut sim: NonSendMut<SimulationWorld>, mut cmd_buf: ResMut<CommandBuffer>, tick_clock: Res<TickClock>, driver: Res<bevy_adapter::driver::SimulationDriver>, game_mode: Res<bevy_adapter::GameMode>| {
                             if *game_mode == bevy_adapter::GameMode::Replay { return; }
                             let Ok(btn) = q.get(ev.entity) else { return };
                             match btn.0 {
@@ -362,7 +362,7 @@ pub(crate) fn setup_hud(
                                         (infantries, all_blocking)
                                     };
                                     let target_state = if all_blocking { simulation::types::ShieldState::Normal } else { simulation::types::ShieldState::Blocking };
-                                    let next_tick = tick_clock.current_tick + 1;
+                                    let next_tick = tick_clock.current_tick + driver.command_delay();
                                     let lid = crate::local_player_id(&*sim);
 
                                     for uid in &infantries {
@@ -499,12 +499,12 @@ pub(crate) fn setup_hud(
                     ButtonTheme::green(),
                     Hovered::default(),
                 )).with_child((Text::new("下发"), TextFont { font: font.clone().into(), font_size: FontSize::Px(12.0), ..default() }))
-                .observe(|_ev: On<Activate>, state: Res<SeekPanelState>, selection: Res<SelectionState>, tick_clock: Res<TickClock>, mut toast: ResMut<ToastMessage>, mut sim: NonSendMut<SimulationWorld>, mut cmd_buf: ResMut<CommandBuffer>, game_mode: Res<bevy_adapter::GameMode>| {
+                .observe(|_ev: On<Activate>, state: Res<SeekPanelState>, selection: Res<SelectionState>, tick_clock: Res<TickClock>, driver: Res<bevy_adapter::driver::SimulationDriver>, mut toast: ResMut<ToastMessage>, mut sim: NonSendMut<SimulationWorld>, mut cmd_buf: ResMut<CommandBuffer>, game_mode: Res<bevy_adapter::GameMode>| {
 
                     if *game_mode == bevy_adapter::GameMode::Replay { return; }
                     let lid = crate::local_player_id(&*sim);
 
-                    let next_tick = tick_clock.current_tick + 1;
+                    let next_tick = tick_clock.current_tick + driver.command_delay();
                     let has_sel = !selection.selected_unit_ids.is_empty();
                     if has_sel {
                         cmd_buf.push(GameCommand { tick: next_tick, player_id: lid, action: Action::SetSeekStance { scope: state.scope.clone(), seek_range: state.range_value, unit_ids: selection.selected_unit_ids.clone() } });

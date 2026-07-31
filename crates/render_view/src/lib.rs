@@ -177,7 +177,10 @@ impl Plugin for RenderViewPlugin {
                             .and_then(not(replay_seeking))
                             .and_then(not(resource_exists_and_equals(bevy_adapter::GameMode::Replay))),
                     )
-                    .before(bevy_adapter::SimulationTickSet),
+                    .before(bevy_adapter::SimulationTickSet)
+                    // Commands must be created BEFORE network_flush_system drains cmd_buf,
+                    // otherwise a click is flushed a frame late to an already-finalized tick.
+                    .before(bevy_adapter::transport::network_flush_system),
             )
             // Camera: always active
             .add_systems(

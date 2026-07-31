@@ -370,6 +370,7 @@ pub fn command_issue_system(
     mut cmd_buf: ResMut<CommandBuffer>,
     selection: ResMut<SelectionState>,
     tick_clock: Res<bevy_adapter::tick::TickClock>,
+    driver: Res<bevy_adapter::driver::SimulationDriver>,
     force_next: Option<ResMut<ForceMoveNext>>,
 ) {
     let lid = crate::local_player_id(&*sim_world);
@@ -404,7 +405,7 @@ pub fn command_issue_system(
     }
 
     let world = sim_world.world_ref();
-    let next_tick = tick_clock.current_tick + 1;
+    let next_tick = tick_clock.current_tick + driver.command_delay();
 
     // Priority 1: enemy soldier
     let mut hit_enemy: Option<UnitId> = None;
@@ -543,6 +544,7 @@ pub fn seek_stance_shortcut_system(
     seek_state: Res<crate::ui::hud::SeekPanelState>,
     mut cmd_buf: ResMut<CommandBuffer>,
     tick_clock: Res<bevy_adapter::tick::TickClock>,
+    driver: Res<bevy_adapter::driver::SimulationDriver>,
     sim_world: bevy::ecs::system::NonSend<SimulationWorld>,
 ) {
     let lid = crate::local_player_id(&*sim_world);
@@ -563,7 +565,7 @@ pub fn seek_stance_shortcut_system(
         return;
     }
 
-    let next_tick = tick_clock.current_tick + 1;
+    let next_tick = tick_clock.current_tick + driver.command_delay();
     let seek_range: u32 = 30; // default selection seek range per design D4
 
     cmd_buf.push(GameCommand {

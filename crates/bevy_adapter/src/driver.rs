@@ -180,6 +180,17 @@ impl SimulationDriver {
         matches!(self.source, CommandSource::Replay(_))
     }
 
+    /// Number of ticks ahead of `current_tick` that new commands should target.
+    /// Network mode uses the relay's input_delay so commands point at a future
+    /// tick the relay has not finalized yet (prevents command drops). Live mode
+    /// targets the immediate next tick.
+    pub fn command_delay(&self) -> u32 {
+        match &self.source {
+            CommandSource::Network(ns) => ns.input_delay,
+            _ => 1,
+        }
+    }
+
     /// Get total ticks for replay (0 if Live).
     pub fn replay_total_ticks(&self) -> u32 {
         self.source.total_ticks().unwrap_or(0)
