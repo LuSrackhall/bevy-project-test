@@ -120,7 +120,7 @@ pub fn network_poll_system(
 pub fn network_flush_system(
     sender: Option<Res<NetworkSender>>,
     driver: Res<crate::driver::SimulationDriver>,
-    cmd_buf: Res<CommandBuffer>,
+    mut cmd_buf: ResMut<CommandBuffer>,
 ) {
     let sender = match sender {
         Some(s) => s,
@@ -132,14 +132,8 @@ pub fn network_flush_system(
         // Use current_tick + 1 (not delayed) so the relay processes the right tick
         let cmd_tick = current_tick + 1;
 
-        // Always send a PlayerTickFrame even with empty commands.
-        // The relay needs an empty frame to know the player is connected.
-        let cmds: Vec<GameCommand> = cmd_buf
-            .0
-            .iter()
-            .filter(|c| c.tick == current_tick + 1)
-            .cloned()
-            .collect();
+        // Take commands for this tick (removes from cmd_buf to avoid re-sending)
+        let cmds = cmd_buf.take_for_tick(cmd_tick);
 
         let sid = sender.next_sid();
         let frame = PlayerTickFrame {

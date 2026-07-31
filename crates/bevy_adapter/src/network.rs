@@ -463,7 +463,7 @@ impl RelayServer {
         // Record first arrival time for this tick (used for timeout D5)
         self.first_arrival.entry(frame.tick).or_insert(now_ms);
 
-        // Store commands
+        // Store commands (extend — overwrite would let empty frames clear valid commands)
         self.buffer
             .entry(frame.tick)
             .or_default()
