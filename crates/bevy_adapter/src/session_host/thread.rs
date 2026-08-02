@@ -107,6 +107,20 @@ async fn run_local_relay(
     let lan_ip = detect_lan_ip();
     eprintln!("[RELAY] LAN IP: {}, port: {}", lan_ip, actual_port);
 
+    // Derive a /24 subnet broadcast address (e.g. 192.168.1.157 → 192.168.1.255).
+    // Some Windows adapters do not forward the 255.255.255.255 global broadcast,
+    // so sending to the subnet broadcast improves cross-machine discovery.
+    let subnet_broadcast = match lan_ip {
+        std::net::IpAddr::V4(v4) => {
+            let octets = v4.octets();
+            Some(format!("{}.{}.{}.255", octets[0], octets[1], octets[2]))
+        }
+        std::net::IpAddr::V6(_) => None,
+    };
+    if let Some(bc) = &subnet_broadcast {
+        eprintln!("[RELAY] Subnet broadcast: {}:9876", bc);
+    }
+
     // Spawn beacon as a separate task on this runtime so it runs
     // concurrently with the relay accept loop.
     if let Some(socket) = udp_socket {
@@ -128,6 +142,9 @@ async fn run_local_relay(
                 });
                 if let Ok(data) = pkt.encode() {
                     let _ = socket.send_to(&data, "255.255.255.255:9876").await;
+                    if let Some(bc) = &subnet_broadcast {
+                        let _ = socket.send_to(&data, format!("{}:9876", bc)).await;
+                    }
                     let _ = socket.send_to(&data, "127.0.0.1:9876").await;
                 }
             }

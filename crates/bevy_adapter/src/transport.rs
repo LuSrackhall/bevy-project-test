@@ -228,7 +228,11 @@ pub fn spawn_network_client(
                 .await;
 
                 let mut stream = match stream {
-                    Ok(Ok(s)) => s,
+                    Ok(Ok(s)) => {
+                        // Disable Nagle — real-time game packets must not be buffered
+                        let _ = s.set_nodelay(true);
+                        s
+                    }
                     _ => {
                         retry_count = retry_count.saturating_add(1);
                         let delay = Duration::from_secs(
@@ -331,7 +335,11 @@ pub fn spawn_network_client_nonblocking(
                 .await;
 
                 let mut stream = match stream {
-                    Ok(Ok(s)) => s,
+                    Ok(Ok(s)) => {
+                        // Disable Nagle — real-time game packets must not be buffered
+                        let _ = s.set_nodelay(true);
+                        s
+                    }
                     _ => {
                         retry_count = retry_count.saturating_add(1);
                         let delay = Duration::from_secs((1u64 << retry_count.min(5)).min(30));
