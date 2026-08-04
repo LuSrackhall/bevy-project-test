@@ -82,6 +82,8 @@ pub async fn run_relay(
             result = listener.accept() => {
                 match result {
                     Ok((stream, addr)) => {
+                        // Disable Nagle — real-time game packets must not be buffered
+                        let _ = stream.set_nodelay(true);
                         eprintln!("[RELAY] Connect from {}", addr);
                         let ctx = Arc::clone(&ctx);
                         tokio::spawn(handle_client(ctx, stream));
