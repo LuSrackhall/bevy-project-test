@@ -433,9 +433,21 @@ impl RelayServer {
     }
 
     /// Process a LobbyReady signal. Returns true when ALL players are ready.
+    /// Disconnected seats are excluded from the all-ready check — otherwise a
+    /// player dropping in the lobby (before ready) would deadlock the room.
     pub fn on_lobby_ready(&mut self, player_id: u8) -> bool {
         self.lobby_ready.insert(player_id);
-        self.lobby_ready.len() >= self.all_players.len()
+        let active_count = self
+            .all_players
+            .iter()
+            .filter(|p| !self.disconnected.contains(*p))
+            .count();
+        let ready_active = self
+            .lobby_ready
+            .iter()
+            .filter(|p| !self.disconnected.contains(*p))
+            .count();
+        ready_active >= active_count
     }
 
     /// Process a LobbyReady { ready: false } signal — clear the player's ready state.

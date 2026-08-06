@@ -183,6 +183,14 @@ pub fn reconnect_recovery_system(
     let Some(receiver) = event_receiver else { return };
     let events = receiver.drain_all();
     for event in events {
+        // 重连后 relay 重新分配 player_id(席位复用可能返回不同 id)——必须更新,
+        // 否则客户端用旧 id 发包导致命令归属错误 → desync
+        if let NetworkEvent::GameJoined { player_id, .. } = event {
+            if let CommandSource::Network(ref mut ns) = driver.source {
+                ns.player_id = player_id;
+                eprintln!("[NET] reconnect: player_id updated to {}", player_id);
+            }
+        }
         if let NetworkEvent::Reconnect(resp) = event {
             if let CommandSource::Network(ref mut ns) = driver.source {
                 // 规则版本当前全局硬编码 1(与 JoinGame/ruleset 一致);
