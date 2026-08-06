@@ -30,7 +30,7 @@
 
 - [x] 5.1 ADR:城市归属语义变更(0↔1 互换 → last_attacker_faction)
 - [x] 5.2 ADR:重连恢复语义(席位保留 + 重建路径统一)
-- [ ] 5.3 全仓 `cargo test` + `cargo check` 全绿;宪法自检清单逐项过
+- [x] 5.3 全仓 `cargo test` + `cargo check` 全绿;宪法自检清单逐项过
 
 ---
 
