@@ -7,6 +7,7 @@ use tokio::net::TcpStream;
 use tokio::time::timeout;
 
 use relay::start_relay;
+use bevy_adapter::discovery::{RelayId, RoomId};
 use bevy_adapter::network::{
     BroadcastFrame, PlayerTickFrame, RelayClientMessage, RelayServerMessage,
 };
@@ -39,17 +40,19 @@ async fn read_msg(stream: &mut TcpStream, secs: u64) -> RelayServerMessage {
 async fn test_two_clients_receive_identical_broadcasts() {
     let port = find_free_port().await;
 
-    tokio::spawn(async move { start_relay(port, 42, 2, None).await.unwrap(); });
+    tokio::spawn(async move { start_relay(port, 42, 2, Some(RelayId(42))).await.unwrap(); });
     tokio::time::sleep(Duration::from_millis(200)).await;
 
     // Both clients connect
     let mut c0 = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+    write_msg(&mut c0, &RelayClientMessage::JoinGame { room_id: RoomId(0), relay_id: RelayId(42) }).await;
     match read_msg(&mut c0, 5).await {
         RelayServerMessage::GameJoined { player_id: 0, .. } => {}
         other => panic!("c0 expected GameJoined(0), got {:?}", other),
     }
 
     let mut c1 = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+    write_msg(&mut c1, &RelayClientMessage::JoinGame { room_id: RoomId(0), relay_id: RelayId(42) }).await;
     match read_msg(&mut c1, 5).await {
         RelayServerMessage::GameJoined { player_id: 1, .. } => {}
         other => panic!("c1 expected GameJoined(1), got {:?}", other),
@@ -112,16 +115,18 @@ async fn test_two_clients_receive_identical_broadcasts() {
 async fn test_two_clients_lobby_ready_then_game_started() {
     let port = find_free_port().await;
 
-    tokio::spawn(async move { start_relay(port, 42, 2, None).await.unwrap(); });
+    tokio::spawn(async move { start_relay(port, 42, 2, Some(RelayId(42))).await.unwrap(); });
     tokio::time::sleep(Duration::from_millis(200)).await;
 
     let mut c0 = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+    write_msg(&mut c0, &RelayClientMessage::JoinGame { room_id: RoomId(0), relay_id: RelayId(42) }).await;
     match read_msg(&mut c0, 5).await {
         RelayServerMessage::GameJoined { player_id: 0, .. } => {}
         other => panic!("c0 expected GameJoined(0), got {:?}", other),
     }
 
     let mut c1 = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+    write_msg(&mut c1, &RelayClientMessage::JoinGame { room_id: RoomId(0), relay_id: RelayId(42) }).await;
     match read_msg(&mut c1, 5).await {
         RelayServerMessage::GameJoined { player_id: 1, .. } => {}
         other => panic!("c1 expected GameJoined(1), got {:?}", other),

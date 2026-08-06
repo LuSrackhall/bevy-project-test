@@ -10,6 +10,7 @@ use tokio::net::TcpStream;
 use tokio::time::timeout;
 
 use relay::start_relay;
+use bevy_adapter::discovery::{RelayId, RoomId};
 use bevy_adapter::network::{
     BroadcastFrame, PlayerTickFrame, RelayClientMessage, RelayServerMessage,
 };
@@ -62,6 +63,13 @@ async fn connect_and_send(port: u16, tick: u32, player_id: u8) -> TcpStream {
         .await
         .expect("connect failed");
 
+    // 先发 JoinGame 完成握手(relay 要求 relay_id 匹配)
+    write_msg(&mut stream, &RelayClientMessage::JoinGame {
+        room_id: RoomId(0),
+        relay_id: RelayId(42),
+    })
+    .await;
+
     // Expect GameJoined
     match read_msg(&mut stream, 5).await {
         RelayServerMessage::GameJoined { player_id: pid, .. } => {
@@ -91,7 +99,7 @@ async fn test_relay_two_clients_full_cycle() {
 
     // Start relay in background task
     tokio::spawn(async move {
-        start_relay(port, 42, 2, None).await.unwrap();
+        start_relay(port, 42, 2, Some(RelayId(42))).await.unwrap();
     });
 
     // Allow relay to start
@@ -126,7 +134,7 @@ async fn test_relay_correct_tick_advancement() {
     let port = find_free_port().await;
 
     tokio::spawn(async move {
-        start_relay(port, 42, 2, None).await.unwrap();
+        start_relay(port, 42, 2, Some(RelayId(42))).await.unwrap();
     });
     tokio::time::sleep(Duration::from_millis(200)).await;
 
@@ -154,16 +162,16 @@ async fn test_relay_three_ticks_sequential() {
     let port = find_free_port().await;
 
     tokio::spawn(async move {
-        start_relay(port, 42, 2, None).await.unwrap();
+        start_relay(port, 42, 2, Some(RelayId(42))).await.unwrap();
     });
     tokio::time::sleep(Duration::from_millis(200)).await;
 
-    // Connect both clients first
+    // Connect both clients first, each sending JoinGame for handshake
     let mut c0 = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
-    let mut c1 = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
-
-    // Read GameJoined for both
+    write_msg(&mut c0, &RelayClientMessage::JoinGame { room_id: RoomId(0), relay_id: RelayId(42) }).await;
     read_msg(&mut c0, 5).await;
+    let mut c1 = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+    write_msg(&mut c1, &RelayClientMessage::JoinGame { room_id: RoomId(0), relay_id: RelayId(42) }).await;
     read_msg(&mut c1, 5).await;
 
     // Send frames for tick 1, 2, 3 from both players

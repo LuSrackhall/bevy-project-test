@@ -1,5 +1,5 @@
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -74,6 +74,10 @@ async fn run_local_relay(
     room: &RoomMetadata,
     stop: &Arc<AtomicBool>,
 ) {
+    // Live connected-client count, shared between the beacon (for current_players)
+    // and the relay (updated on join/disconnect).
+    let clients_count = Arc::new(AtomicUsize::new(0));
+
     // Bind to 0.0.0.0:0 — accept connections from LAN, OS allocates port
     let listener = match TcpListener::bind("0.0.0.0:0").await {
         Ok(l) => l,
@@ -125,8 +129,9 @@ async fn run_local_relay(
     // concurrently with the relay accept loop.
     if let Some(socket) = udp_socket {
         let stop_beacon = Arc::clone(stop);
-        let beacon_room = room.clone();
+        let mut beacon_room = room.clone();
         let beacon_endpoint = format!("{}:{}", lan_ip, actual_port);
+        let beacon_clients = clients_count.clone();
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(Duration::from_secs(3));
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -135,6 +140,8 @@ async fn run_local_relay(
                     break;
                 }
                 interval.tick().await;
+                // 实时连接数驱动 current_players(specs/multiplayer-scale)
+                beacon_room.current_players = beacon_clients.load(Ordering::Relaxed) as u8;
                 let pkt = LanDiscoveryPacket::new(RoomAdvertisement {
                     relay_id,
                     endpoint: beacon_endpoint.clone(),
@@ -160,6 +167,7 @@ async fn run_local_relay(
         map_spec_hash: 0,
         player_count: room.max_players,
         input_delay: 3,
+        current_clients: clients_count.clone(),
     };
     relay_core::run_relay(listener, config, stop).await;
 }

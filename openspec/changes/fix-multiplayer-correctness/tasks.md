@@ -23,8 +23,8 @@
 
 ## 4. D1b UI 参数化
 
-- [ ] 4.1 创建房间人数参数化 + cycle 到 2..=8(render_view/src/lib.rs:672 默认值、lan_lobby.rs:317,408 按钮与 ModalState)
-- [ ] 4.2 `current_players` 随加入/离开正确更新(render_view/src/lib.rs:699-710 + discovery/model.rs)
+- [x] 4.1 创建房间人数参数化 + cycle 到 2..=8(render_view/src/lib.rs:672 默认值、lan_lobby.rs:317,408 按钮与 ModalState)
+- [x] 4.2 `current_players` 随加入/离开正确更新(render_view/src/lib.rs:699-710 + discovery/model.rs)
 
 ## 5. 合规补齐与收尾
 

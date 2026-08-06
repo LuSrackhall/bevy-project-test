@@ -3,7 +3,8 @@
 //! Provides `start_relay()` that creates a TCP listener and delegates to the
 //! shared relay runtime.
 
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, AtomicUsize};
+use std::sync::Arc;
 
 use tokio::net::TcpListener;
 
@@ -32,6 +33,7 @@ pub async fn start_relay(
         map_spec_hash: 0,
         player_count,
         input_delay: 3,
+        current_clients: Arc::new(AtomicUsize::new(0)),
     };
     let stop = AtomicBool::new(false);
     relay_core::run_relay(listener, config, &stop).await;
