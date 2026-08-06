@@ -573,7 +573,9 @@ async fn run_session(
             RelayServerMessage::JoinRejected { reason } => {
                 eprintln!("[NET] Join rejected: {}", reason);
                 write_task.abort();
-                return true;
+                // 重连场景(已消费过 tick)被拒(如旧连接尚未清理)→ 返回 false 重试;
+                // 首次 join 被拒(房间满)→ 返回 true 放弃。
+                return sender.last_tick_consumed() == 0;
             }
         }
     }
@@ -617,8 +619,9 @@ impl NetworkClientHandle {
 impl Drop for NetworkClientHandle {
     fn drop(&mut self) {
         self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
-        if let Some(handle) = self.thread.take() {
-            let _ = handle.join();
-        }
+        // 不 join:网络线程可能阻塞在 TCP read(无 GameOver/断开时永不返回),
+        // join 会死等导致测试/退出挂起。正常对局结束时 relay 发 GameOver →
+        // run_session 返回 true → 线程自行退出;进程退出时残留线程随之终止。
+        self.thread.take();
     }
 }

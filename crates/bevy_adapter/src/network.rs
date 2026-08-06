@@ -528,7 +528,8 @@ impl RelayServer {
     /// D8: Batch is immutable once finalized. No late corrections.
     /// D7: NoOp for missing players is a pure function of (tick, player_id).
     fn try_finalize(&mut self, tick: u32, now_ms: u64) -> Option<TickCommands> {
-        // Check if tick is already finalized (in log)
+        // Check if tick is already finalized (in log). log may be non-ordered if
+        // ticks finalize out of order (high tick before low), so scan (not last()).
         if self.log.iter().any(|b| b.tick == tick) {
             return None;
         }
@@ -644,6 +645,10 @@ impl RelayServer {
     /// D11: Returns TickCommands from last_tick_consumed+1 to current.
     /// D12: Validates ruleset_version compatibility.
     pub fn handle_reconnect(&self, request: &ReconnectRequest) -> Result<ReconnectResponse, String> {
+        // 安全:拒绝跨对局的日志请求
+        if request.game_id != self.game_id {
+            return Err(format!("game_id mismatch: {} != {}", request.game_id, self.game_id));
+        }
         let ticks: Vec<TickCommands> = self
             .log
             .iter()
