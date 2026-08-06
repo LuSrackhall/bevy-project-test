@@ -856,12 +856,9 @@ pub fn city_capture_check_system(world: &mut World) {
         q.iter(world)
             .filter(|(_, _, city, _)| city.health_current == 0)
             .map(|(e, id, city, fac)| {
-                let nf = match fac.0 {
-                    FactionId(0) => FactionId(1),
-                    FactionId(1) => FactionId(0),
-                    FactionId(2) => city.last_attacker_faction.unwrap_or(FactionId(0)),
-                    FactionId(_) => FactionId(2), // unknown faction → neutral
-                };
+                // 城市 HP ≤ 0 时归最后攻击者;无攻击者记录则保持原 owner。
+                // 单机 2 人下攻击者只能是对方,行为与旧 0↔1 互换等价(specs/city-interaction)。
+                let nf = city.last_attacker_faction.unwrap_or(fac.0);
                 (e, id.0, fac.0, nf)
             })
             .collect()

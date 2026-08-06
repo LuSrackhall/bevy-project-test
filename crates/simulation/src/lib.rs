@@ -100,7 +100,7 @@ fn collect_command_players(world: &mut World) -> Vec<u8> {
         let mut players = Vec::new();
         for f in q.iter(world) {
             let id = f.0 .0;
-            if id <= 1 && !players.contains(&id) {
+            if !players.contains(&id) {
                 players.push(id);
             }
         }

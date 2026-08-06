@@ -353,9 +353,8 @@ impl PlayerSlots {
         }
     }
 
-    /// Create N-player FFA slot configuration.
+    /// Create N-player FFA slot configuration. N bounded only by the `u8` type limit (255).
     pub fn multi_player(count: u8, local_player_id: u8) -> Self {
-        assert!(count <= 8, "max 8 players");
         let slots = (0..count).map(|i| PlayerSlot {
             slot_id: SlotId(i),
             controller: if i == local_player_id {

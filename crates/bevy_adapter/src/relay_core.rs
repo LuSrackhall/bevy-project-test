@@ -265,10 +265,9 @@ async fn handle_client(ctx: Arc<RelayCtx>, stream: TcpStream) {
                 {
                     let server = ctx.server.lock().unwrap();
                     let lobby_players: Vec<LobbyPlayerState> = ctx.clients.lock().unwrap().keys().map(|pid| {
-                        let mask = server.lobby_ready_mask();
                         LobbyPlayerState {
                             player_id: *pid,
-                            ready: (mask >> pid) & 1 == 1,
+                            ready: server.is_player_ready(*pid),
                             selected_map: None,
                         }
                     }).collect();

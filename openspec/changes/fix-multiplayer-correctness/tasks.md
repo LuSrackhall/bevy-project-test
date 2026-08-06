@@ -6,10 +6,10 @@
 
 ## 2. D1 解除硬编码
 
-- [ ] 2.1 `lobby_ready_mask: u8` → `HashSet<u8>`(bevy_adapter/src/network.rs:352,421-429),ready 判定 `set.len() >= active_players.len()`;适配 relay_core.rs:265-272 的读取
-- [ ] 2.2 `PlayerSlots::multi_player` 移除 `assert!(count <= 8)`(simulation/src/types.rs:358)
-- [ ] 2.3 city_capture_check_system 改为归 `last_attacker_faction`(simulation/src/soldier/mod.rs:859-864),统一任意阵营语义,保留无攻击者兜底
-- [ ] 2.4 `collect_command_players` 兜底 `if id <= 1` 移除(simulation/src/lib.rs:103)
+- [x] 2.1 `lobby_ready_mask: u8` → `HashSet<u8>`(bevy_adapter/src/network.rs:352,421-429),ready 判定 `set.len() >= active_players.len()`;适配 relay_core.rs:265-272 的读取
+- [x] 2.2 `PlayerSlots::multi_player` 移除 `assert!(count <= 8)`(simulation/src/types.rs:358)
+- [x] 2.3 city_capture_check_system 改为归 `last_attacker_faction`(simulation/src/soldier/mod.rs:859-864),统一任意阵营语义,保留无攻击者兜底
+- [x] 2.4 `collect_command_players` 兜底 `if id <= 1` 移除(simulation/src/lib.rs:103)
 
 ## 3. D2 掉线重连
 

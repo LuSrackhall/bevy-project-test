@@ -7,7 +7,7 @@ pub use crate::discovery::{RelayId, RoomId, RoomMetadata, RoomState};
 
 use serde::{Deserialize, Serialize};
 use simulation::command::GameCommand;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
 use bevy::prelude::Resource;
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -348,8 +348,8 @@ pub struct RelayServer {
     /// All players have joined and game is actively running.
     /// Prevents timeout-based tick finalization before all players connect.
     game_started: bool,
-    /// Tracks which players have signaled LobbyReady (bitmask).
-    lobby_ready_mask: u8,
+    /// Tracks which players have signaled LobbyReady (scalable, no bit-mask ceiling).
+    lobby_ready: HashSet<u8>,
     /// Next player_id to assign for JoinGame.
     next_player_id: u8,
 
@@ -387,7 +387,7 @@ impl RelayServer {
             current_tick: 1,
             created_at_ms: now_ms,
             game_started: false,
-            lobby_ready_mask: 0,
+            lobby_ready: HashSet::new(),
             next_player_id: 0,
         }
     }
@@ -413,19 +413,20 @@ impl RelayServer {
         Ok(player_id)
     }
 
+    /// Whether a specific player has signaled LobbyReady.
+    pub fn is_player_ready(&self, player_id: u8) -> bool {
+        self.lobby_ready.contains(&player_id)
+    }
+
     /// Process a LobbyReady signal. Returns true when ALL players are ready.
-        pub fn lobby_ready_mask(&self) -> u8 {
-        self.lobby_ready_mask
-    }
-
     pub fn on_lobby_ready(&mut self, player_id: u8) -> bool {
-        self.lobby_ready_mask |= 1 << player_id;
-        self.lobby_ready_mask.count_ones() as u8 >= self.all_players.len() as u8
+        self.lobby_ready.insert(player_id);
+        self.lobby_ready.len() >= self.all_players.len()
     }
 
-    /// Process a LobbyReady { ready: false } signal — clear the player's ready bit.
+    /// Process a LobbyReady { ready: false } signal — clear the player's ready state.
     pub fn on_lobby_not_ready(&mut self, player_id: u8) {
-        self.lobby_ready_mask &= !(1 << player_id);
+        self.lobby_ready.remove(&player_id);
     }
 
     /// Whether the game has started (prevents late LobbyReady tampering).
