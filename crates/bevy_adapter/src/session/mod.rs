@@ -5,6 +5,7 @@
 
 pub mod bootstrap;
 pub mod network;
+pub mod reconnect;
 pub mod replay;
 pub mod single;
 

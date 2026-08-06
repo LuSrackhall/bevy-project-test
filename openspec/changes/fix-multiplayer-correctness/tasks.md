@@ -13,13 +13,13 @@
 
 ## 3. D2 掉线重连
 
-- [ ] 3.1 `on_disconnect` 不再 `all_players.retain`,标记 `Disconnected` 保留席位(network.rs:595-598)
-- [ ] 3.2 `next_player_id` 改为分配"首个空闲席位",重连复用原 player_id(network.rs:354,408-413)
-- [ ] 3.3 `try_finalize` all_ready 对 `Disconnected` 席位放行,靠超时兜底定稿(R3,network.rs:506-510)
-- [ ] 3.4 客户端接通 `apply_reconnect`:世界重建走 `init_simulation_world_multi` + 原地图 + `run_tick(enable_ai:false)`(R1),修正 network.rs:273-274 注释;重建逻辑封装进 bevy_adapter 会话层(R5),消除 render_view/lib.rs:494 直触仿真
-- [ ] 3.5 `map_spec_hash` → MapSize 确定性映射,重连地图与对局一致(R4),消除 render_view/lib.rs:462 硬编码 Medium
-- [ ] 3.6 重连快进复用 driver Network 管线(R2):`apply_reconnect` 灌 relay_buffer → `simulation_driver_system` 消费
-- [ ] 3.7 重连集成测试:掉线后重连复用原 player_id / 8 人满员拒绝 / Disconnected 席位不挂起 barrier
+- [x] 3.1 `on_disconnect` 不再 `all_players.retain`,标记 `Disconnected` 保留席位(network.rs:595-598)
+- [x] 3.2 `next_player_id` 改为分配"首个空闲席位",重连复用原 player_id(network.rs:354,408-413)
+- [x] 3.3 `try_finalize` all_ready 对 `Disconnected` 席位放行,靠超时兜底定稿(R3,network.rs:506-510)
+- [x] 3.4 客户端接通 `apply_reconnect`:世界重建走 `init_simulation_world_multi` + 原地图 + `run_tick(enable_ai:false)`(R1),修正 network.rs:273-274 注释;重建逻辑封装进 bevy_adapter 会话层(R5),消除 render_view/lib.rs:494 直触仿真
+- [x] 3.5 `map_spec_hash` → MapSize 确定性映射,重连地图与对局一致(R4),消除 render_view/lib.rs:462 硬编码 Medium
+- [x] 3.6 重连快进复用 driver Network 管线(R2):`apply_reconnect` 灌 relay_buffer → `simulation_driver_system` 消费
+- [x] 3.7 重连集成测试:掉线后重连复用原 player_id / 8 人满员拒绝 / Disconnected 席位不挂起 barrier
 
 ## 4. D1b UI 参数化
 

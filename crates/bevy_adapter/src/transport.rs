@@ -7,8 +7,8 @@ use bevy::prelude::*;
 use crate::discovery::{RelayId, RoomId};
 use crate::driver::CommandSource;
 use crate::network::{
-    BroadcastFrame, NetworkEvent, NetworkEventReceiver, PlayerTickFrame, RelayClientMessage,
-    RelayServerMessage,
+    BroadcastFrame, NetworkEvent, NetworkEventReceiver, PlayerTickFrame, ReconnectRequest,
+    RelayClientMessage, RelayServerMessage,
 };
 use simulation::command::{CommandBuffer, GameCommand};
 use std::collections::VecDeque;
@@ -45,6 +45,8 @@ pub struct NetworkSender {
     inner: Arc<Mutex<VecDeque<PlayerTickFrame>>>,
     next_sid: Arc<Mutex<u64>>,
     lobby_ready: Arc<Mutex<Option<RelayClientMessage>>>,
+    /// Last tick the local simulation consumed. Used as last_tick_consumed on reconnect.
+    last_tick_consumed: Arc<Mutex<u32>>,
 
 }
 
@@ -54,6 +56,7 @@ impl Default for NetworkSender {
             inner: Arc::new(Mutex::new(VecDeque::new())),
             next_sid: Arc::new(Mutex::new(0)),
             lobby_ready: Arc::new(Mutex::new(None)),
+            last_tick_consumed: Arc::new(Mutex::new(0)),
 
         }
     }
@@ -73,6 +76,16 @@ impl NetworkSender {
         let mut sid = self.next_sid.lock().unwrap();
         *sid += 1;
         *sid
+    }
+
+    /// Bevy 侧更新本地已消费到的 tick,供重连时作为 last_tick_consumed。
+    pub fn update_last_tick_consumed(&self, tick: u32) {
+        *self.last_tick_consumed.lock().unwrap() = tick;
+    }
+
+    /// 当前已消费 tick(重连断点)。
+    pub fn last_tick_consumed(&self) -> u32 {
+        *self.last_tick_consumed.lock().unwrap()
     }
 
     pub fn send_lobby_ready(&self, player_id: u8, ready: bool) {
@@ -128,6 +141,8 @@ pub fn network_flush_system(
     };
     if let CommandSource::Network(ref ns) = driver.source {
         let current_tick = driver.clock.current_tick;
+        // 同步本地已消费 tick,供重连时作为 last_tick_consumed
+        sender.update_last_tick_consumed(current_tick);
         // Send frames for the ENTIRE window [current_tick+1, current_tick+input_delay].
         // The relay finalizes ticks in order and must receive every intermediate
         // tick (empty frames) to keep lockstep. Commands for the delayed tick
@@ -157,6 +172,35 @@ pub fn network_flush_system(
 // Network client thread
 // ═══════════════════════════════════════════════════════════════
 
+/// Process `NetworkEvent::Reconnect` — apply the relay's command log so the
+/// driver resumes from the disconnect point (scene A: local world intact, only
+/// missed ticks replayed). Must run BEFORE SimulationTickSet so relay_buffer is
+/// populated before the driver's is_tick_ready check.
+pub fn reconnect_recovery_system(
+    event_receiver: Option<Res<NetworkEventReceiver>>,
+    mut driver: ResMut<crate::driver::SimulationDriver>,
+) {
+    let Some(receiver) = event_receiver else { return };
+    let events = receiver.drain_all();
+    for event in events {
+        if let NetworkEvent::Reconnect(resp) = event {
+            if let CommandSource::Network(ref mut ns) = driver.source {
+                // 规则版本当前全局硬编码 1(与 JoinGame/ruleset 一致);
+                // NetworkCommandSource.ruleset_version 默认 0,不能作为期望值。
+                let expected = 1u32;
+                match ns.apply_reconnect(&resp, expected) {
+                    Ok(()) => eprintln!(
+                        "[NET] reconnect applied ({} ticks, first={})",
+                        resp.ticks.len(),
+                        resp.first_tick
+                    ),
+                    Err(e) => eprintln!("[NET] reconnect apply failed: {}", e),
+                }
+            }
+        }
+    }
+}
+
 /// Send RelayClientMessage::JoinGame over the established TCP stream.
 /// Must be called after TCP connect, before run_session.
 /// Returns Ok(()) on success, Err(String) on failure.
@@ -176,6 +220,28 @@ async fn send_join_game(
     stream.write_all(&data).await
         .map_err(|e| format!("JoinGame write data failed: {}", e))?;
     eprintln!("[NET] JoinGame sent (relay_id={:?}, {} bytes)", relay_id, data.len());
+    Ok(())
+}
+
+/// Send a ReconnectRequest over the established TCP stream, requesting the
+/// command log from `last_tick_consumed + 1` onward.
+async fn send_reconnect_request(
+    stream: &mut tokio::net::TcpStream,
+    game_id: u64,
+    last_tick_consumed: u32,
+) -> Result<(), String> {
+    let msg = RelayClientMessage::Reconnect(ReconnectRequest {
+        game_id,
+        last_tick_consumed,
+    });
+    let data = bincode::serde::encode_to_vec(&msg, bincode::config::standard())
+        .map_err(|e| format!("ReconnectRequest encode failed: {}", e))?;
+    let len_bytes = (data.len() as u32).to_le_bytes();
+    stream.write_all(&len_bytes).await
+        .map_err(|e| format!("ReconnectRequest write len failed: {}", e))?;
+    stream.write_all(&data).await
+        .map_err(|e| format!("ReconnectRequest write data failed: {}", e))?;
+    eprintln!("[NET] ReconnectRequest sent (last_tick_consumed={})", last_tick_consumed);
     Ok(())
 }
 
@@ -256,6 +322,11 @@ pub fn spawn_network_client(
                 if let Err(e) = send_join_game(&mut stream, relay_id).await {
                     eprintln!("[NET] JoinGame failed: {} — retrying", e);
                     continue;
+                }
+
+                // 重连恢复:上次已消费 tick 则请求 relay 补发断点后日志
+                if send.last_tick_consumed() > 0 {
+                    let _ = send_reconnect_request(&mut stream, game_id, send.last_tick_consumed()).await;
                 }
 
                 // Enter read/write session
@@ -365,6 +436,11 @@ pub fn spawn_network_client_nonblocking(
                     continue;
                 }
 
+                // 重连恢复:上次已消费 tick 则请求 relay 补发断点后日志
+                if send.last_tick_consumed() > 0 {
+                    let _ = send_reconnect_request(&mut stream, game_id, send.last_tick_consumed()).await;
+                }
+
                 let clean_exit = run_session(
                     stream, game_id, player_id, _ruleset_version,
                     &recv, &send, stop.clone(), &events,
@@ -471,6 +547,7 @@ async fn run_session(
             }
             RelayServerMessage::ReconnectResponse(resp) => {
                 eprintln!("[NET] Reconnect OK ({} ticks)", resp.ticks.len());
+                event_receiver.push(NetworkEvent::Reconnect(resp));
             }
             RelayServerMessage::GameOver { reason } => {
                 eprintln!("[NET] Game over ({})", reason);

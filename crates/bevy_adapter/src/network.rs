@@ -180,6 +180,8 @@ pub enum NetworkEvent {
     GameStarted { game_id: u64, seed: u64, player_count: u8 },
     /// Lobby state update — player ready statuses.
     LobbyUpdate { game_id: u64, players: Vec<LobbyPlayerState> },
+    /// Reconnect response with the command log from the disconnect point onward.
+    Reconnect(ReconnectResponse),
 
 }
 
@@ -270,9 +272,13 @@ impl NetworkCommandSource {
     /// Process a ReconnectResponse: load the command log into the relay buffer.
     ///
     /// The reconnect path (D11) uses replay-based recovery:
-    /// 1. Client rebuilds world via init_simulation_world(seed) + generate_map
-    /// 2. Replays the TickCommands sequence using run_tick_default
-    /// 3. After catching up, resumes normal lockstep
+    /// - Scene A (network drop, process alive): local world is intact at the
+    ///   disconnect point — only the missed ticks are loaded and the driver resumes.
+    /// - Scene B (process restart): the world MUST be rebuilt via
+    ///   `init_simulation_world_multi(seed, PlayerSlots::multi_player(N, local))`
+    ///   + `run_tick(enable_ai:false)` — matching the live network path.
+    ///   `init_simulation_world` (2-slot) / `run_tick_default` (AI on) are FORBIDDEN (R1):
+    ///   they diverge from the network PlayerSlots/NoOp set and desync (specs/network-reconnect).
     ///
     /// This method stores the tick log so the driver can consume it sequentially.
     ///
@@ -350,6 +356,8 @@ pub struct RelayServer {
     game_started: bool,
     /// Tracks which players have signaled LobbyReady (scalable, no bit-mask ceiling).
     lobby_ready: HashSet<u8>,
+    /// Set of player_ids currently disconnected (seat retained, awaiting reconnect).
+    disconnected: HashSet<u8>,
     /// Next player_id to assign for JoinGame.
     next_player_id: u8,
 
@@ -388,6 +396,7 @@ impl RelayServer {
             created_at_ms: now_ms,
             game_started: false,
             lobby_ready: HashSet::new(),
+            disconnected: HashSet::new(),
             next_player_id: 0,
         }
     }
@@ -404,7 +413,12 @@ impl RelayServer {
         if request_relay_id != self.relay_id {
             return Err("Relay identity mismatch".into());
         }
-        // Check if room is full
+        // 优先复用断线席位(重连场景),保证重连后拿回原 player_id
+        if let Some(&pid) = self.disconnected.iter().min() {
+            self.disconnected.remove(&pid);
+            return Ok(pid);
+        }
+        // 否则按序分配新席位
         if (self.next_player_id as usize) >= self.all_players.len() {
             return Err("Room is full".into());
         }
@@ -477,11 +491,14 @@ impl RelayServer {
 
         // Check if all players have connected (at least one frame from each).
         // Prevents timeout-based finalization before all players join the game.
+        // Disconnected 席位不阻塞 game_started 达成(其帧由 NoOp 兜底)。
         let mut game_just_started = false;
         if !self.game_started {
             let connected: std::collections::HashSet<&u8> =
                 self.ready.values().flat_map(|v| v.iter()).collect();
-            let now_started = self.all_players.iter().all(|p| connected.contains(p));
+            let now_started = self.all_players.iter()
+                .filter(|p| !self.disconnected.contains(*p))
+                .all(|p| connected.contains(p));
             if now_started {
                 self.game_started = true;
                 game_just_started = true;
@@ -507,7 +524,10 @@ impl RelayServer {
         let all_ready = {
             let ready_set: std::collections::HashSet<&u8> =
                 self.ready.get(&tick).map(|r| r.iter().collect()).unwrap_or_default();
-            self.all_players.iter().all(|p| ready_set.contains(p))
+            // R3: Disconnected 席位放行(不阻塞 barrier),其 NoOp 由下方注入
+            self.all_players.iter()
+                .filter(|p| !self.disconnected.contains(*p))
+                .all(|p| ready_set.contains(p))
         };
 
         // Only allow timeout when game_started (all players have connected).
@@ -593,14 +613,16 @@ impl RelayServer {
     /// Handle client disconnect. Returns the current player states.
     ///
     /// D9: Disconnected players get NoOp injected (already handled in try_finalize).
+    /// Seat is retained (not removed from all_players) so the player can reconnect
+    /// under the same player_id (specs/relay-server).
     pub fn on_disconnect(&mut self, player_id: u8) -> Vec<PlayerState> {
-        self.all_players.retain(|p| *p != player_id);
+        self.disconnected.insert(player_id);
         self.player_states()
     }
 
     /// Handle full disconnect (all players gone). Freezes the game.
     pub fn on_full_disconnect(&mut self, now_ms: u64) {
-        if self.all_players.is_empty() {
+        if self.disconnected.len() >= self.all_players.len() {
             self.frozen = true;
             self.freezed_at_ms = now_ms;
         }
@@ -639,7 +661,13 @@ impl RelayServer {
     fn player_states(&self) -> Vec<PlayerState> {
         self.all_players
             .iter()
-            .map(|pid| PlayerState::Active { player_id: *pid })
+            .map(|pid| {
+                if self.disconnected.contains(pid) {
+                    PlayerState::Disconnected { player_id: *pid }
+                } else {
+                    PlayerState::Active { player_id: *pid }
+                }
+            })
             .collect()
     }
 
@@ -815,6 +843,36 @@ mod relay_tests {
         let result = relay.on_player_frame(&make_frame(1, 0, 1), now);
         assert!(result.0.is_none());
     }
+
+    #[test]
+    fn test_disconnect_retains_seat_and_reconnect_reuses_id() {
+        let mut relay = relay_2p();
+        // 两个玩家加入(relay_2p relay_id = 42)
+        assert_eq!(relay.on_join_game(crate::discovery::RelayId(42)).unwrap(), 0);
+        assert_eq!(relay.on_join_game(crate::discovery::RelayId(42)).unwrap(), 1);
+        // 玩家 0 掉线:席位保留,状态标 Disconnected
+        let states = relay.on_disconnect(0);
+        assert!(states.iter().any(|s| matches!(s, PlayerState::Disconnected { player_id: 0 })));
+        // 重连:复用原 player_id 0(而不是 Room is full)
+        assert_eq!(relay.on_join_game(crate::discovery::RelayId(42)).unwrap(), 0);
+        // 满员:第三方加入被拒
+        let err = relay.on_join_game(crate::discovery::RelayId(42)).unwrap_err();
+        assert!(err.contains("Room is full"), "err={}", err);
+    }
+
+    #[test]
+    fn test_disconnected_player_does_not_hang_barrier() {
+        let mut relay = relay_2p();
+        let now = 1000;
+        // 玩家 0 掉线(Disconnected 席位放行)
+        relay.on_disconnect(0);
+        // 玩家 1 提交 tick 1 → 应定稿,不挂起
+        let r1 = relay.on_player_frame(&make_empty_frame(1, 1, 1), now);
+        assert!(r1.0.is_some(), "Disconnected seat must not hang the barrier");
+        let batch = r1.0.unwrap();
+        // 玩家 0 被注入 NoOp
+        assert!(batch.commands.iter().any(|c| c.player_id == 0 && c.action == Action::NoOp));
+    }
 }
 
 mod tests {
@@ -912,6 +970,37 @@ mod tests {
         // Second call returns empty (already consumed)
         let cmds2 = source.commands_for_tick(50, &ctx);
         assert!(cmds2.is_empty());
+    }
+
+    #[test]
+    fn test_apply_reconnect_loads_log_and_validates_version() {
+        let mut source = NetworkCommandSource::default();
+        // 版本不匹配 → Err(D12)
+        let resp_bad = ReconnectResponse {
+            game_id: 1,
+            ruleset_version: 2,
+            seed: 1,
+            map_spec_hash: 0,
+            first_tick: 1,
+            ticks: vec![],
+            players: vec![],
+        };
+        assert!(source.apply_reconnect(&resp_bad, 1).is_err());
+        // 版本匹配 → 灌入 log + 更新身份
+        let resp = ReconnectResponse {
+            game_id: 1,
+            ruleset_version: 1,
+            seed: 42,
+            map_spec_hash: 0,
+            first_tick: 2,
+            ticks: vec![make_tick(2, 0), make_tick(3, 1)],
+            players: vec![],
+        };
+        source.apply_reconnect(&resp, 1).unwrap();
+        assert!(source.is_tick_ready(2));
+        assert!(source.is_tick_ready(3));
+        assert_eq!(source.game_id, 1);
+        assert!(source.connected);
     }
 }
 

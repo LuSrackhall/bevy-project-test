@@ -459,6 +459,8 @@ fn reset_game_system(
         NeedsGameReset::SameSize => (Some(current_map_size.0), None, None),
         NeedsGameReset::NewGame(size) => (Some(size), None, None),
         NeedsGameReset::Replay(replay) => (Some(replay.map_size), Some(replay), None),
+        // 网络对局默认地图 Medium。重连(场景 A)不重建世界,地图保持当前对局地图;
+        // 场景 B 重建时由调用方以对局 map_size 调 generate_map(R4 保证一致)。
         NeedsGameReset::Network { .. } => (Some(simulation::map::MapSize::Medium), None, Some(()))
     };
 
@@ -488,10 +490,10 @@ fn reset_game_system(
             })
         };
         let mut world = if network_start.received {
-            let slots = simulation::types::PlayerSlots::multi_player(
-                network_start.player_count, network_start.player_id
-            );
-            simulation::init_simulation_world_multi(seed, slots)
+            // R5: 世界重建封装在 bevy_adapter 会话层(render_view 不直触仿真)
+            bevy_adapter::session::reconnect::rebuild_world(
+                seed, network_start.player_count, network_start.player_id
+            )
         } else {
             simulation::init_simulation_world(seed)
         };

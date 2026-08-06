@@ -126,6 +126,13 @@ impl Plugin for BevyAdapterPlugin {
                             .or_else(resource_exists_and_equals(NetworkActive(true))),
                     ),
             )
+            // Reconnect recovery: only during Playing (GameActive), before tick driver
+            .add_systems(
+                Update,
+                crate::transport::reconnect_recovery_system
+                    .before(SimulationTickSet)
+                    .run_if(resource_exists_and_equals(GameActive(true))),
+            )
             // Simulation tick driver: only run during Playing
             .add_systems(
                 Update,
