@@ -1,8 +1,8 @@
 ## 1. 测试先行(宪法 §10.1 锁步回归)
 
-- [ ] 1.1 城市捕获多人确定性测试:single-player 等价断言(0↔1 行为不变)+ 多人 FFA 归 `last_attacker_faction`(specs/city-interaction)
-- [ ] 1.2 PlayerSlots 槽位测试:`multi_player(9,3)` / `multi_player(16,5)` 不再 panic,返回正确槽位(specs/multiplayer-slots)
-- [ ] 1.3 重连重放确定性测试:重建路径(`init_simulation_world_multi` + `run_tick(enable_ai:false)`)重放命令日志后,世界 hash 与正常网络路径一致(specs/network-reconnect)
+- [x] 1.1 城市捕获多人确定性测试:single-player 等价断言(0↔1 行为不变)+ 多人 FFA 归 `last_attacker_faction`(specs/city-interaction)
+- [x] 1.2 PlayerSlots 槽位测试:`multi_player(9,3)` / `multi_player(16,5)` 不再 panic,返回正确槽位(specs/multiplayer-slots)
+- [x] 1.3 重连重放确定性测试:重建路径(`init_simulation_world_multi` + `run_tick(enable_ai:false)`)重放命令日志后,世界 hash 与正常网络路径一致(specs/network-reconnect)
 
 ## 2. D1 解除硬编码
 

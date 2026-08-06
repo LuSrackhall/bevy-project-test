@@ -2513,3 +2513,75 @@ mod shield_lifecycle_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod city_capture_tests {
+    use super::*;
+    use crate::init_simulation_world;
+    use crate::init_simulation_world_multi;
+
+    fn spawn_city(
+        world: &mut World,
+        uid: u64,
+        faction: FactionId,
+        last_attacker: Option<FactionId>,
+    ) -> bevy_ecs::entity::Entity {
+        world
+            .spawn((
+                UnitIdComponent(UnitId(uid)),
+                CityComponent {
+                    level: 1,
+                    max_level: 5,
+                    health_current: 0,
+                    health_max: 1000,
+                    population: 0,
+                    max_population: 10,
+                    spawn_type: SoldierType::Militia,
+                    spawn_cooldown: 10,
+                    level_exp: 0,
+                    last_attacker_faction: last_attacker,
+                    arrow_damage_acc: 0,
+                },
+                FactionComponent(faction),
+                CityRadius(5),
+            ))
+            .id()
+    }
+
+    fn faction_of(world: &World, e: bevy_ecs::entity::Entity) -> FactionId {
+        world.get::<FactionComponent>(e).unwrap().0
+    }
+
+    #[test]
+    fn test_capture_single_player_equivalent() {
+        // 单机 2 人:0 城被 1 打 → 归 1(与旧 0↔1 互换等价)
+        let mut world = init_simulation_world(42);
+        let e = spawn_city(&mut world, 1, FactionId(0), Some(FactionId(1)));
+        city_capture_check_system(&mut world);
+        assert_eq!(faction_of(&world, e), FactionId(1));
+
+        // 1 城被 0 打 → 归 0
+        let mut world2 = init_simulation_world(42);
+        let e2 = spawn_city(&mut world2, 2, FactionId(1), Some(FactionId(0)));
+        city_capture_check_system(&mut world2);
+        assert_eq!(faction_of(&world2, e2), FactionId(0));
+    }
+
+    #[test]
+    fn test_capture_multiplayer_last_attacker() {
+        // 多人 FFA:0 城被玩家 3 打 → 归 3(旧 0↔1 互换会错)
+        let mut world = init_simulation_world_multi(42, PlayerSlots::multi_player(4, 0));
+        let e = spawn_city(&mut world, 1, FactionId(0), Some(FactionId(3)));
+        city_capture_check_system(&mut world);
+        assert_eq!(faction_of(&world, e), FactionId(3));
+    }
+
+    #[test]
+    fn test_capture_no_attacker_keeps_owner() {
+        // 无攻击者记录 → 保持原 owner(specs/city-interaction)
+        let mut world = init_simulation_world_multi(42, PlayerSlots::multi_player(4, 0));
+        let e = spawn_city(&mut world, 1, FactionId(0), None);
+        city_capture_check_system(&mut world);
+        assert_eq!(faction_of(&world, e), FactionId(0));
+    }
+}

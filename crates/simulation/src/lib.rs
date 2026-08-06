@@ -324,4 +324,34 @@ mod integration_tests {
         assert_eq!(militia.attack, 16);
         assert_eq!(militia.speed, 80);
     }
+
+    #[test]
+    fn test_reconnect_rebuild_matches_live_network_path() {
+        // specs/network-reconnect:重建路径(init_simulation_world_multi +
+        // run_tick(enable_ai:false))与连续网络路径 bitwise 一致。
+        // 若误用单机 init_simulation_world(2槽)+ run_tick_default(AI开) 会 desync → R1 防线。
+        let seed = 42u64;
+        let map_size = map::MapSize::Small;
+        let total_ticks = 500u32;
+        let network_cfg = RunConfig { enable_ai: false };
+
+        // 连续网络路径
+        let mut world_live = init_simulation_world_multi(seed, PlayerSlots::multi_player(4, 0));
+        map::generate_map(&mut world_live, map_size);
+        for tick in 1..=total_ticks {
+            run_tick(&mut world_live, tick, &network_cfg);
+        }
+        let hash_live = golden_test::hash_world_state(&mut world_live);
+
+        // 重建路径:相同初始化 + 重放相同命令序列
+        let mut world_rebuild = init_simulation_world_multi(seed, PlayerSlots::multi_player(4, 0));
+        map::generate_map(&mut world_rebuild, map_size);
+        for tick in 1..=total_ticks {
+            run_tick(&mut world_rebuild, tick, &network_cfg);
+        }
+        let hash_rebuild = golden_test::hash_world_state(&mut world_rebuild);
+
+        assert_eq!(hash_live, hash_rebuild,
+            "重建路径必须与连续网络路径 bitwise 一致(R1)");
+    }
 }
