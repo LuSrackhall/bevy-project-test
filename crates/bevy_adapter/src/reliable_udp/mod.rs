@@ -82,6 +82,8 @@ pub struct ReliableSocket {
     assemblers: HashMap<(u8, u32), FragAssembler>,
     outbox: VecDeque<Vec<u8>>,
     outbound: VecDeque<Vec<u8>>,
+    /// Monotonic message-id counter for fragmentation (unique per socket).
+    msg_counter: u32,
     dead: bool,
 }
 
@@ -97,6 +99,7 @@ impl ReliableSocket {
             assemblers: HashMap::new(),
             outbox: VecDeque::new(),
             outbound: VecDeque::new(),
+            msg_counter: 0,
             dead: false,
         }
     }
@@ -121,7 +124,8 @@ impl ReliableSocket {
     /// Send a reliable ordered message on `channel` (Tick or Control).
     /// Splits into fragments if over MTU. Queued for send on next poll().
     pub fn send_reliable(&mut self, channel: u8, payload: Vec<u8>) {
-        let msg_id = (self.now.as_millis() as u32) ^ (channel as u32) << 24;
+        let msg_id = self.msg_counter;
+        self.msg_counter = self.msg_counter.wrapping_add(1);
         if payload.len() <= MAX_DATA {
             self.queue_fragment(channel, msg_id, 0, 1, payload);
         } else {
@@ -164,7 +168,8 @@ impl ReliableSocket {
                 let due = retries == 0 || now >= rto_at;
                 if within_window && due {
                     if retries >= max_retries {
-                        // give up: drop (caller catches up via reconnect)
+                        // give up: drop frame and signal the caller to reconnect
+                        self.dead = true;
                         continue;
                     }
                     self.outbound.push_back(frame.clone());
@@ -212,12 +217,13 @@ impl ReliableSocket {
                     let sender = &mut self.senders[ch];
                     if acked.wrapping_sub(sender.last_acked) > 0 {
                         sender.last_acked = acked;
-                        // keep only frames with seq strictly after the cumulative ack
-                        sender.unacked.retain(|(seq, _, _, _)| {
-                            let d = seq.wrapping_sub(acked);
-                            d > 0 && d < (1u32 << 31)
-                        });
                     }
+                    // Remove frames with seq <= acked even when acked == last_acked
+                    // (seq starts at 0, so an initial ACK(0) must clear the seq-0 frame).
+                    sender.unacked.retain(|(seq, _, _, _)| {
+                        let d = seq.wrapping_sub(acked);
+                        d > 0 && d < (1u32 << 31)
+                    });
                 }
             }
             KIND_DATA | KIND_FRAG => self.receive_data(frame),
@@ -226,14 +232,13 @@ impl ReliableSocket {
     }
 
     fn receive_data(&mut self, frame: Frame) {
+        if frame.channel == CH_HEARTBEAT {
+            return; // heartbeat is unreliable — no ACK, no delivery
+        }
         let ch = frame.channel as usize;
         if ch >= 3 {
             return;
         }
-        // Acknowledge every received reliable frame (cumulative).
-        let ack = ack_frame(frame.channel, frame.seq);
-        self.outbound.push_back(ack);
-
         match frame.frag {
             None => self.stage_data(ch, frame.seq, frame.payload),
             Some((msg_id, idx, total)) => {
@@ -250,14 +255,24 @@ impl ReliableSocket {
                         max_seq = max_seq.max(*seq);
                     }
                     self.assemblers.remove(&(frame.channel, msg_id));
-                    // Reassembled message spans multiple frame seqs: advance the
-                    // expected counter past all of them and deliver directly.
                     let recv = &mut self.receivers[ch];
                     recv.next_expected = recv.next_expected.max(max_seq.wrapping_add(1));
                     self.outbox.push_back(data);
+                    // drain any contiguous buffered frames after advancing
+                    while let Some(x) = recv.buffer.remove(&recv.next_expected) {
+                        recv.next_expected = recv.next_expected.wrapping_add(1);
+                        self.outbox.push_back(x);
+                    }
                 }
             }
         }
+        // ACK the highest CONTIGUOUS seq (next_expected - 1), not the raw frame
+        // seq — otherwise an out-of-order/high frame would ack over a lost gap
+        // and suppress its retransmission. saturating_sub guards the no-data case.
+        let recv = &self.receivers[ch];
+        let ack_seq = recv.next_expected.saturating_sub(1);
+        let ack = ack_frame(frame.channel, ack_seq);
+        self.outbound.push_back(ack);
     }
 
     fn stage_data(&mut self, ch: usize, seq: u32, payload: Vec<u8>) {

@@ -34,9 +34,9 @@
 
 ## 6. 删 TCP + 收尾
 
-- [ ] 6.1 删 TCP 代码:TcpListener/TcpStream/长度前缀帧相关
-- [ ] 6.2 ADR:传输层选型(自写可靠 UDP vs QUIC/renet2)
-- [ ] 6.3 全仓 `cargo test` + `cargo check` 全绿;宪法自检清单逐项过
+- [x] 6.1 删 TCP 代码:TcpListener/TcpStream/长度前缀帧相关
+- [x] 6.2 ADR:传输层选型(自写可靠 UDP vs QUIC/renet2)
+- [x] 6.3 全仓 `cargo test` + `cargo check` 全绿;宪法自检清单逐项过
 
 ---
 

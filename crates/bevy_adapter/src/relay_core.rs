@@ -102,17 +102,6 @@ fn now_ms_ts() -> u64 {
         .unwrap_or(0)
 }
 
-/// Normalize a v4-mapped v6 address (`::ffff:a.b.c.d`) back to a v4 address so
-/// dual-stack send_to reaches a v4-bound client socket.
-fn normalize_addr(addr: SocketAddr) -> SocketAddr {
-    if let SocketAddr::V6(v6) = addr {
-        if let Some(v4) = v6.ip().to_ipv4_mapped() {
-            return SocketAddr::new(std::net::IpAddr::V4(v4), addr.port());
-        }
-    }
-    addr
-}
-
 /// Encode a relay→client message and stage it on every connected session's
 /// reliable socket (Control channel, CH=1). Flushed by each session's poll().
 async fn broadcast(ctx: &Arc<RelayCtx>, msg: &RelayServerMessage) {
@@ -164,7 +153,11 @@ pub async fn run_relay(socket: UdpSocket, config: RelayConfig, stop: &AtomicBool
                         let data = buf[..n].to_vec();
                         if let Some(session) = sessions.get(&from) {
                             let mut s = session.lock().await;
-                            s.inbound.lock().unwrap().push_back(data);
+                            let mut inbound = s.inbound.lock().unwrap();
+                            if inbound.len() < 1024 {
+                                inbound.push_back(data);
+                            }
+                            drop(inbound);
                             s.last_seen_ms.store(now_ms_ts(), Ordering::Relaxed);
                         } else {
                             // Unknown source: start a session; identity assigned on JoinGame.
@@ -201,11 +194,16 @@ pub async fn run_relay(socket: UdpSocket, config: RelayConfig, stop: &AtomicBool
                     if let Some(session) = sessions.remove(&addr) {
                         let pid = session.lock().await.player_id;
                         if let Some(pid) = pid {
-                            ctx.current_clients.fetch_sub(1, Ordering::Relaxed);
-                            let mut server = ctx.server.lock().unwrap();
-                            server.on_disconnect(pid);
-                            ctx.clients.lock().unwrap().remove(&pid);
-                            eprintln!("[RELAY] heartbeat timeout: player {} disconnected", pid);
+                            // Only disconnect if this is still the current session for pid
+                            // (a reconnected client may have replaced it).
+                            let is_current = ctx.clients.lock().unwrap().get(&pid).map_or(false, |c| Arc::ptr_eq(c, &session));
+                            if is_current {
+                                ctx.current_clients.fetch_sub(1, Ordering::Relaxed);
+                                let mut server = ctx.server.lock().unwrap();
+                                server.on_disconnect(pid);
+                                ctx.clients.lock().unwrap().remove(&pid);
+                                eprintln!("[RELAY] heartbeat timeout: player {} disconnected", pid);
+                            }
                         }
                     }
                 }
@@ -221,9 +219,11 @@ pub async fn run_relay(socket: UdpSocket, config: RelayConfig, stop: &AtomicBool
 
 /// One session's loop: poll the reliable socket, handle messages, keep alive.
 async fn session_task(ctx: Arc<RelayCtx>, session: Arc<AsyncMutex<RelaySession>>) {
+    let start = std::time::Instant::now();
     loop {
         let msgs = {
             let mut s = session.lock().await;
+            s.socket.set_now(start.elapsed()); // drive RTO so relay→client retransmits
             s.socket.process(); // move due frames (incl. messages staged by handle_message) to outbound
             if s.socket.poll().await.is_err() {
                 break;

@@ -243,6 +243,10 @@ async fn udp_session(
 
     let mut last_activity = std::time::Instant::now();
     let mut last_heartbeat = std::time::Instant::now();
+    // 3s no-downlink detection only applies once the game has started; the lobby
+    // (waiting room) has long idle stretches with no relay downlink and must not
+    // spuriously reconnect.
+    let mut game_started = false;
 
     loop {
         if stop.load(std::sync::atomic::Ordering::Relaxed) {
@@ -250,6 +254,10 @@ async fn udp_session(
         }
         rs.set_now(start.elapsed());
         rs.process();
+        if rs.is_dead() {
+            eprintln!("[NET] reliable layer retransmit exhausted — reconnecting");
+            return false;
+        }
         if rs.poll().await.is_err() {
             return false;
         }
@@ -263,6 +271,7 @@ async fn udp_session(
                     RelayServerMessage::Broadcast(frame) => receiver.push(frame),
                     RelayServerMessage::GameStarted { game_id: g, seed, player_count } => {
                         eprintln!("[NET] GameStarted: game_id={}, seed={}, players={}", g, seed, player_count);
+                        game_started = true;
                         event_receiver.push(NetworkEvent::GameStarted { game_id: g, seed, player_count });
                     }
                     RelayServerMessage::GameJoined { game_id: g, player_id: p, player_count } => {
@@ -288,7 +297,8 @@ async fn udp_session(
                     }
                     RelayServerMessage::Error { code, message } => {
                         eprintln!("[NET] Error ({}): {}", code, message);
-                        return true;
+                        // 重连场景失败(如 game_id 不一致)→ 重试;首次 → 放弃
+                        return sender.last_tick_consumed() == 0;
                     }
                     RelayServerMessage::JoinRejected { reason } => {
                         eprintln!("[NET] Join rejected: {}", reason);
@@ -318,8 +328,9 @@ async fn udp_session(
             last_heartbeat = std::time::Instant::now();
         }
 
-        // Disconnect detection: no relay message for 3s → reconnect.
-        if last_activity.elapsed() >= Duration::from_secs(3) {
+        // Disconnect detection: no relay downlink for 3s once the game started.
+        // In the lobby there is no periodic downlink, so this is gated on game_started.
+        if game_started && last_activity.elapsed() >= Duration::from_secs(3) {
             eprintln!("[NET] connection timeout — reconnecting");
             return false;
         }
