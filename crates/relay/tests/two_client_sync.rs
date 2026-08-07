@@ -207,3 +207,24 @@ async fn test_two_clients_lobby_ready_then_game_started() {
         other => panic!("c0 expected GameStarted, got {:?}", other),
     }
 }
+
+#[tokio::test(flavor = "current_thread")]
+async fn test_heartbeat_timeout_releases_seat() {
+    let port = find_free_port().await;
+    tokio::spawn(async move { start_relay(port, 42, 2, Some(RelayId(42))).await.unwrap(); });
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    // c0 joins as player 0.
+    let (mut c0, pid0) = udp_join(port, RelayId(42)).await;
+    assert_eq!(pid0, 0);
+
+    // Stop pumping c0 entirely (no heartbeats). Relay's heartbeat sweep
+    // (1.5s timeout) must release the seat even with no inbound traffic.
+    tokio::time::sleep(Duration::from_millis(2000)).await;
+
+    // A new client joining should reuse the released seat (player 0).
+    let (mut c1, pid1) = udp_join(port, RelayId(42)).await;
+    assert_eq!(pid1, 0, "seat should be reused after heartbeat timeout");
+
+    let _ = (&mut c0, &mut c1);
+}

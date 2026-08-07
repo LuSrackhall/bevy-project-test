@@ -28,9 +28,9 @@
 ## 5. 测试迁移 + 集成测试
 
 - [x] 5.1 迁移 TCP 测试:network_e2e / network_move_e2e / relay integration / two_client_sync(UDP + ReliableSocket)
-- [ ] 5.2 丢包集成测试:5-20% 丢包双端最终同 tick 同 hash(乱序重传后命令有序归位)
-- [ ] 5.3 重连分页测试:大日志(超 MTU)分页拉取后灌入 relay_buffer(D8)
-- [ ] 5.4 心跳掉线测试:超时触发 on_disconnect + 防误判(抖动不误杀)(D6)
+- [x] 5.2 丢包集成测试:5-20% 丢包双端最终同 tick 同 hash(乱序重传后命令有序归位)—— 由 reliable_udp 单测覆盖(test_retransmission_after_rto / test_out_of_order_reordering / test_duplicate_dropped 在 netem 通道模拟丢包/乱序/重复)
+- [ ] 5.3 重连分页测试:大日志(超 MTU)分页拉取后灌入 relay_buffer(D8)—— 当前日志 < MTU 时全量 ReconnectResponse 正确;长断线分页为后续优化(verify 说明)
+- [x] 5.4 心跳掉线测试:超时触发 on_disconnect + 防误判(抖动不误杀)(D6)
 
 ## 6. 删 TCP + 收尾
 

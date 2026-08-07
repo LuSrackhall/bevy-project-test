@@ -157,58 +157,62 @@ pub async fn run_relay(socket: UdpSocket, config: RelayConfig, stop: &AtomicBool
 
     let mut buf = [0u8; 65535];
     loop {
-        let (n, from) = match shared.recv_from(&mut buf).await {
-            Ok(x) => x,
-            Err(_) => continue,
-        };
-        let data = buf[..n].to_vec();
-
-        if let Some(session) = sessions.get(&from) {
-            let mut s = session.lock().await;
-            s.inbound.lock().unwrap().push_back(data);
-            s.last_seen_ms.store(now_ms_ts(), Ordering::Relaxed);
-        } else {
-            // Unknown source: start a session; identity is assigned on JoinGame.
-            let inbound = Arc::new(Mutex::new(VecDeque::new()));
-            inbound.lock().unwrap().push_back(data);
-            let last_seen = Arc::new(AtomicU64::new(now_ms_ts()));
-            let channel = Box::new(RelayChannel { shared: shared.clone(), inbound: inbound.clone() });
-            let socket = ReliableSocket::new(channel, from, ReliableConfig::default());
-            let session = Arc::new(AsyncMutex::new(RelaySession {
-                socket,
-                inbound: inbound.clone(),
-                player_id: None,
-                last_seen_ms: last_seen.clone(),
-            }));
-            sessions.insert(from, session.clone());
-            let ctx2 = ctx.clone();
-            tokio::spawn(session_task(ctx2, session.clone()));
-        }
-
-        // Heartbeat sweep: drop sessions that missed their heartbeats.
-        let now = now_ms_ts();
-        let mut dead: Vec<SocketAddr> = Vec::new();
-        for (addr, session) in &sessions {
-            let last = session.lock().await.last_seen_ms.load(Ordering::Relaxed);
-            if now.saturating_sub(last) > hb_timeout_ms {
-                dead.push(*addr);
-            }
-        }
-        for addr in dead {
-            if let Some(session) = sessions.remove(&addr) {
-                let pid = session.lock().await.player_id;
-                if let Some(pid) = pid {
-                    ctx.current_clients.fetch_sub(1, Ordering::Relaxed);
-                    let mut server = ctx.server.lock().unwrap();
-                    server.on_disconnect(pid);
-                    ctx.clients.lock().unwrap().remove(&pid);
-                    eprintln!("[RELAY] heartbeat timeout: player {} disconnected", pid);
+        tokio::select! {
+            r = shared.recv_from(&mut buf) => {
+                match r {
+                    Ok((n, from)) => {
+                        let data = buf[..n].to_vec();
+                        if let Some(session) = sessions.get(&from) {
+                            let mut s = session.lock().await;
+                            s.inbound.lock().unwrap().push_back(data);
+                            s.last_seen_ms.store(now_ms_ts(), Ordering::Relaxed);
+                        } else {
+                            // Unknown source: start a session; identity assigned on JoinGame.
+                            let inbound = Arc::new(Mutex::new(VecDeque::new()));
+                            inbound.lock().unwrap().push_back(data);
+                            let last_seen = Arc::new(AtomicU64::new(now_ms_ts()));
+                            let channel = Box::new(RelayChannel { shared: shared.clone(), inbound: inbound.clone() });
+                            let socket = ReliableSocket::new(channel, from, ReliableConfig::default());
+                            let session = Arc::new(AsyncMutex::new(RelaySession {
+                                socket,
+                                inbound: inbound.clone(),
+                                player_id: None,
+                                last_seen_ms: last_seen.clone(),
+                            }));
+                            sessions.insert(from, session.clone());
+                            let ctx2 = ctx.clone();
+                            tokio::spawn(session_task(ctx2, session.clone()));
+                        }
+                    }
+                    Err(_) => {}
                 }
             }
-        }
-
-        if stop.load(Ordering::Relaxed) {
-            break;
+            _ = tokio::time::sleep(Duration::from_millis(100)) => {
+                // Heartbeat sweep: drop sessions that missed their heartbeats.
+                let now = now_ms_ts();
+                let mut dead: Vec<SocketAddr> = Vec::new();
+                for (addr, session) in &sessions {
+                    let last = session.lock().await.last_seen_ms.load(Ordering::Relaxed);
+                    if now.saturating_sub(last) > hb_timeout_ms {
+                        dead.push(*addr);
+                    }
+                }
+                for addr in dead {
+                    if let Some(session) = sessions.remove(&addr) {
+                        let pid = session.lock().await.player_id;
+                        if let Some(pid) = pid {
+                            ctx.current_clients.fetch_sub(1, Ordering::Relaxed);
+                            let mut server = ctx.server.lock().unwrap();
+                            server.on_disconnect(pid);
+                            ctx.clients.lock().unwrap().remove(&pid);
+                            eprintln!("[RELAY] heartbeat timeout: player {} disconnected", pid);
+                        }
+                    }
+                }
+                if stop.load(Ordering::Relaxed) {
+                    break;
+                }
+            }
         }
     }
 
@@ -224,7 +228,6 @@ async fn session_task(ctx: Arc<RelayCtx>, session: Arc<AsyncMutex<RelaySession>>
             if s.socket.poll().await.is_err() {
                 break;
             }
-            s.last_seen_ms.store(now_ms_ts(), Ordering::Relaxed);
             s.socket.take_messages()
         };
         for bytes in msgs {
