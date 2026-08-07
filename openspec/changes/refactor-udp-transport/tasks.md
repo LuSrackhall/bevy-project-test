@@ -6,11 +6,11 @@
 
 ## 2. reliable_udp 模块
 
-- [ ] 2.1 `ReliableSocket` 公共 API:send_reliable/send_control/send_unreliable + 连接状态事件(Connected/Dead)
-- [ ] 2.2 三通道数据结构 + 每通道独立 seq
-- [ ] 2.3 滑动窗口 + RTO 自适应(SRTT/Karn)+ 固定 pacing(无 AIMD)+ 重传上限降级(触发追平)
-- [ ] 2.4 分片/重组(MTU ≤1232,按 msg_id/frag_idx/frag_total)
-- [ ] 2.5 `DatagramChannel` 的 UDP 真实现(channel_udp.rs)
+- [x] 2.1 `ReliableSocket` 公共 API:send_reliable/send_control/send_unreliable + 连接状态事件(Connected/Dead)
+- [x] 2.2 三通道数据结构 + 每通道独立 seq
+- [x] 2.3 滑动窗口 + RTO 自适应(SRTT/Karn)+ 固定 pacing(无 AIMD)+ 重传上限降级(触发追平)
+- [x] 2.4 分片/重组(MTU ≤1232,按 msg_id/frag_idx/frag_total)
+- [x] 2.5 `DatagramChannel` 的 UDP 真实现(channel_udp.rs)
 
 ## 3. relay 端迁 UDP
 

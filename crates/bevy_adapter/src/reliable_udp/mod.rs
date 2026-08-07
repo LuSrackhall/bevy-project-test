@@ -17,6 +17,7 @@ use async_trait::async_trait;
 
 pub mod channel;
 pub mod channel_netem;
+pub mod channel_udp;
 pub mod protocol;
 
 use channel::DatagramChannel;
