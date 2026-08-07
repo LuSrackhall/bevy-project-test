@@ -4,7 +4,7 @@
 //! and the standalone `relay` CLI binary.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
@@ -27,6 +27,8 @@ pub struct RelayConfig {
     pub map_spec_hash: u64,
     pub player_count: u8,
     pub input_delay: u32,
+    /// Live connected-client count, shared with the LAN beacon for current_players.
+    pub current_clients: Arc<AtomicUsize>,
 }
 
 /// Shared relay context, accessed by all connection tasks.
@@ -34,14 +36,16 @@ struct RelayCtx {
     server: Mutex<RelayServer>,
     clients: Mutex<HashMap<u8, mpsc::UnboundedSender<RelayServerMessage>>>,
     player_count: u8,
+    current_clients: Arc<AtomicUsize>,
 }
 
 impl RelayCtx {
-    fn new(server: RelayServer, player_count: u8) -> Arc<Self> {
+    fn new(server: RelayServer, player_count: u8, current_clients: Arc<AtomicUsize>) -> Arc<Self> {
         Arc::new(Self {
             server: Mutex::new(server),
             clients: Mutex::new(HashMap::new()),
             player_count,
+            current_clients,
         })
     }
 }
@@ -71,7 +75,7 @@ pub async fn run_relay(
         now_ms,
     );
 
-    let ctx = RelayCtx::new(server, config.player_count);
+    let ctx = RelayCtx::new(server, config.player_count, config.current_clients.clone());
     eprintln!(
         "[RELAY] Relay ready (players={}, seed={})",
         config.player_count, config.seed
@@ -155,6 +159,7 @@ async fn handle_client(ctx: Arc<RelayCtx>, stream: TcpStream) {
         let mut clients = ctx.clients.lock().unwrap();
         clients.insert(player_id, tx);
     }
+    ctx.current_clients.fetch_add(1, Ordering::Relaxed);
 
     // Step 3: Send GameJoined with assigned player_id
     let msg = RelayServerMessage::GameJoined {
@@ -265,10 +270,9 @@ async fn handle_client(ctx: Arc<RelayCtx>, stream: TcpStream) {
                 {
                     let server = ctx.server.lock().unwrap();
                     let lobby_players: Vec<LobbyPlayerState> = ctx.clients.lock().unwrap().keys().map(|pid| {
-                        let mask = server.lobby_ready_mask();
                         LobbyPlayerState {
                             player_id: *pid,
-                            ready: (mask >> pid) & 1 == 1,
+                            ready: server.is_player_ready(*pid),
                             selected_map: None,
                         }
                     }).collect();
@@ -301,6 +305,7 @@ async fn handle_client(ctx: Arc<RelayCtx>, stream: TcpStream) {
     }
 
     eprintln!("Player {} disconnected", player_id);
+    ctx.current_clients.fetch_sub(1, Ordering::Relaxed);
     write_h.abort();
     {
         let mut server = ctx.server.lock().unwrap();

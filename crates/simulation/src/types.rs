@@ -353,9 +353,8 @@ impl PlayerSlots {
         }
     }
 
-    /// Create N-player FFA slot configuration.
+    /// Create N-player FFA slot configuration. N bounded only by the `u8` type limit (255).
     pub fn multi_player(count: u8, local_player_id: u8) -> Self {
-        assert!(count <= 8, "max 8 players");
         let slots = (0..count).map(|i| PlayerSlot {
             slot_id: SlotId(i),
             controller: if i == local_player_id {
@@ -618,6 +617,27 @@ mod tests {
         for i in 0..4 {
             assert_eq!(slots.slots[i as usize].faction, FactionId(i));
         }
+    }
+
+    #[test]
+    fn test_multi_player_slots_9_exceeds_ceiling() {
+        // 8 人上限已解除(specs/multiplayer-slots)
+        let slots = PlayerSlots::multi_player(9, 3);
+        assert_eq!(slots.slots.len(), 9);
+        assert_eq!(slots.slots[3].faction, FactionId(3));
+        assert!(matches!(slots.slots[3].controller, Controller::HumanLocal));
+        for i in 0..9 {
+            assert_eq!(slots.slots[i as usize].faction, FactionId(i));
+        }
+    }
+
+    #[test]
+    fn test_multi_player_slots_16() {
+        let slots = PlayerSlots::multi_player(16, 5);
+        assert_eq!(slots.slots.len(), 16);
+        assert_eq!(slots.slots[5].faction, FactionId(5));
+        assert!(matches!(slots.slots[5].controller, Controller::HumanLocal));
+        assert_eq!(slots.slots[15].faction, FactionId(15));
     }
 
 }

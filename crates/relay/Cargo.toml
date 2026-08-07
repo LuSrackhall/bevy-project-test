@@ -7,3 +7,6 @@ edition = "2021"
 bevy_adapter = { path = "../bevy_adapter" }
 tokio = { version = "1.52.3", features = ["net", "rt", "macros"] }
 rand = "0.8"
+
+[dev-dependencies]
+bincode = { version = "2", features = ["serde"] }

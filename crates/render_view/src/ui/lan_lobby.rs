@@ -299,6 +299,10 @@ pub struct ModalMapSize;
 #[derive(Component)]
 pub struct ModalPlayerCount;
 
+/// Label for the player-count text inside the modal (updated on cycle).
+#[derive(Component)]
+pub struct ModalPlayerCountLabel;
+
 #[derive(Component)]
 pub struct ModalError;
 
@@ -324,6 +328,7 @@ fn open_create_room_modal(
     _trigger: On<Activate>,
     mut commands: Commands,
     asset_server: Res<AssetServer>,
+    modal_state: Res<ModalState>,
     existing: Query<Entity, With<LanLobbyModal>>,
 ) {
     let font = asset_server.load("fonts/Arial Unicode.ttf");
@@ -405,7 +410,23 @@ fn open_create_room_modal(
                 ButtonTheme::dark(),
                 ModalPlayerCount,
             ))
-            .with_child((Text::new("2"), TextFont { font: font.clone().into(), font_size: FontSize::Px(14.0), ..default() }));
+            .with_child((
+                Text::new(format!("{}", modal_state.max_players)),
+                TextFont { font: font.clone().into(), font_size: FontSize::Px(14.0), ..default() },
+                ModalPlayerCountLabel,
+            ))
+            // 点击循环最大人数 2..=8(specs/multiplayer-scale)
+            .observe(
+                |_ev: On<Activate>,
+                 mut modal: ResMut<ModalState>,
+                 q: Query<Entity, With<ModalPlayerCountLabel>>,
+                 mut commands: Commands| {
+                    modal.max_players = if modal.max_players >= 8 { 2 } else { modal.max_players + 1 };
+                    for e in q.iter() {
+                        commands.entity(e).insert(Text::new(modal.max_players.to_string()));
+                    }
+                },
+            );
 
             // Error text (hidden by default)
             parent.spawn((

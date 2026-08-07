@@ -45,7 +45,12 @@ fn test_render_view_no_world_mut() {
         // world_mut() gives &mut simulation::World — forbidden in render_view
         // set_world() is the allowed replacement for seek reinit
         for (i, line) in content.lines().enumerate() {
-            if line.contains("world_mut(") && !line.contains("set_world(") {
+            // world_mut() gives &mut simulation::World — forbidden in render_view.
+            // app.world_mut() is Bevy's App API (test harness), NOT simulation World — allowed.
+            if line.contains("world_mut(")
+                && !line.contains("set_world(")
+                && !line.contains("app.world_mut(")
+            {
                 violations.push(format!("{}:{}: uses world_mut()", rel_path, i + 1));
             }
         }
