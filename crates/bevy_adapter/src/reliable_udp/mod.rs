@@ -179,20 +179,25 @@ impl ReliableSocket {
         staged
     }
 
-    /// Flush outbound (async send) and pump one round of inbound datagrams.
+    /// Flush outbound (async send) and pump up to N inbound datagrams with a
+    /// short timeout, then return so the caller controls the loop cadence.
     pub async fn poll(&mut self) -> io::Result<()> {
         while let Some(frame) = self.outbound.pop_front() {
             self.channel.send_to(&frame, self.peer).await?;
         }
         let mut buf = [0u8; 65535];
-        loop {
-            let (n, _from) = match self.channel.recv_from(&mut buf).await {
-                Ok(x) => x,
-                Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
-                Err(e) => return Err(e),
-            };
-            if let Some(frame) = decode(&buf[..n]) {
-                self.handle_frame(frame);
+        for _ in 0..10 {
+            let res =
+                tokio::time::timeout(Duration::from_millis(10), self.channel.recv_from(&mut buf)).await;
+            match res {
+                Ok(Ok((n, _from))) => {
+                    if let Some(frame) = decode(&buf[..n]) {
+                        self.handle_frame(frame);
+                    }
+                }
+                Ok(Err(e)) if e.kind() == io::ErrorKind::WouldBlock => break,
+                Ok(Err(e)) => return Err(e),
+                Err(_elapsed) => break, // timeout → return control to caller
             }
         }
         Ok(())
@@ -207,7 +212,11 @@ impl ReliableSocket {
                     let sender = &mut self.senders[ch];
                     if acked.wrapping_sub(sender.last_acked) > 0 {
                         sender.last_acked = acked;
-                        sender.unacked.retain(|(seq, _, _, _)| seq.wrapping_sub(acked) > 0);
+                        // keep only frames with seq strictly after the cumulative ack
+                        sender.unacked.retain(|(seq, _, _, _)| {
+                            let d = seq.wrapping_sub(acked);
+                            d > 0 && d < (1u32 << 31)
+                        });
                     }
                 }
             }
@@ -253,24 +262,42 @@ impl ReliableSocket {
 
     fn stage_data(&mut self, ch: usize, seq: u32, payload: Vec<u8>) {
         let recv = &mut self.receivers[ch];
-        if seq == recv.next_expected {
+        let d = seq.wrapping_sub(recv.next_expected);
+        if d == 0 {
+            // in-order: deliver and advance, then drain contiguous buffered
             recv.next_expected = recv.next_expected.wrapping_add(1);
             self.outbox.push_back(payload);
-            while let Some(d) = recv.buffer.remove(&recv.next_expected) {
+            while let Some(x) = recv.buffer.remove(&recv.next_expected) {
                 recv.next_expected = recv.next_expected.wrapping_add(1);
-                self.outbox.push_back(d);
+                self.outbox.push_back(x);
             }
-        } else if seq.wrapping_sub(recv.next_expected) > 0 {
-            // out-of-order: buffer (dedupe via entry.or_insert)
+        } else if d < (1u32 << 31) {
+            // future seq (within the forward window): buffer
             recv.buffer.entry(seq).or_insert(payload);
         } else {
-            // duplicate (already delivered)
+            // stale / duplicate (seq already passed): drop
         }
     }
 
     /// Take messages delivered in order.
     pub fn take_messages(&mut self) -> Vec<Vec<u8>> {
         self.outbox.drain(..).collect()
+    }
+
+    /// Take only messages matching `pred`; non-matching messages stay in the
+    /// outbox (not lost) so later calls can consume them.
+    pub fn take_messages_matching<F: Fn(&[u8]) -> bool>(&mut self, pred: F) -> Vec<Vec<u8>> {
+        let mut kept = VecDeque::new();
+        let mut taken = Vec::new();
+        while let Some(m) = self.outbox.pop_front() {
+            if pred(&m) {
+                taken.push(m);
+            } else {
+                kept.push_back(m);
+            }
+        }
+        self.outbox = kept;
+        taken
     }
 
     /// Number of in-flight unacked frames across reliable channels.

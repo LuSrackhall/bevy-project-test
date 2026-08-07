@@ -27,7 +27,7 @@
 
 ## 5. 测试迁移 + 集成测试
 
-- [ ] 5.1 迁移 TCP 测试:network_e2e / network_move_e2e / relay integration / two_client_sync(UDP + ReliableSocket)
+- [x] 5.1 迁移 TCP 测试:network_e2e / network_move_e2e / relay integration / two_client_sync(UDP + ReliableSocket)
 - [ ] 5.2 丢包集成测试:5-20% 丢包双端最终同 tick 同 hash(乱序重传后命令有序归位)
 - [ ] 5.3 重连分页测试:大日志(超 MTU)分页拉取后灌入 relay_buffer(D8)
 - [ ] 5.4 心跳掉线测试:超时触发 on_disconnect + 防误判(抖动不误杀)(D6)

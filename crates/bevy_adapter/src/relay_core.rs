@@ -102,6 +102,17 @@ fn now_ms_ts() -> u64 {
         .unwrap_or(0)
 }
 
+/// Normalize a v4-mapped v6 address (`::ffff:a.b.c.d`) back to a v4 address so
+/// dual-stack send_to reaches a v4-bound client socket.
+fn normalize_addr(addr: SocketAddr) -> SocketAddr {
+    if let SocketAddr::V6(v6) = addr {
+        if let Some(v4) = v6.ip().to_ipv4_mapped() {
+            return SocketAddr::new(std::net::IpAddr::V4(v4), addr.port());
+        }
+    }
+    addr
+}
+
 /// Encode a relay→client message and stage it on every connected session's
 /// reliable socket (Control channel, CH=1). Flushed by each session's poll().
 async fn broadcast(ctx: &Arc<RelayCtx>, msg: &RelayServerMessage) {
@@ -209,6 +220,7 @@ async fn session_task(ctx: Arc<RelayCtx>, session: Arc<AsyncMutex<RelaySession>>
     loop {
         let msgs = {
             let mut s = session.lock().await;
+            s.socket.process(); // move due frames (incl. messages staged by handle_message) to outbound
             if s.socket.poll().await.is_err() {
                 break;
             }
