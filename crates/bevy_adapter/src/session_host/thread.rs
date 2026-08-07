@@ -6,7 +6,7 @@ use std::sync::Mutex;
 use std::thread;
 use std::time::{Duration, SystemTime};
 
-use tokio::net::{TcpListener, UdpSocket};
+use tokio::net::UdpSocket;
 
 use crate::discovery::{LanDiscoveryPacket, RelayId, RoomAdvertisement, RoomMetadata};
 use crate::relay_core::{self, RelayConfig};
@@ -78,23 +78,24 @@ async fn run_local_relay(
     // and the relay (updated on join/disconnect).
     let clients_count = Arc::new(AtomicUsize::new(0));
 
-    // Bind to 0.0.0.0:0 — accept connections from LAN, OS allocates port
-    let listener = match TcpListener::bind("0.0.0.0:0").await {
-        Ok(l) => l,
+    // Bind dual-stack UDP socket — accept connections over IPv4/IPv6, OS allocates port
+    let socket = match UdpSocket::bind("[::]:0").await {
+        Ok(s) => s,
         Err(e) => {
             let _ = port_tx.send(Err(RelayError::StartFailed(format!(
-                "TCP bind failed: {}",
+                "UDP bind failed: {}",
                 e
             ))));
             return;
         }
     };
 
-    let actual_port = listener.local_addr().map(|a| a.port()).unwrap_or(9876);
+    let actual_port = socket.local_addr().map(|a| a.port()).unwrap_or(9876);
     let _ = port_tx.send(Ok(actual_port));
 
-    // Create UDP socket for LAN discovery beacon broadcasting.
-    let udp_socket = match UdpSocket::bind(format!("0.0.0.0:{}", actual_port)).await {
+    // Discovery beacon uses a dedicated port (9876) — the game socket is UDP now,
+    // so two UDP sockets must not share the game port.
+    let udp_socket = match UdpSocket::bind("0.0.0.0:9876").await {
         Ok(s) => {
             if let Err(e) = s.set_broadcast(true) {
                 eprintln!("[BEACON] set_broadcast(true) failed: {}", e);
@@ -158,7 +159,7 @@ async fn run_local_relay(
         });
     }
 
-    // Delegate to shared relay runtime for TCP accept + client handling
+    // Delegate to shared relay runtime for UDP client handling
     let config = RelayConfig {
         relay_id,
         game_id: 1,
@@ -169,7 +170,7 @@ async fn run_local_relay(
         input_delay: 3,
         current_clients: clients_count.clone(),
     };
-    relay_core::run_relay(listener, config, stop).await;
+    relay_core::run_relay(socket, config, stop).await;
 }
 
 /// Handle for a thread-based relay instance.

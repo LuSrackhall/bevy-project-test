@@ -6,7 +6,7 @@
 use std::sync::atomic::{AtomicBool, AtomicUsize};
 use std::sync::Arc;
 
-use tokio::net::TcpListener;
+use tokio::net::UdpSocket;
 
 use bevy_adapter::discovery::RelayId;
 use bevy_adapter::relay_core::{self, RelayConfig};
@@ -22,7 +22,8 @@ pub async fn start_relay(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let relay_id = relay_id.unwrap_or_else(|| RelayId(rand::random::<u64>()));
 
-    let listener = TcpListener::bind(format!("0.0.0.0:{}", port)).await?;
+    // Dual-stack UDP socket — accepts IPv4/IPv6 clients
+    let socket = UdpSocket::bind(format!("[::]:{}", port)).await?;
     println!("Relay on port {} (players={}, seed={})", port, player_count, seed);
 
     let config = RelayConfig {
@@ -36,7 +37,7 @@ pub async fn start_relay(
         current_clients: Arc::new(AtomicUsize::new(0)),
     };
     let stop = AtomicBool::new(false);
-    relay_core::run_relay(listener, config, &stop).await;
+    relay_core::run_relay(socket, config, &stop).await;
 
     Ok(())
 }

@@ -14,10 +14,10 @@
 
 ## 3. relay 端迁 UDP
 
-- [ ] 3.1 会话表:共享 recv 按源地址去复用,JoinGame 建会话,端口变化更新(D7)
-- [ ] 3.2 心跳超时清扫:last_seen 超阈值触发 on_disconnect(席位保留靠 NoOp)(D6)
-- [ ] 3.3 `relay_core` 迁 `UdpSocket` bind `[::]`(dual-stack + IPv4-mapped 归一化)(D4)
-- [ ] 3.4 `session_host/thread.rs` + `relay CLI` 适配(UDP socket + beacon 端口分离)
+- [x] 3.1 会话表:共享 recv 按源地址去复用,JoinGame 建会话,端口变化更新(D7)
+- [x] 3.2 心跳超时清扫:last_seen 超阈值触发 on_disconnect(席位保留靠 NoOp)(D6)
+- [x] 3.3 `relay_core` 迁 `UdpSocket` bind `[::]`(dual-stack + IPv4-mapped 归一化)(D4)
+- [x] 3.4 `session_host/thread.rs` + `relay CLI` 适配(UDP socket + beacon 端口分离)
 
 ## 4. 客户端 transport 迁 UDP
 
