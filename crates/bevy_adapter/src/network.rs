@@ -890,6 +890,29 @@ mod relay_tests {
         // 玩家 0 被注入 NoOp
         assert!(batch.commands.iter().any(|c| c.player_id == 0 && c.action == Action::NoOp));
     }
+
+    #[test]
+    fn test_out_of_order_tick_finalize_no_duplicate() {
+        // UDP 乱序:高 tick 先到先定稿,低 tick 后到——try_finalize 不得重复定稿
+        let mut relay = relay_2p();
+        let now = 1000;
+        // 先提交 tick 5(乱序,高 tick 先到)
+        relay.on_player_frame(&make_empty_frame(5, 0, 1), now);
+        let r5 = relay.on_player_frame(&make_empty_frame(5, 1, 2), now);
+        assert!(r5.0.is_some(), "tick 5 finalizes first (out of order)");
+        // 后提交 tick 3(迟到)
+        relay.on_player_frame(&make_empty_frame(3, 0, 3), now);
+        let r3 = relay.on_player_frame(&make_empty_frame(3, 1, 4), now);
+        assert!(r3.0.is_some(), "tick 3 finalizes later");
+        // log 含 3 和 5,各一次(不重复)
+        let ticks: Vec<u32> = relay.command_log().iter().map(|b| b.tick).collect();
+        assert!(ticks.contains(&3) && ticks.contains(&5));
+        assert_eq!(ticks.iter().filter(|t| **t == 3).count(), 1);
+        assert_eq!(ticks.iter().filter(|t| **t == 5).count(), 1);
+        // 再次提交 tick 5(重复迟到帧)→ 不重复定稿
+        let late = relay.on_player_frame(&make_empty_frame(5, 0, 9), now);
+        assert!(late.0.is_none(), "already-finalized tick 5 not re-finalized");
+    }
 }
 
 mod tests {

@@ -13,6 +13,7 @@ bevy = "0.19"
 serde = { version = "1", features = ["derive"] }
 tokio = { version = "1.52.3", features = ["net", "rt", "sync", "macros", "io-util", "time"] }
 bincode = { version = "2", features = ["serde"] }
+async-trait = "0.1"
 tracing = { version = "0.1", optional = true }
 tracing-tracy = { version = "0.11", optional = true }
 tracing-subscriber = { version = "0.3", optional = true, features = ["registry"] }

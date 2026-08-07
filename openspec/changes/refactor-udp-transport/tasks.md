@@ -1,8 +1,8 @@
 ## 1. 测试先行(可靠层单测,宪法 §10.1)
 
-- [ ] 1.1 `DatagramChannel` trait + `channel_netem` 内存假通道(脚本化故障注入:丢包/乱序/重复/分片/丢 ACK + 虚拟时钟)
-- [ ] 1.2 可靠层单测:丢包重传 / 乱序重组 / 重复去重 / seq 回绕 / 窗口停滞 / ACK 丢失兜底 / 分片重组 / RTO 退避(specs/reliable-udp-transport)
-- [ ] 1.3 乱序定稿回归测试:UDP 乱序使高 tick 先定稿,try_finalize(扫描 log)正确性(衔接 Change 1 修复)
+- [x] 1.1 `DatagramChannel` trait + `channel_netem` 内存假通道(脚本化故障注入:丢包/乱序/重复/分片/丢 ACK + 虚拟时钟)
+- [x] 1.2 可靠层单测:丢包重传 / 乱序重组 / 重复去重 / seq 回绕 / 窗口停滞 / ACK 丢失兜底 / 分片重组 / RTO 退避(specs/reliable-udp-transport)
+- [x] 1.3 乱序定稿回归测试:UDP 乱序使高 tick 先定稿,try_finalize(扫描 log)正确性(衔接 Change 1 修复)
 
 ## 2. reliable_udp 模块
 
