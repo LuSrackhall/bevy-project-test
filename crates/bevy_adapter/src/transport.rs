@@ -1,6 +1,7 @@
 //! Client-side transport for RTS CommandStream Protocol v1.0.
 //!
-//! Cross-thread bridge between Bevy's main thread and a tokio async network runtime.
+//! Cross-thread bridge between Bevy's main thread and a tokio async network
+//! runtime running the self-written reliable UDP transport.
 
 use bevy::prelude::*;
 
@@ -10,12 +11,14 @@ use crate::network::{
     BroadcastFrame, NetworkEvent, NetworkEventReceiver, PlayerTickFrame, ReconnectRequest,
     RelayClientMessage, RelayServerMessage,
 };
+use crate::reliable_udp::channel_udp::UdpChannel;
+use crate::reliable_udp::protocol::{CH_CONTROL, CH_TICK};
+use crate::reliable_udp::{ReliableConfig, ReliableSocket};
 use simulation::command::{CommandBuffer, GameCommand};
 use std::collections::VecDeque;
+use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tokio::io::AsyncReadExt;
-use tokio::io::AsyncWriteExt;
 
 // ═══════════════════════════════════════════════════════════════
 // Cross-thread channels
@@ -47,7 +50,6 @@ pub struct NetworkSender {
     lobby_ready: Arc<Mutex<Option<RelayClientMessage>>>,
     /// Last tick the local simulation consumed. Used as last_tick_consumed on reconnect.
     last_tick_consumed: Arc<Mutex<u32>>,
-
 }
 
 impl Default for NetworkSender {
@@ -57,7 +59,6 @@ impl Default for NetworkSender {
             next_sid: Arc::new(Mutex::new(0)),
             lobby_ready: Arc::new(Mutex::new(None)),
             last_tick_consumed: Arc::new(Mutex::new(0)),
-
         }
     }
 }
@@ -101,7 +102,6 @@ impl NetworkSender {
 
 // ═══════════════════════════════════════════════════════════════
 // Bevy systems
-// ═══════════════════════════════════════════════════════════════
 
 /// Poll the NetworkReceiver and push incoming BroadcastFrames to the active
 /// NetworkCommandSource's relay_buffer. Must run BEFORE SimulationTickSet.
@@ -128,8 +128,6 @@ pub fn network_poll_system(
 }
 
 /// Flush local commands from Bevy cmd_buf to the NetworkSender.
-/// This reads commands targeting the next input_delay'd tick and enqueues
-/// them for transit to the relay.
 pub fn network_flush_system(
     sender: Option<Res<NetworkSender>>,
     driver: Res<crate::driver::SimulationDriver>,
@@ -144,10 +142,6 @@ pub fn network_flush_system(
         // 同步本地已消费 tick,供重连时作为 last_tick_consumed
         sender.update_last_tick_consumed(current_tick);
         // Send frames for the ENTIRE window [current_tick+1, current_tick+input_delay].
-        // The relay finalizes ticks in order and must receive every intermediate
-        // tick (empty frames) to keep lockstep. Commands for the delayed tick
-        // (current_tick + input_delay) are buffered so the relay cannot have
-        // finalized them yet — preventing the "move command sometimes dropped" bug.
         let start = current_tick + 1;
         let end = ns.delayed_tick(current_tick);
         for tick in start..=end {
@@ -167,15 +161,8 @@ pub fn network_flush_system(
     }
 }
 
-
-// ═══════════════════════════════════════════════════════════════
-// Network client thread
-// ═══════════════════════════════════════════════════════════════
-
 /// Process `NetworkEvent::Reconnect` — apply the relay's command log so the
-/// driver resumes from the disconnect point (scene A: local world intact, only
-/// missed ticks replayed). Must run BEFORE SimulationTickSet so relay_buffer is
-/// populated before the driver's is_tick_ready check.
+/// driver resumes from the disconnect point. Runs BEFORE SimulationTickSet.
 pub fn reconnect_recovery_system(
     event_receiver: Option<Res<NetworkEventReceiver>>,
     mut driver: ResMut<crate::driver::SimulationDriver>,
@@ -183,8 +170,7 @@ pub fn reconnect_recovery_system(
     let Some(receiver) = event_receiver else { return };
     let events = receiver.drain_all();
     for event in events {
-        // 重连后 relay 重新分配 player_id(席位复用可能返回不同 id)——必须更新,
-        // 否则客户端用旧 id 发包导致命令归属错误 → desync
+        // 重连后 relay 重新分配 player_id——必须更新,否则命令归属错误 → desync
         if let NetworkEvent::GameJoined { player_id, .. } = event {
             if let CommandSource::Network(ref mut ns) = driver.source {
                 ns.player_id = player_id;
@@ -193,8 +179,7 @@ pub fn reconnect_recovery_system(
         }
         if let NetworkEvent::Reconnect(resp) = event {
             if let CommandSource::Network(ref mut ns) = driver.source {
-                // 规则版本当前全局硬编码 1(与 JoinGame/ruleset 一致);
-                // NetworkCommandSource.ruleset_version 默认 0,不能作为期望值。
+                // 规则版本当前全局硬编码 1
                 let expected = 1u32;
                 match ns.apply_reconnect(&resp, expected) {
                     Ok(()) => eprintln!(
@@ -209,57 +194,144 @@ pub fn reconnect_recovery_system(
     }
 }
 
-/// Send RelayClientMessage::JoinGame over the established TCP stream.
-/// Must be called after TCP connect, before run_session.
-/// Returns Ok(()) on success, Err(String) on failure.
-async fn send_join_game(
-    stream: &mut tokio::net::TcpStream,
-    relay_id: RelayId,
-) -> Result<(), String> {
-    let join_msg = RelayClientMessage::JoinGame {
-        room_id: RoomId(0),
-        relay_id,
-    };
-    let data = bincode::serde::encode_to_vec(&join_msg, bincode::config::standard())
-        .map_err(|e| format!("JoinGame encode failed: {}", e))?;
-    let len_bytes = (data.len() as u32).to_le_bytes();
-    stream.write_all(&len_bytes).await
-        .map_err(|e| format!("JoinGame write len failed: {}", e))?;
-    stream.write_all(&data).await
-        .map_err(|e| format!("JoinGame write data failed: {}", e))?;
-    eprintln!("[NET] JoinGame sent (relay_id={:?}, {} bytes)", relay_id, data.len());
-    Ok(())
-}
+// ═══════════════════════════════════════════════════════════════
+// Network client thread (reliable UDP)
+// ═══════════════════════════════════════════════════════════════
 
-/// Send a ReconnectRequest over the established TCP stream, requesting the
-/// command log from `last_tick_consumed + 1` onward.
-async fn send_reconnect_request(
-    stream: &mut tokio::net::TcpStream,
+/// Client UDP session: connect to relay, send JoinGame, then pump the reliable
+/// socket. Returns `true` on clean exit (game over / rejected), `false` when the
+/// connection must be retried (reconnect).
+async fn udp_session(
+    relay_addr: String,
     game_id: u64,
-    last_tick_consumed: u32,
-) -> Result<(), String> {
-    let msg = RelayClientMessage::Reconnect(ReconnectRequest {
-        game_id,
-        last_tick_consumed,
-    });
-    let data = bincode::serde::encode_to_vec(&msg, bincode::config::standard())
-        .map_err(|e| format!("ReconnectRequest encode failed: {}", e))?;
-    let len_bytes = (data.len() as u32).to_le_bytes();
-    stream.write_all(&len_bytes).await
-        .map_err(|e| format!("ReconnectRequest write len failed: {}", e))?;
-    stream.write_all(&data).await
-        .map_err(|e| format!("ReconnectRequest write data failed: {}", e))?;
-    eprintln!("[NET] ReconnectRequest sent (last_tick_consumed={})", last_tick_consumed);
-    Ok(())
+    player_id: u8,
+    _ruleset_version: u32,
+    receiver: &NetworkReceiver,
+    sender: &NetworkSender,
+    stop: Arc<std::sync::atomic::AtomicBool>,
+    event_receiver: &NetworkEventReceiver,
+    on_joined: Option<&std::sync::mpsc::Sender<()>>,
+    conn_status: Option<&LobbyConnectionStatus>,
+    relay_id: RelayId,
+) -> bool {
+    let peer: SocketAddr = match relay_addr.parse() {
+        Ok(a) => a,
+        Err(_) => return false,
+    };
+    let sock = match UdpChannel::bind("0.0.0.0:0").await {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+    let mut rs = ReliableSocket::new(Box::new(sock), peer, ReliableConfig::default());
+    let start = std::time::Instant::now();
+
+    // JoinGame on the Control channel (reliable).
+    let join = RelayClientMessage::JoinGame { room_id: RoomId(0), relay_id };
+    if let Ok(data) = bincode::serde::encode_to_vec(&join, bincode::config::standard()) {
+        rs.send_reliable(CH_CONTROL, data);
+    }
+    // Reconnect: if we consumed ticks before, request the log from the disconnect point.
+    if sender.last_tick_consumed() > 0 {
+        let req = RelayClientMessage::Reconnect(ReconnectRequest {
+            game_id,
+            last_tick_consumed: sender.last_tick_consumed(),
+        });
+        if let Ok(data) = bincode::serde::encode_to_vec(&req, bincode::config::standard()) {
+            rs.send_reliable(CH_CONTROL, data);
+        }
+    }
+
+    let mut last_activity = std::time::Instant::now();
+    let mut last_heartbeat = std::time::Instant::now();
+
+    loop {
+        if stop.load(std::sync::atomic::Ordering::Relaxed) {
+            return true;
+        }
+        rs.set_now(start.elapsed());
+        rs.process();
+        if rs.poll().await.is_err() {
+            return false;
+        }
+        for msg in rs.take_messages() {
+            if let Ok((server_msg, _)) = bincode::serde::decode_from_slice::<RelayServerMessage, _>(
+                &msg,
+                bincode::config::standard(),
+            ) {
+                last_activity = std::time::Instant::now();
+                match server_msg {
+                    RelayServerMessage::Broadcast(frame) => receiver.push(frame),
+                    RelayServerMessage::GameStarted { game_id: g, seed, player_count } => {
+                        eprintln!("[NET] GameStarted: game_id={}, seed={}, players={}", g, seed, player_count);
+                        event_receiver.push(NetworkEvent::GameStarted { game_id: g, seed, player_count });
+                    }
+                    RelayServerMessage::GameJoined { game_id: g, player_id: p, player_count } => {
+                        eprintln!("[NET] Joined game {} as player {} (of {})", g, p, player_count);
+                        event_receiver.push(NetworkEvent::GameJoined { player_id: p, player_count });
+                        if let Some(tx) = on_joined {
+                            let _ = tx.send(());
+                        }
+                        if let Some(status) = conn_status {
+                            status.result.lock().unwrap().replace(Ok(()));
+                        }
+                    }
+                    RelayServerMessage::ReconnectResponse(resp) => {
+                        eprintln!("[NET] Reconnect OK ({} ticks)", resp.ticks.len());
+                        event_receiver.push(NetworkEvent::Reconnect(resp));
+                    }
+                    RelayServerMessage::LobbyUpdate { game_id, players } => {
+                        event_receiver.push(NetworkEvent::LobbyUpdate { game_id, players });
+                    }
+                    RelayServerMessage::GameOver { reason } => {
+                        eprintln!("[NET] Game over ({})", reason);
+                        return true;
+                    }
+                    RelayServerMessage::Error { code, message } => {
+                        eprintln!("[NET] Error ({}): {}", code, message);
+                        return true;
+                    }
+                    RelayServerMessage::JoinRejected { reason } => {
+                        eprintln!("[NET] Join rejected: {}", reason);
+                        // 重连场景被拒 → 重试;首次 join 被拒 → 放弃
+                        return sender.last_tick_consumed() == 0;
+                    }
+                }
+            }
+        }
+
+        // Uplink: lobby-ready + PlayerTick commands.
+        if let Some(lobby_msg) = sender.take_lobby_ready() {
+            if let Ok(data) = bincode::serde::encode_to_vec(&lobby_msg, bincode::config::standard()) {
+                rs.send_reliable(CH_CONTROL, data);
+            }
+        }
+        for frame in sender.drain_all() {
+            let msg = RelayClientMessage::PlayerTick(frame);
+            if let Ok(data) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+                rs.send_reliable(CH_TICK, data);
+            }
+        }
+
+        // Heartbeat every 500ms (keeps the relay's session alive).
+        if last_heartbeat.elapsed() >= Duration::from_millis(500) {
+            rs.send_unreliable(vec![]);
+            last_heartbeat = std::time::Instant::now();
+        }
+
+        // Disconnect detection: no relay message for 3s → reconnect.
+        if last_activity.elapsed() >= Duration::from_secs(3) {
+            eprintln!("[NET] connection timeout — reconnecting");
+            return false;
+        }
+
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
 }
 
-/// Spawn a tokio runtime thread that connects to the relay.
+/// Spawn a tokio runtime thread that connects to the relay over UDP.
 ///
-/// **Blocks** until TCP connection is established (30s timeout).
+/// **Blocks** until GameJoined is received (30s timeout).
 /// Returns transport resources or an error string.
-///
-/// The tokio thread continues to run in the background, handling
-/// all protocol communication (send/receive) until stopped.
 pub fn spawn_network_client(
     relay_addr: String,
     game_id: u64,
@@ -293,53 +365,8 @@ pub fn spawn_network_client(
                 if stop.load(std::sync::atomic::Ordering::Relaxed) {
                     break;
                 }
-
-                // Try TCP connect with 5s timeout
-                let stream = tokio::time::timeout(
-                    Duration::from_secs(5),
-                    tokio::net::TcpStream::connect(&relay_addr_for_thread),
-                )
-                .await;
-
-                let mut stream = match stream {
-                    Ok(Ok(s)) => {
-                        // Disable Nagle — real-time game packets must not be buffered
-                        let _ = s.set_nodelay(true);
-                        s
-                    }
-                    _ => {
-                        retry_count = retry_count.saturating_add(1);
-                        let delay = Duration::from_secs(
-                            (1u64 << retry_count.min(5)).min(30),
-                        );
-                        eprintln!(
-                            "Network: retrying in {}s (attempt {})",
-                            delay.as_secs(),
-                            retry_count
-                        );
-                        tokio::time::sleep(delay).await;
-                        continue;
-                    }
-                };
-
-                // TCP connected! Signal the main thread (spawn_network_client unblocks)
-                let _ = connected_tx.send(());
-                retry_count = 0;
-
-                // Send JoinGame before entering session loop
-                if let Err(e) = send_join_game(&mut stream, relay_id).await {
-                    eprintln!("[NET] JoinGame failed: {} — retrying", e);
-                    continue;
-                }
-
-                // 重连恢复:上次已消费 tick 则请求 relay 补发断点后日志
-                if send.last_tick_consumed() > 0 {
-                    let _ = send_reconnect_request(&mut stream, game_id, send.last_tick_consumed()).await;
-                }
-
-                // Enter read/write session
-                let clean_exit = run_session(
-                    stream,
+                let clean_exit = udp_session(
+                    relay_addr_for_thread.clone(),
                     game_id,
                     player_id,
                     _ruleset_version,
@@ -347,22 +374,28 @@ pub fn spawn_network_client(
                     &send,
                     stop.clone(),
                     &events,
+                    Some(&connected_tx),
+                    None,
+                    relay_id,
                 )
                 .await;
 
                 if clean_exit {
                     break;
                 }
-                // If not clean (disconnect), retry the entire connection
+                retry_count = retry_count.saturating_add(1);
+                let delay = Duration::from_secs((1u64 << retry_count.min(5)).min(30));
+                eprintln!("[NET] reconnecting in {}s (attempt {})", delay.as_secs(), retry_count);
+                tokio::time::sleep(delay).await;
             }
         });
     });
 
-    // Block until TCP connect succeeds (30s timeout)
+    // Block until GameJoined (30s timeout).
     connected_rx
         .recv_timeout(Duration::from_secs(30))
-        .map_err(|_| format!("Timed out waiting for relay connection at {}", relay_addr))?;
-    eprintln!("[NET] TCP connected to {}", relay_addr);
+        .map_err(|_| format!("Timed out waiting for relay GameJoined at {}", relay_addr))?;
+    eprintln!("[NET] Connected to {}", relay_addr);
 
     let handle = NetworkClientHandle {
         thread: Some(thread),
@@ -372,7 +405,7 @@ pub fn spawn_network_client(
     Ok((receiver, sender, handle))
 }
 
-/// 非阻塞变体：启动 TCP 连接后立即返回，连接状态通过 `LobbyConnectionStatus` 轮询。
+/// 非阻塞变体:启动 UDP 连接后立即返回,连接状态通过 `LobbyConnectionStatus` 轮询。
 pub fn spawn_network_client_nonblocking(
     relay_addr: String,
     game_id: u64,
@@ -406,55 +439,28 @@ pub fn spawn_network_client_nonblocking(
                 if stop.load(std::sync::atomic::Ordering::Relaxed) {
                     break;
                 }
-
-                let stream = tokio::time::timeout(
-                    Duration::from_secs(5),
-                    tokio::net::TcpStream::connect(&relay_addr_for_thread),
+                let clean_exit = udp_session(
+                    relay_addr_for_thread.clone(),
+                    game_id,
+                    player_id,
+                    _ruleset_version,
+                    &recv,
+                    &send,
+                    stop.clone(),
+                    &events,
+                    None,
+                    Some(&conn_status),
+                    relay_id,
                 )
                 .await;
 
-                let mut stream = match stream {
-                    Ok(Ok(s)) => {
-                        // Disable Nagle — real-time game packets must not be buffered
-                        let _ = s.set_nodelay(true);
-                        s
-                    }
-                    _ => {
-                        retry_count = retry_count.saturating_add(1);
-                        let delay = Duration::from_secs((1u64 << retry_count.min(5)).min(30));
-                        eprintln!("Network: retrying in {}s (attempt {})", delay.as_secs(), retry_count);
-                        // After 8+ retries (total elapsed ~8.5 minutes), signal failure
-                        if retry_count >= 8 {
-                            conn_status.result.lock().unwrap().replace(
-                                Err(format!("Failed to connect after {} attempts", retry_count))
-                            );
-                        }
-                        tokio::time::sleep(delay).await;
-                        continue;
-                    }
-                };
-
-                // TCP connected! Signal via status channel
-                conn_status.result.lock().unwrap().replace(Ok(()));
-                retry_count = 0;
-
-                // Send JoinGame before entering session loop
-                if let Err(e) = send_join_game(&mut stream, relay_id).await {
-                    eprintln!("[NET] JoinGame failed: {} — retrying", e);
-                    continue;
+                if clean_exit {
+                    break;
                 }
-
-                // 重连恢复:上次已消费 tick 则请求 relay 补发断点后日志
-                if send.last_tick_consumed() > 0 {
-                    let _ = send_reconnect_request(&mut stream, game_id, send.last_tick_consumed()).await;
-                }
-
-                let clean_exit = run_session(
-                    stream, game_id, player_id, _ruleset_version,
-                    &recv, &send, stop.clone(), &events,
-                ).await;
-
-                if clean_exit { break; }
+                retry_count = retry_count.saturating_add(1);
+                let delay = Duration::from_secs((1u64 << retry_count.min(5)).min(30));
+                eprintln!("[NET] reconnecting in {}s (attempt {})", delay.as_secs(), retry_count);
+                tokio::time::sleep(delay).await;
             }
         });
     });
@@ -463,128 +469,7 @@ pub fn spawn_network_client_nonblocking(
     (receiver, sender, handle, status)
 }
 
-/// Run a single client session over an already-established TCP stream.
-/// Returns `true` on clean disconnect (game over), `false` on connection error.
-async fn run_session(
-    stream: tokio::net::TcpStream,
-    game_id: u64,
-    player_id: u8,
-    _ruleset_version: u32,
-    receiver: &NetworkReceiver,
-    sender: &NetworkSender,
-    stop: Arc<std::sync::atomic::AtomicBool>,
-    event_receiver: &NetworkEventReceiver,
-) -> bool {
-    let (mut reader, mut writer) = tokio::io::split(stream);
-
-    // Write frames to relay in the background
-    let send = sender.clone();
-    let stop_arc = stop.clone();
-    let write_task = tokio::spawn(async move {
-        loop {
-            if stop_arc.load(std::sync::atomic::Ordering::Relaxed) {
-                break;
-            }
-            // Check for lobby-ready (one-shot) message before game frames
-            if let Some(lobby_msg) = send.take_lobby_ready() {
-                if let Ok(data) = bincode::serde::encode_to_vec(&lobby_msg, bincode::config::standard()) {
-                    let len_bytes = (data.len() as u32).to_le_bytes();
-                    let _ = writer.write_all(&len_bytes).await;
-                    let _ = writer.write_all(&data).await;
-                }
-            }
-            let frames = send.drain_all();
-            for frame in frames {
-                let msg = RelayClientMessage::PlayerTick(frame);
-                if let Ok(data) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
-                    let len_bytes = (data.len() as u32).to_le_bytes();
-                    let _ = writer.write_all(&len_bytes).await;
-                    let _ = writer.write_all(&data).await;
-                }
-            }
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-    });
-
-    // Read frames from relay
-    let mut len_buf = [0u8; 4];
-    loop {
-        if reader.read_exact(&mut len_buf).await.is_err() {
-            break;
-        }
-        let len = u32::from_le_bytes(len_buf) as usize;
-        let mut buf = vec![0u8; len];
-        if reader.read_exact(&mut buf).await.is_err() {
-            break;
-        }
-        let Ok((msg, _)) = bincode::serde::decode_from_slice::<RelayServerMessage, _>(
-            &buf,
-            bincode::config::standard(),
-        ) else {
-            continue;
-        };
-        match msg {
-            RelayServerMessage::Broadcast(frame) => {
-                receiver.push(frame);
-            }
-            RelayServerMessage::GameStarted {
-                game_id: g,
-                seed,
-                player_count,
-            } => {
-                eprintln!(
-                    "[NET] GameStarted: game_id={}, seed={}, players={}",
-                    g, seed, player_count
-                );
-                event_receiver.push(NetworkEvent::GameStarted {
-                    game_id: g,
-                    seed,
-                    player_count,
-                });
-            }
-            RelayServerMessage::GameJoined {
-                game_id: g,
-                player_id: p,
-                player_count,
-            } => {
-                eprintln!("[NET] Joined game {} as player {} (of {})", g, p, player_count);
-                event_receiver.push(NetworkEvent::GameJoined {
-                    player_id: p,
-                    player_count,
-                });
-            }
-            RelayServerMessage::ReconnectResponse(resp) => {
-                eprintln!("[NET] Reconnect OK ({} ticks)", resp.ticks.len());
-                event_receiver.push(NetworkEvent::Reconnect(resp));
-            }
-            RelayServerMessage::GameOver { reason } => {
-                eprintln!("[NET] Game over ({})", reason);
-                write_task.abort();
-                return true;
-            }
-            RelayServerMessage::Error { code, message } => {
-                eprintln!("[NET] Error ({}): {}", code, message);
-                write_task.abort();
-                return true;
-            }
-            RelayServerMessage::LobbyUpdate { game_id, players } => {
-                event_receiver.push(NetworkEvent::LobbyUpdate { game_id, players });
-            }
-            RelayServerMessage::JoinRejected { reason } => {
-                eprintln!("[NET] Join rejected: {}", reason);
-                write_task.abort();
-                // 重连场景(已消费过 tick)被拒(如旧连接尚未清理)→ 返回 false 重试;
-                // 首次 join 被拒(房间满)→ 返回 true 放弃。
-                return sender.last_tick_consumed() == 0;
-            }
-        }
-    }
-
-    write_task.abort();
-    false
-}
-
-/// 跨线程连接状态，用于 Lobby 非阻塞轮询 TCP 连接进度。
+/// 跨线程连接状态,用于 Lobby 非阻塞轮询连接进度。
 #[derive(Clone, Default)]
 pub struct LobbyConnectionStatus {
     pub result: Arc<Mutex<Option<Result<(), String>>>>,
@@ -596,7 +481,7 @@ impl LobbyConnectionStatus {
         self.result.lock().unwrap().take()
     }
 
-    /// 获取内部 Arc 引用（用于构造 ConnectionPollRx 等）
+    /// 获取内部 Arc 引用(用于构造 ConnectionPollRx 等)
     pub fn inner_arc(&self) -> Arc<Mutex<Option<Result<(), String>>>> {
         self.result.clone()
     }
@@ -619,9 +504,7 @@ impl NetworkClientHandle {
 impl Drop for NetworkClientHandle {
     fn drop(&mut self) {
         self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
-        // 不 join:网络线程可能阻塞在 TCP read(无 GameOver/断开时永不返回),
-        // join 会死等导致测试/退出挂起。正常对局结束时 relay 发 GameOver →
-        // run_session 返回 true → 线程自行退出;进程退出时残留线程随之终止。
+        // 不 join:网络线程可能阻塞在 poll,join 会死等。正常结束时线程自行退出。
         self.thread.take();
     }
 }

@@ -21,9 +21,9 @@
 
 ## 4. 客户端 transport 迁 UDP
 
-- [ ] 4.1 `transport.rs` 迁 `ReliableSocket`:send_join_game/send_reconnect_request 走 UDP,"等到 GameJoined"(D5)
-- [ ] 4.2 心跳发送 + 掉线检测(超时无广播 → 触发重连)(D6)
-- [ ] 4.3 `spawn_network_client` 阻塞语义调整(非阻塞等 GameJoined,`LobbyConnectionStatus` 适配)
+- [x] 4.1 `transport.rs` 迁 `ReliableSocket`:send_join_game/send_reconnect_request 走 UDP,"等到 GameJoined"(D5)
+- [x] 4.2 心跳发送 + 掉线检测(超时无广播 → 触发重连)(D6)
+- [x] 4.3 `spawn_network_client` 阻塞语义调整(非阻塞等 GameJoined,`LobbyConnectionStatus` 适配)
 
 ## 5. 测试迁移 + 集成测试
 
