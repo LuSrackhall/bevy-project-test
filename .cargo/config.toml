@@ -1,2 +1,8 @@
+[build]
+# 所有 worktree 共享同一 target 目录,避免每个工作树重复编译/重复占用磁盘。
+# 注意:Cargo 1.95 不对该路径做 $HOME/$CARGO_HOME 展开,只能写绝对路径。
+# 换机器/其他开发者需自行覆盖 CARGO_TARGET_DIR(见 CI workflow env)。
+target-dir = "/Users/srackhalllu/.cache/bevy-test-target"
+
 [target.wasm32-unknown-unknown]
 rustflags = ['--cfg', 'getrandom_backend="wasm_js"', '-Ctarget-feature=+atomics']
