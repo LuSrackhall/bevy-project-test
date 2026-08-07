@@ -5,7 +5,7 @@
 ## Goals
 
 - 解除所有 ≤8 / 2 人的硬编码与隐性假设,让玩家数 N 成为配置参数且逻辑正确
-- 掉线重连完整可用:席位回收 + 日志重放恢复,且重放路径与正常网络路径初始化**完全一致**(防 desync)
+- 掉线重连可用:场景 A(网络断开,进程活)席位回收 + 灌断点后日志续接;场景 B(进程重启)重建路径与正常网络路径初始化完全一致(防 desync)
 - UI 创建房间人数可选 2..=8
 - 单机 2 人行为与全部确定性测试保持
 - 满足宪法:补锁步回归测试 + ADR
@@ -33,10 +33,10 @@
 
 1. `on_disconnect`(network.rs:595-598)不再永久剔除 `all_players`,标记 `Disconnected` 保留席位。
 2. `next_player_id` 单调递增(network.rs:354,408-413)→ 分配"首个空闲席位",重连复用原 player_id(修复"重连被拒 Room is full")。
-3. **R1(强制)** 客户端接上 `apply_reconnect`(network.rs:280,目前零调用点):收到 `ReconnectResponse` 后,世界重建**必须**走 `init_simulation_world_multi(seed, PlayerSlots::multi_player(N, self))` + 原地图 + `run_tick(enable_ai:false)`,与正常网络路径(render_view/lib.rs:490-497 + driver.rs:347-355)完全一致。**禁止** `init_simulation_world`/`run_tick_default`(现有 network.rs:273-274 注释即错,一并修正)。
-4. **R2(推荐)** 重连快进复用 driver 的 Network 管线(`apply_reconnect` 灌 relay_buffer → `simulation_driver_system` 消费),勿另起 while 循环。
-5. **R3(强制)** `try_finalize` 的 all_ready 检查(network.rs:506-510)对 `Disconnected` 席位放行,靠超时兜底定稿,防止永久挂起。
-6. **R4(强制)** 重连地图一致性:消除网络地图硬编码 `MapSize::Medium`(render_view/lib.rs:462),建立 `map_spec_hash` → MapSize 映射,重连地图与对局一致。
+3. **R1(强制)** 客户端接上 `apply_reconnect`(network.rs:280):场景 A(网络断开,进程活)本地世界完好,不重建,只灌断点后日志续接;场景 B(进程重启)才重建,**必须**走 `init_simulation_world_multi(seed, PlayerSlots::multi_player(N, self))` + 原地图 + `run_tick(enable_ai:false)`,与正常网络路径一致。**禁止** `init_simulation_world`/`run_tick_default`(现有注释已修正)。场景 B 为后续 change。
+4. **R2(推荐)** 重连快进复用 driver 的 Network 管线(`apply_reconnect` 灌 relay_buffer → `simulation_driver_system` 消费,accumulator 快进追平),勿另起 while 循环。
+5. **R3(强制)** `try_finalize` 的 all_ready 检查(network.rs:506-510)对 `Disconnected` 席位放行,靠超时兜底定稿,防止永久挂起。`on_lobby_ready` 同样排除 Disconnected(lobby 掉线死锁)。
+6. **R4(强制)** 重连地图一致性:场景 A 不重建世界,地图保持当前对局;`map_spec_hash` 当前全仓恒 0,完整 hash→MapSize 映射留待场景 B 接入。
 7. **分层修正** 世界重建逻辑移入 bevy_adapter 通道:render_view/lib.rs:494 现直接调 `init_simulation_world_multi`,属下游直触仿真,违反分层拓扑(§1.1/§5.5),随本变更修正。
 
 ### 合规补齐(宪法强制)

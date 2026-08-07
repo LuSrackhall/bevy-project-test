@@ -30,6 +30,11 @@ The relay SHALL retain a player's seat after disconnect (mark `Disconnected`), n
 - **WHEN** player 2 disconnects mid-game
 - **THEN** the relay SHALL keep player 2's seat (expected-player set unchanged), mark them `Disconnected`, and continue finalizing ticks with NoOp for player 2
 
+#### Scenario: lobby drop does not deadlock the room
+
+- **WHEN** player 2 drops in the lobby (before signaling ready) and is marked `Disconnected`
+- **THEN** the all-ready check SHALL exclude player 2, so the remaining players can still start the game
+
 #### Scenario: reconnect reuses original player id
 
 - **WHEN** the disconnected player 2 reconnects

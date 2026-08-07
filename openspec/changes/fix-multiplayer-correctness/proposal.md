@@ -7,7 +7,7 @@
 - **解除 8 人硬上限**:`lobby_ready_mask: u8` → 可扩展结构;`PlayerSlots::multi_player` 的 `assert!(count <= 8)` 移除
 - **修正 simulation 层 2 人假设**:城市捕获从 0↔1 阵营互换改为"归 `last_attacker_faction`"(单机行为等价);`collect_command_players` 兜底 `if id <= 1` 移除
 - **UI 参数化**:创建房间人数 2..=8 可 cycle;`current_players` 不再恒 1
-- **完整掉线重连**:席位回收(`on_disconnect` 不永久剔除、重连复用 player_id);客户端接上 `apply_reconnect`,重建路径与正常网络路径**完全一致**(R1 强制),Disconnected 席位在 tick barrier 放行(R3),地图 `map_spec_hash` 一致性(R4)
+- **掉线重连**:席位回收(`on_disconnect` 不永久剔除、重连复用 player_id);客户端接上 `apply_reconnect`——场景 A(网络断开,进程活)本地世界完好、只灌断点后日志续接(driver accumulator 快进追平);场景 B(进程重启)重建路径与正常网络路径**完全一致**(R1 强制,后续 change);Disconnected 席位在 tick barrier 放行(R3),`on_lobby_ready` 排除 Disconnected(lobby 掉线死锁)
 - **分层修正**:世界重建逻辑移入 bevy_adapter,消除 render_view 直触仿真
 - **合规补齐**:锁步回归测试(city_capture 多人 + 重连重放确定性)+ ADR × 2
 
