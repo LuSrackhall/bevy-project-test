@@ -11,6 +11,10 @@ use crate::session::bootstrap::BootstrapPhase;
 use crate::tick::{PendingEvents, SimulationWorld};
 use crate::replay::ReplayRecorder;
 
+/// Max ticks executed per frame during Scene B catch-up replay (matches the
+/// seek batch density). 500/frame at 60fps ≈ 30k ticks/sec.
+const CATCH_UP_BATCH: u32 = 500;
+
 // ═══════════════════════════════════════════════════════════════
 // TickClock — 时序控制
 // ═══════════════════════════════════════════════════════════════
@@ -142,6 +146,9 @@ pub struct SimulationDriver {
     pub scheduler: SchedulerState,
     pub source: CommandSource,
     pub bootstrap_phase: BootstrapPhase,
+    /// Scene B fast-replay: when true, the driver consumes buffered ticks in
+    /// batches per frame until the reconnect backlog is caught up to live.
+    pub catch_up: bool,
 }
 
 impl SimulationDriver {
@@ -152,6 +159,7 @@ impl SimulationDriver {
             scheduler: SchedulerState::default(),
             source: CommandSource::Live(LiveCommandSource),
             bootstrap_phase: BootstrapPhase::Active,
+            catch_up: false,
         }
     }
 
@@ -162,6 +170,7 @@ impl SimulationDriver {
             scheduler: SchedulerState::default(),
             source: CommandSource::Replay(ReplayCommandSource { replay }),
             bootstrap_phase: BootstrapPhase::Active,
+            catch_up: false,
         }
     }
 
@@ -172,6 +181,7 @@ impl SimulationDriver {
             scheduler: SchedulerState::default(),
             source: CommandSource::Network(NetworkCommandSource::default()),
             bootstrap_phase: BootstrapPhase::Init,
+            catch_up: false,
         }
     }
 
@@ -304,6 +314,14 @@ pub fn simulation_driver_system(
     driver.clock.accumulator += time.delta_secs() * speed as f32;
     let tick_dur = driver.clock.tick_duration;
 
+    // Scene B catch-up: fast-replay the reconnect backlog. Over-seed the
+    // accumulator so the loop below consumes buffered ticks in batches (up to
+    // CATCH_UP_BATCH per frame). Leftover is reset after the loop so time
+    // accumulation does not double-count replayed ticks.
+    if driver.catch_up {
+        driver.clock.accumulator = CATCH_UP_BATCH as f32 * tick_dur;
+    }
+
     while driver.clock.accumulator >= tick_dur {
         let next_tick = driver.clock.current_tick + 1;
 
@@ -378,6 +396,13 @@ pub fn simulation_driver_system(
         // Sync tick_clock for presentation layer
         tick_clock.current_tick = driver.clock.current_tick;
         tick_clock.accumulator = driver.clock.accumulator;
+    }
+
+    // End catch-up once the frontier is no longer buffered (caught up to live),
+    // and reset the accumulator so replayed ticks are not double-counted by time.
+    if driver.catch_up {
+        driver.clock.accumulator = 0.0;
+        driver.catch_up = driver.source.is_tick_ready(driver.clock.current_tick + 1);
     }
 
     // Check replay end — pause at total_ticks boundary

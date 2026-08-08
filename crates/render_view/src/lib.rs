@@ -97,6 +97,8 @@ pub struct NetworkGameStart {
     pub seed: u64,
     pub player_id: u8,
     pub player_count: u8,
+    /// Map size carried by GameStarted (Scene B rebuild must match the game's map).
+    pub map_size: Option<simulation::map::MapSize>,
 
     pub received: bool,
 }
@@ -381,9 +383,10 @@ pub fn lobby_update_system(
                     network_start.player_id = *player_id;
                     network_start.player_count = *player_count;
                 }
-                if let NetworkEvent::GameStarted { game_id: _, seed, .. } = event {
+                if let NetworkEvent::GameStarted { game_id: _, seed, map_size, .. } = event {
                     bevy::log::info!("[LOBBY] GameStarted received! seed={}", seed);
                     network_start.seed = *seed;
+                    network_start.map_size = Some(*map_size);
                     network_start.received = true;
                     next_state.set(GameState::Playing);
                     return;
@@ -407,9 +410,10 @@ pub fn lobby_update_system(
             let Some(receiver) = event_receiver else { return };
             let events = receiver.drain_all();
             for event in &events {
-                if let NetworkEvent::GameStarted { game_id: _, seed, .. } = event {
+                if let NetworkEvent::GameStarted { game_id: _, seed, map_size, .. } = event {
                     bevy::log::info!("[LOBBY] GameStarted received (from Ready)! seed={}", seed);
                     network_start.seed = *seed;
+                    network_start.map_size = Some(*map_size);
                     network_start.received = true;
                     next_state.set(GameState::Playing);
                     return;
@@ -459,9 +463,9 @@ fn reset_game_system(
         NeedsGameReset::SameSize => (Some(current_map_size.0), None, None),
         NeedsGameReset::NewGame(size) => (Some(size), None, None),
         NeedsGameReset::Replay(replay) => (Some(replay.map_size), Some(replay), None),
-        // 网络对局默认地图 Medium。重连(场景 A)不重建世界,地图保持当前对局地图;
-        // 场景 B 重建时由调用方以对局 map_size 调 generate_map(R4 保证一致)。
-        NeedsGameReset::Network { .. } => (Some(simulation::map::MapSize::Medium), None, Some(()))
+        // 网络对局:地图取自 GameStarted(携带 map_size),场景 B 重建也一致;
+        // 兜底 Medium(旧对局无 map_size 信息)。
+        NeedsGameReset::Network { .. } => (Some(network_start.map_size.unwrap_or(simulation::map::MapSize::Medium)), None, Some(()))
     };
 
     if let Some(map_size) = map_size {

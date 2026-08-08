@@ -32,6 +32,7 @@ pub async fn start_relay(
         ruleset_version: 1,
         seed,
         map_spec_hash: 0,
+        map_size: simulation::map::MapSize::Medium,
         player_count,
         input_delay: 3,
         current_clients: Arc::new(AtomicUsize::new(0)),

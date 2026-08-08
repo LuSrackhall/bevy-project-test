@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 bevy_adapter = { path = "../bevy_adapter" }
+simulation = { path = "../simulation" }
 tokio = { version = "1.52.3", features = ["net", "rt", "macros"] }
 rand = "0.8"
 

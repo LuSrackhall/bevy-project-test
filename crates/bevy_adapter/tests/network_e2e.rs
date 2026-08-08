@@ -147,6 +147,7 @@ fn test_network_pipeline_e2e() {
             reconnect_meta: None,
         }),
         bootstrap_phase: bevy_adapter::session::bootstrap::BootstrapPhase::Active,
+        catch_up: false,
     });
 
     // Support resources
