@@ -72,7 +72,9 @@ impl Default for ChannelSender {
 
 struct ChannelReceiver {
     next_expected: u32,
-    buffer: BTreeMap<u32, Vec<u8>>,
+    /// seq → (payload, max_seq_of_span). A fragmented message spans multiple
+    /// seqs; the drain must advance past span_max so its tail is ACKed.
+    buffer: BTreeMap<u32, (Vec<u8>, u32)>,
 }
 
 impl Default for ChannelReceiver {
@@ -288,8 +290,8 @@ impl ReliableSocket {
                         // contiguous with the expected stream: deliver + advance + drain
                         recv.next_expected = recv.next_expected.max(max_seq.wrapping_add(1));
                         self.outbox.push_back(data);
-                        while let Some(x) = recv.buffer.remove(&recv.next_expected) {
-                            recv.next_expected = recv.next_expected.wrapping_add(1);
+                        while let Some((x, span_max)) = recv.buffer.remove(&recv.next_expected) {
+                            recv.next_expected = recv.next_expected.max(span_max.wrapping_add(1));
                             self.outbox.push_back(x);
                         }
                     } else {
@@ -297,7 +299,7 @@ impl ReliableSocket {
                         // catches up (delivered via drain when next_expected reaches
                         // min_seq). This preserves reliable-ordered semantics and
                         // avoids ACKing over the gap (which would drop lost frames).
-                        recv.buffer.entry(min_seq).or_insert(data);
+                        recv.buffer.entry(min_seq).or_insert((data, max_seq));
                     }
                 }
             }
@@ -318,13 +320,13 @@ impl ReliableSocket {
             // in-order: deliver and advance, then drain contiguous buffered
             recv.next_expected = recv.next_expected.wrapping_add(1);
             self.outbox.push_back(payload);
-            while let Some(x) = recv.buffer.remove(&recv.next_expected) {
-                recv.next_expected = recv.next_expected.wrapping_add(1);
+            while let Some((x, span_max)) = recv.buffer.remove(&recv.next_expected) {
+                recv.next_expected = recv.next_expected.max(span_max.wrapping_add(1));
                 self.outbox.push_back(x);
             }
         } else if d < (1u32 << 31) {
             // future seq (within the forward window): buffer
-            recv.buffer.entry(seq).or_insert(payload);
+            recv.buffer.entry(seq).or_insert((payload, seq));
         } else {
             // stale / duplicate (seq already passed): drop
         }
@@ -402,6 +404,14 @@ mod tests {
         let sent: Vec<Vec<u8>> = a_ch.lock().unwrap().sent().to_vec();
         for d in sent {
             b_ch.lock().unwrap().inject("127.0.0.1:9001".parse().unwrap(), d);
+        }
+    }
+
+    /// Move every datagram `b` sent (ACKs) back into `a`'s inbound.
+    fn deliver_b_to_a(b_ch: &std::sync::Arc<std::sync::Mutex<NetemChannel>>, a_ch: &std::sync::Arc<std::sync::Mutex<NetemChannel>>) {
+        let sent: Vec<Vec<u8>> = b_ch.lock().unwrap().sent().to_vec();
+        for d in sent {
+            a_ch.lock().unwrap().inject("127.0.0.1:9000".parse().unwrap(), d);
         }
     }
 
@@ -600,5 +610,14 @@ mod tests {
         assert_eq!(msgs.len(), 2, "both messages delivered once, in order");
         assert_eq!(msgs[0], big1, "M1 first");
         assert_eq!(msgs[1], big2, "M2 second");
+
+        // ACK round-trip: B's ACKs back to A must cover the full contiguous span
+        // (no phantom gap), so A's in-flight drops to 0 and it is not marked dead.
+        // B needs another pump to flush its queued ACK(4).
+        pump(&mut b);
+        deliver_b_to_a(&ch_b, &ch_a);
+        pump(&mut a);
+        assert_eq!(a.in_flight(), 0, "all frames must be acked after span fix");
+        assert!(!a.is_dead(), "no phantom gap → no retransmit exhaustion");
     }
 }
