@@ -133,6 +133,13 @@ pub struct ReconnectResponse {
     pub players: Vec<PlayerState>,
 }
 
+/// Scene B detection: a fresh process (driver at tick 0) reconnecting with a
+/// command log to replay needs world rebuild + fast catch-up. Scene A
+/// (current_tick > 0) resumes via the accumulator path without rebuilding.
+pub fn is_scene_b_reconnect(current_tick: u32, total_ticks: u32) -> bool {
+    current_tick == 0 && total_ticks > 0
+}
+
 /// One page of the reconnect command log, pushed after the metadata response.
 /// Pages cover contiguous tick ranges bucketed by tick VALUE (the finalized
 /// log is append-ordered, not tick-ordered — see D2).
@@ -958,6 +965,51 @@ mod relay_tests {
         assert_eq!(page.ticks.len(), 1);
         assert_eq!(page.ticks[0].tick, 2);
         assert!(relay.reconnect_page(&resp, 1).is_none()); // out of range
+    }
+
+    #[test]
+    fn test_reconnect_scene_b_full_log_from_zero() {
+        let mut relay = relay_2p();
+        let now = 1000;
+        for tick in 1u32..=5 {
+            relay.on_player_frame(&make_empty_frame(tick, 0, tick as u64), now + tick as u64);
+            let r = relay.on_player_frame(&make_empty_frame(tick, 1, tick as u64 + 100), now + tick as u64);
+            assert!(r.0.is_some(), "tick {} finalize", tick);
+        }
+        // Scene B: fresh process (last_tick_consumed=0) → full log + map_size
+        let resp = relay
+            .handle_reconnect(&ReconnectRequest { game_id: 1, last_tick_consumed: 0 })
+            .unwrap();
+        assert_eq!(resp.first_tick, 1);
+        assert_eq!(resp.total_ticks, 5);
+        assert_eq!(resp.page_count, 1);
+        assert_eq!(resp.map_size, simulation::map::MapSize::Medium);
+        let page = relay.reconnect_page(&resp, 0).unwrap();
+        let mut ticks: Vec<u32> = page.ticks.iter().map(|b| b.tick).collect();
+        ticks.sort_unstable();
+        assert_eq!(ticks, vec![1, 2, 3, 4, 5]);
+    }
+
+    #[test]
+    fn test_scene_b_detection_boundaries() {
+        // 全新进程(tick 0)+ 有日志 → Scene B
+        assert!(is_scene_b_reconnect(0, 100));
+        // Playing 断在 tick 0 但无日志 → 无重放,Scene A(不重建)
+        assert!(!is_scene_b_reconnect(0, 0));
+        // 断点非 0 → Scene A(累计器续放)
+        assert!(!is_scene_b_reconnect(50, 100));
+        assert!(!is_scene_b_reconnect(100, 0));
+    }
+
+    #[test]
+    fn test_reconnect_frozen_rejected() {
+        let mut relay = relay_2p();
+        let now = 1000;
+        relay.on_disconnect(0);
+        relay.on_disconnect(1);
+        relay.on_full_disconnect(now);
+        let resp = relay.handle_reconnect(&ReconnectRequest { game_id: 1, last_tick_consumed: 0 });
+        assert!(resp.is_err(), "frozen game rejects reconnect");
     }
 
     #[test]

@@ -195,6 +195,71 @@ async fn udp_recv_broadcast_tick(rs: &mut ReliableSocket, want_tick: u32, secs: 
 }
 
 #[tokio::test(flavor = "current_thread")]
+async fn test_relay_resends_game_started_to_reconnect() {
+    let port = find_free_port().await;
+    tokio::spawn(async move {
+        start_relay(port, 42, 2, Some(RelayId(42))).await.unwrap();
+    });
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    // Two clients join and play tick 1 so the game starts.
+    let (mut c0, _) = udp_join(port, RelayId(42)).await;
+    let (mut c1, _) = udp_join(port, RelayId(42)).await;
+    udp_send_tick(&mut c0, 1, 0).await;
+    udp_send_tick(&mut c1, 1, 1).await;
+    let _ = udp_recv_message(&mut c0, 5).await;
+    let _ = udp_recv_message(&mut c1, 5).await;
+
+    // c0 silently drops (stop pumping) → relay heartbeat sweep marks seat 0
+    // Disconnected after 1.5s. Keep c1 alive with heartbeats meanwhile.
+    let start = std::time::Instant::now();
+    let mut hb = std::time::Instant::now();
+    while start.elapsed() < Duration::from_millis(2000) {
+        if hb.elapsed() >= Duration::from_millis(300) {
+            udp_heartbeat(&mut c1).await;
+            hb = std::time::Instant::now();
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+
+    // Scene B: a fresh process (new socket) joins → reuses seat 0, and since the
+    // game already started, the relay re-sends GameStarted (with map_size).
+    let sock = UdpChannel::bind("0.0.0.0:0").await.unwrap();
+    let peer: SocketAddr = format!("127.0.0.1:{}", port).parse().unwrap();
+    let mut rs = ReliableSocket::new(Box::new(sock), peer, ReliableConfig::default());
+    let join = RelayClientMessage::JoinGame { room_id: RoomId(0), relay_id: RelayId(42) };
+    let data = bincode::serde::encode_to_vec(&join, bincode::config::standard()).unwrap();
+    rs.send_reliable(CH_CONTROL, data);
+
+    let mut got_joined = false;
+    let mut got_started = false;
+    let start = std::time::Instant::now();
+    while !(got_joined && got_started) && start.elapsed() < Duration::from_secs(5) {
+        pump(&mut rs).await;
+        for msg in rs.take_messages() {
+            if let Ok((m, _)) =
+                bincode::serde::decode_from_slice::<RelayServerMessage, _>(&msg, bincode::config::standard())
+            {
+                match m {
+                    RelayServerMessage::GameJoined { player_id, .. } => {
+                        got_joined = true;
+                        assert_eq!(player_id, 0, "restarted process reuses seat 0");
+                    }
+                    RelayServerMessage::GameStarted { seed, map_size, .. } => {
+                        got_started = true;
+                        assert_eq!(seed, 42, "re-sent GameStarted carries the game seed");
+                        assert_eq!(map_size, simulation::map::MapSize::Medium);
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    assert!(got_joined, "reconnecting player must get GameJoined");
+    assert!(got_started, "reconnecting player must get re-sent GameStarted (Scene B transition)");
+}
+
+#[tokio::test(flavor = "current_thread")]
 async fn test_relay_reconnect_multipage() {
     let port = find_free_port().await;
     tokio::spawn(async move {

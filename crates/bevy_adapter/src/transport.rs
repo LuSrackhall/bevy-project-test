@@ -207,7 +207,7 @@ pub fn reconnect_recovery_system(
                 // Scene B: a fresh process (world just rebuilt, driver at tick 0)
                 // with a log to replay → fast catch-up. Scene A resumes via the
                 // accumulator path.
-                if applied && driver.clock.current_tick == 0 && resp.total_ticks > 0 {
+                if applied && crate::network::is_scene_b_reconnect(driver.clock.current_tick, resp.total_ticks) {
                     driver.catch_up = true;
                     eprintln!("[NET] Scene B catch-up: replaying {} ticks", resp.total_ticks);
                 }
