@@ -93,9 +93,12 @@ async fn run_local_relay(
     let actual_port = socket.local_addr().map(|a| a.port()).unwrap_or(9876);
     let _ = port_tx.send(Ok(actual_port));
 
-    // Discovery beacon uses a dedicated port (9876) — the game socket is UDP now,
-    // so two UDP sockets must not share the game port.
-    let udp_socket = match UdpSocket::bind("0.0.0.0:9876").await {
+    // Discovery beacon binds an EPHEMERAL port (0.0.0.0:0) and broadcasts TO
+    // :9876. It must NOT bind 9876: the `LanDiscoveryListener` (active while
+    // browsing the room list) already holds 0.0.0.0:9876, so a 9876 beacon bind
+    // fails with EADDRINUSE and silently disables discovery. The listener
+    // matches rooms by the packet's `relay_id`, not the source port.
+    let udp_socket = match UdpSocket::bind("0.0.0.0:0").await {
         Ok(s) => {
             if let Err(e) = s.set_broadcast(true) {
                 eprintln!("[BEACON] set_broadcast(true) failed: {}", e);

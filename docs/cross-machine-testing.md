@@ -99,3 +99,14 @@ cargo run -- --relay 127.0.0.1:9876 --player-id 0 --players 2 --windowed
 ./city-conquest --relay 192.168.1.100:9876 --player-id 1 --players 3
 ./city-conquest --relay 192.168.1.100:9876 --player-id 2 --players 3
 ```
+
+## 防火墙放行
+
+房间发现与联机依赖 UDP 入站,需在每台机器的防火墙放行：
+
+- **入站 UDP 9876** — 发现 beacon 广播目标端口(浏览房间列表的监听端口)
+- **入站 UDP 临时端口(relay 实际绑定端口)** — 加入对局时连接 relay 游戏 socket(`[::]:0` 由 OS 分配)
+
+macOS:「系统设置 → 网络 → 防火墙」允许应用接收传入连接;Windows:「Windows Defender 防火墙 → 允许应用通过」放行 `city-conquest.exe` 与 `relay.exe`(或放行对应端口)。
+
+> 如果能看到房间但加入失败(无响应/超时),通常是 relay 临时端口未被放行;若完全看不到房间,检查 9876 入站是否被拦。

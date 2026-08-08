@@ -20,14 +20,22 @@ pub struct LanDiscoveryListener {
 }
 
 impl LanDiscoveryListener {
+    /// Start listening on the default discovery port (9876).
     pub fn start() -> Self {
+        Self::start_on(9876)
+    }
+
+    /// Start listening on a specific UDP port. Tests use a non-default port to
+    /// avoid conflicting with the fixed discovery port (9876) that the host's
+    /// beacon must broadcast to.
+    pub fn start_on(port: u16) -> Self {
         let stop = Arc::new(AtomicBool::new(false));
         let stop_clone = stop.clone();
         let discovered = Arc::new(Mutex::new(Vec::<LanDiscoveryPacket>::new()));
         let discovered_clone = discovered.clone();
 
         let handle = thread::spawn(move || {
-            let socket = match UdpSocket::bind("0.0.0.0:9876") {
+            let socket = match UdpSocket::bind(("0.0.0.0", port)) {
                 Ok(s) => s,
                 Err(e) => {
                     eprintln!("[LAN] bind failed: {}", e);
