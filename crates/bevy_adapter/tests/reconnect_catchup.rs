@@ -10,27 +10,42 @@ use bevy::prelude::*;
 use bevy_adapter::driver::{
     CommandSource, SchedulerState, SimulationDriver, TickClock, simulation_driver_system,
 };
-use bevy_adapter::network::{NetworkCommandSource, ReconnectResponse, TickCommands};
+use bevy_adapter::network::{NetworkCommandSource, PAGE_TICKS, ReconnectPage, ReconnectResponse, TickCommands};
 use bevy_adapter::replay::ReplayRecorder;
 use bevy_adapter::tick::{PendingEvents, SimulationWorld};
 use simulation::command::CommandBuffer;
 use simulation::map::MapSize;
 use simulation::types::PlayerSlots;
 
-fn build_reconnect_response(first: u32, last: u32) -> ReconnectResponse {
+/// Build reconnect metadata for `total` ticks starting at `first`.
+fn build_metadata(first: u32, total: u32) -> ReconnectResponse {
     ReconnectResponse {
         game_id: 1,
         ruleset_version: 1,
         seed: 42,
         map_spec_hash: 0,
         first_tick: first,
-        ticks: (first..=last)
+        total_ticks: total,
+        page_count: total.div_ceil(PAGE_TICKS),
+        players: vec![],
+    }
+}
+
+/// Build the page that covers `[first + i*PAGE_TICKS, min(first+total, ...))`
+/// — mirrors relay_core's tick-VALUE bucketing (D2).
+fn build_page(first: u32, total: u32, page_index: u32) -> ReconnectPage {
+    let lo = first + page_index * PAGE_TICKS;
+    let hi = (first + total).min(lo + PAGE_TICKS);
+    ReconnectPage {
+        page_index,
+        page_count: total.div_ceil(PAGE_TICKS),
+        first_tick: lo,
+        ticks: (lo..hi)
             .map(|t| TickCommands {
                 tick: t,
                 commands: vec![],
             })
             .collect(),
-        players: vec![],
     }
 }
 
@@ -44,10 +59,15 @@ fn test_reconnect_catchup_advances_multiple_ticks() {
     let mut app = App::new();
     app.init_resource::<Time>();
 
-    // 重连:apply_reconnect 灌入断点后 [2..50] 的日志
+    // 重连:元数据 + 多页(ticks 2..=50 = 49 ticks → 2 页)渐进灌入 relay_buffer
     let mut ns = NetworkCommandSource::default();
-    let resp = build_reconnect_response(2, 50);
-    ns.apply_reconnect(&resp, 1).unwrap();
+    let meta = build_metadata(2, 49);
+    ns.apply_reconnect(&meta, 1).unwrap();
+    assert_eq!(meta.page_count, 2, "49 ticks must span 2 pages");
+    for i in 0..meta.page_count {
+        let page = build_page(2, 49, i);
+        ns.apply_reconnect_page(&page).unwrap();
+    }
 
     // driver 停在 tick 1,accumulator 积累 10s(=200 tick 的余量,模拟断点期间)
     app.insert_resource(SimulationDriver {

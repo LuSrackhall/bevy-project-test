@@ -9,7 +9,8 @@ use std::time::Duration;
 
 use bevy_adapter::discovery::{RelayId, RoomId};
 use bevy_adapter::network::{
-    BroadcastFrame, PlayerTickFrame, RelayClientMessage, RelayServerMessage,
+    BroadcastFrame, PlayerTickFrame, ReconnectPage, ReconnectRequest, ReconnectResponse,
+    RelayClientMessage, RelayServerMessage,
 };
 use bevy_adapter::reliable_udp::channel_udp::UdpChannel;
 use bevy_adapter::reliable_udp::protocol::{CH_CONTROL, CH_TICK};
@@ -94,6 +95,149 @@ async fn udp_recv_message(rs: &mut ReliableSocket, secs: u64) -> RelayServerMess
 async fn pump(rs: &mut ReliableSocket) {
     rs.process();
     rs.poll().await.unwrap();
+}
+
+/// Send an unreliable heartbeat so the relay's 1.5s session sweep keeps us alive.
+async fn udp_heartbeat(rs: &mut ReliableSocket) {
+    rs.send_unreliable(vec![]);
+    pump(rs).await;
+}
+
+/// Pump until the reconnect metadata arrives. Uses take_messages_matching so a
+/// page arriving in the same batch is NOT consumed (left for the page helper).
+async fn udp_recv_reconnect_meta(rs: &mut ReliableSocket, secs: u64) -> ReconnectResponse {
+    let start = std::time::Instant::now();
+    let mut last_hb = std::time::Instant::now();
+    loop {
+        if start.elapsed() > Duration::from_secs(secs) {
+            panic!("reconnect metadata timeout");
+        }
+        if last_hb.elapsed() >= Duration::from_millis(300) {
+            udp_heartbeat(rs).await;
+            last_hb = std::time::Instant::now();
+        }
+        pump(rs).await;
+        let msgs = rs.take_messages_matching(|m| {
+            matches!(
+                bincode::serde::decode_from_slice::<RelayServerMessage, _>(m, bincode::config::standard()),
+                Ok((RelayServerMessage::ReconnectResponse(_), _))
+            )
+        });
+        if let Some(m) = msgs.into_iter().next() {
+            if let Ok((RelayServerMessage::ReconnectResponse(r), _)) =
+                bincode::serde::decode_from_slice::<RelayServerMessage, _>(&m, bincode::config::standard())
+            {
+                return r;
+            }
+        }
+    }
+}
+
+/// Pump until the reconnect page with `page_index` arrives (Control-channel
+/// order), sending a heartbeat every ~300ms so the relay's 1.5s sweep does not
+/// kill the session while the reliable window drains (mirrors the production
+/// client). Matches a SPECIFIC page so earlier pages stay buffered for their
+/// own calls.
+async fn udp_recv_reconnect_page(rs: &mut ReliableSocket, page_index: u32, secs: u64) -> ReconnectPage {
+    let start = std::time::Instant::now();
+    let mut last_hb = std::time::Instant::now();
+    loop {
+        if start.elapsed() > Duration::from_secs(secs) {
+            panic!("reconnect page {} timeout", page_index);
+        }
+        if last_hb.elapsed() >= Duration::from_millis(300) {
+            udp_heartbeat(rs).await;
+            last_hb = std::time::Instant::now();
+        }
+        pump(rs).await;
+        let msgs = rs.take_messages_matching(|m| {
+            matches!(
+                bincode::serde::decode_from_slice::<RelayServerMessage, _>(m, bincode::config::standard()),
+                Ok((RelayServerMessage::ReconnectPage(p), _)) if p.page_index == page_index
+            )
+        });
+        if let Some(m) = msgs.into_iter().next() {
+            if let Ok((RelayServerMessage::ReconnectPage(p), _)) =
+                bincode::serde::decode_from_slice::<RelayServerMessage, _>(&m, bincode::config::standard())
+            {
+                return p;
+            }
+        }
+    }
+}
+
+/// Pump until the BroadcastFrame for `want_tick` arrives. Uses
+/// take_messages_matching so other messages (GameStarted, later broadcasts)
+/// are NOT consumed — avoids the batch-discard race.
+async fn udp_recv_broadcast_tick(rs: &mut ReliableSocket, want_tick: u32, secs: u64) {
+    let start = std::time::Instant::now();
+    loop {
+        if start.elapsed() > Duration::from_secs(secs) {
+            panic!("broadcast tick {} timeout", want_tick);
+        }
+        pump(rs).await;
+        let msgs = rs.take_messages_matching(|m| {
+            matches!(
+                bincode::serde::decode_from_slice::<RelayServerMessage, _>(m, bincode::config::standard()),
+                Ok((RelayServerMessage::Broadcast(_), _))
+            )
+        });
+        for m in msgs {
+            if let Ok((RelayServerMessage::Broadcast(BroadcastFrame { payload, .. }), _)) =
+                bincode::serde::decode_from_slice::<RelayServerMessage, _>(&m, bincode::config::standard())
+            {
+                if payload.tick == want_tick {
+                    return;
+                }
+            }
+        }
+    }
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn test_relay_reconnect_multipage() {
+    let port = find_free_port().await;
+    tokio::spawn(async move {
+        start_relay(port, 42, 2, Some(RelayId(42))).await.unwrap();
+    });
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    let (mut c0, _) = udp_join(port, RelayId(42)).await;
+    let (mut c1, _) = udp_join(port, RelayId(42)).await;
+
+    // 33 ticks → 2 页(32/1);心跳保持两会话存活
+    for tick in 1u32..=33 {
+        udp_send_tick(&mut c0, tick, 0).await;
+        udp_send_tick(&mut c1, tick, 1).await;
+        udp_recv_broadcast_tick(&mut c0, tick, 5).await;
+        udp_recv_broadcast_tick(&mut c1, tick, 5).await;
+        udp_heartbeat(&mut c0).await;
+        udp_heartbeat(&mut c1).await;
+    }
+
+    // c0 重连:last_tick_consumed=0 → 元数据 + 2 页
+    let req = RelayClientMessage::Reconnect(ReconnectRequest { game_id: 1, last_tick_consumed: 0 });
+    let data = bincode::serde::encode_to_vec(&req, bincode::config::standard()).unwrap();
+    c0.send_reliable(CH_CONTROL, data);
+    pump(&mut c0).await;
+
+    let meta = udp_recv_reconnect_meta(&mut c0, 5).await;
+    assert_eq!(meta.first_tick, 1);
+    assert_eq!(meta.total_ticks, 33);
+    assert_eq!(meta.page_count, 2);
+
+    let mut seen: Vec<u32> = Vec::new();
+    for i in 0..2 {
+        let page = udp_recv_reconnect_page(&mut c0, i, 5).await;
+        assert_eq!(page.page_index, i, "pages must arrive in Control-channel order");
+        assert_eq!(page.page_count, 2);
+        for b in page.ticks {
+            seen.push(b.tick);
+        }
+    }
+    assert_eq!(seen.len(), 33, "2 pages must cover all 33 ticks");
+    seen.sort_unstable();
+    assert_eq!(seen, (1..=33).collect::<Vec<u32>>(), "pages cover ticks 1..=33 exactly once");
 }
 
 #[tokio::test(flavor = "current_thread")]

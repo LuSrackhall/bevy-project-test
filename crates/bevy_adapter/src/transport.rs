@@ -170,26 +170,42 @@ pub fn reconnect_recovery_system(
     let Some(receiver) = event_receiver else { return };
     let events = receiver.drain_all();
     for event in events {
-        // 重连后 relay 重新分配 player_id——必须更新,否则命令归属错误 → desync
-        if let NetworkEvent::GameJoined { player_id, .. } = event {
-            if let CommandSource::Network(ref mut ns) = driver.source {
-                ns.player_id = player_id;
-                eprintln!("[NET] reconnect: player_id updated to {}", player_id);
-            }
-        }
-        if let NetworkEvent::Reconnect(resp) = event {
-            if let CommandSource::Network(ref mut ns) = driver.source {
-                // 规则版本当前全局硬编码 1
-                let expected = 1u32;
-                match ns.apply_reconnect(&resp, expected) {
-                    Ok(()) => eprintln!(
-                        "[NET] reconnect applied ({} ticks, first={})",
-                        resp.ticks.len(),
-                        resp.first_tick
-                    ),
-                    Err(e) => eprintln!("[NET] reconnect apply failed: {}", e),
+        match event {
+            // 重连后 relay 重新分配 player_id——必须更新,否则命令归属错误 → desync
+            NetworkEvent::GameJoined { player_id, .. } => {
+                if let CommandSource::Network(ref mut ns) = driver.source {
+                    ns.player_id = player_id;
+                    eprintln!("[NET] reconnect: player_id updated to {}", player_id);
                 }
             }
+            NetworkEvent::Reconnect(resp) => {
+                if let CommandSource::Network(ref mut ns) = driver.source {
+                    // 规则版本当前全局硬编码 1
+                    let expected = 1u32;
+                    match ns.apply_reconnect(&resp, expected) {
+                        Ok(()) => eprintln!(
+                            "[NET] reconnect metadata applied (total={} ticks, pages={}, first={})",
+                            resp.total_ticks,
+                            resp.page_count,
+                            resp.first_tick
+                        ),
+                        Err(e) => eprintln!("[NET] reconnect apply failed: {}", e),
+                    }
+                }
+            }
+            NetworkEvent::ReconnectPage(page) => {
+                if let CommandSource::Network(ref mut ns) = driver.source {
+                    match ns.apply_reconnect_page(&page) {
+                        Ok(()) => eprintln!(
+                            "[NET] reconnect page {}/{} applied",
+                            page.page_index + 1,
+                            page.page_count
+                        ),
+                        Err(e) => eprintln!("[NET] reconnect page rejected: {}", e),
+                    }
+                }
+            }
+            _ => {}
         }
     }
 }
@@ -285,8 +301,11 @@ async fn udp_session(
                         }
                     }
                     RelayServerMessage::ReconnectResponse(resp) => {
-                        eprintln!("[NET] Reconnect OK ({} ticks)", resp.ticks.len());
+                        eprintln!("[NET] Reconnect metadata ({} ticks, {} pages)", resp.total_ticks, resp.page_count);
                         event_receiver.push(NetworkEvent::Reconnect(resp));
+                    }
+                    RelayServerMessage::ReconnectPage(page) => {
+                        event_receiver.push(NetworkEvent::ReconnectPage(page));
                     }
                     RelayServerMessage::LobbyUpdate { game_id, players } => {
                         event_receiver.push(NetworkEvent::LobbyUpdate { game_id, players });

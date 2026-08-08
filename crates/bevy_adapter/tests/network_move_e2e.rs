@@ -80,6 +80,7 @@ fn build_client_app(
             relay_buffer: std::collections::HashMap::new(),
             ruleset_version: 1,
             connected: false,
+            reconnect_meta: None,
         }),
         bootstrap_phase: bevy_adapter::session::bootstrap::BootstrapPhase::Active,
     });
