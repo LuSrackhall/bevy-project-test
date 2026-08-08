@@ -143,6 +143,20 @@ relay SHALL 通过心跳超时判定客户端掉线(替代 TCP 连接断开检�
 - **WHEN** 客户端因网络抖动心跳延迟(但在阈值内)
 - **THEN** relay SHALL NOT 误判掉线,会话保持活跃
 
+### Requirement: Relay re-sends GameStarted to reconnecting players in a started game
+
+When a client joins a game that has already started AND its JoinGame reuses a `Disconnected` seat (i.e., it is a reconnecting player whose process restarted), the relay SHALL respond with `GameJoined`, then send `GameStarted` (with seed) again, before the reconnect pages. Clients already Playing SHALL ignore the duplicate `GameStarted` (only the lobby transition handles it).
+
+#### Scenario: restarted process gets GameStarted on reconnect
+
+- **WHEN** a player's process restarts, reconnects (JoinGame reuses the Disconnected seat) to a game that is already started
+- **THEN** the relay SHALL send `GameStarted { seed, player_count }` to that player after `GameJoined`, so its lobby can transition to Playing and rebuild with the reconnect metadata seed
+
+#### Scenario: duplicate GameStarted is harmless to live clients
+
+- **WHEN** the relay re-sends `GameStarted` to a reconnecting player while other clients are Playing
+- **THEN** the Playing clients SHALL ignore the duplicate (no state reset, no world rebuild)
+
 ---
 **Implementation:** `network.rs` lines 238-514 (RelayServer state machine). `relay_core.rs` + `ReliableSocket`(UDP 会话表/心跳清扫). 6 unit tests covering state machine logic. 3 UDP integration tests in `relay/tests/integration.rs`. 1 Bevy e2e test in `bevy_adapter/tests/network_e2e.rs`.
 
