@@ -141,6 +141,10 @@ pub fn network_flush_system(
         let current_tick = driver.clock.current_tick;
         // 同步本地已消费 tick,供重连时作为 last_tick_consumed
         sender.update_last_tick_consumed(current_tick);
+        // 回放追赶期间不上发:被回放的 tick 已定稿,上发帧会在 relay staging 泄漏
+        if driver.catch_up {
+            return;
+        }
         // Send frames for the ENTIRE window [current_tick+1, current_tick+input_delay].
         let start = current_tick + 1;
         let end = ns.delayed_tick(current_tick);
@@ -179,18 +183,33 @@ pub fn reconnect_recovery_system(
                 }
             }
             NetworkEvent::Reconnect(resp) => {
-                if let CommandSource::Network(ref mut ns) = driver.source {
+                let applied = if let CommandSource::Network(ref mut ns) = driver.source {
                     // 规则版本当前全局硬编码 1
                     let expected = 1u32;
                     match ns.apply_reconnect(&resp, expected) {
-                        Ok(()) => eprintln!(
-                            "[NET] reconnect metadata applied (total={} ticks, pages={}, first={})",
-                            resp.total_ticks,
-                            resp.page_count,
-                            resp.first_tick
-                        ),
-                        Err(e) => eprintln!("[NET] reconnect apply failed: {}", e),
+                        Ok(()) => {
+                            eprintln!(
+                                "[NET] reconnect metadata applied (total={} ticks, pages={}, first={})",
+                                resp.total_ticks,
+                                resp.page_count,
+                                resp.first_tick
+                            );
+                            true
+                        }
+                        Err(e) => {
+                            eprintln!("[NET] reconnect apply failed: {}", e);
+                            false
+                        }
                     }
+                } else {
+                    false
+                };
+                // Scene B: a fresh process (world just rebuilt, driver at tick 0)
+                // with a log to replay → fast catch-up. Scene A resumes via the
+                // accumulator path.
+                if applied && driver.clock.current_tick == 0 && resp.total_ticks > 0 {
+                    driver.catch_up = true;
+                    eprintln!("[NET] Scene B catch-up: replaying {} ticks", resp.total_ticks);
                 }
             }
             NetworkEvent::ReconnectPage(page) => {
@@ -217,6 +236,11 @@ pub fn reconnect_recovery_system(
 /// Client UDP session: connect to relay, send JoinGame, then pump the reliable
 /// socket. Returns `true` on clean exit (game over / rejected), `false` when the
 /// connection must be retried (reconnect).
+///
+/// Bounded retry cap for JoinRejected/Error — a genuinely full room gives up
+/// after this many attempts (backoff 1s..30s), while a fast-restart window
+/// (relay 1.5s seat cleanup) is bridged by retries.
+const MAX_CONNECT_RETRIES: u32 = 10;
 async fn udp_session(
     relay_addr: String,
     game_id: u64,
@@ -246,15 +270,15 @@ async fn udp_session(
     if let Ok(data) = bincode::serde::encode_to_vec(&join, bincode::config::standard()) {
         rs.send_reliable(CH_CONTROL, data);
     }
-    // Reconnect: if we consumed ticks before, request the log from the disconnect point.
-    if sender.last_tick_consumed() > 0 {
-        let req = RelayClientMessage::Reconnect(ReconnectRequest {
-            game_id,
-            last_tick_consumed: sender.last_tick_consumed(),
-        });
-        if let Ok(data) = bincode::serde::encode_to_vec(&req, bincode::config::standard()) {
-            rs.send_reliable(CH_CONTROL, data);
-        }
+    // Reconnect request is UNCONDITIONAL: a fresh process (last_tick_consumed=0)
+    // reconnecting to a running game needs the full log (Scene B). For a fresh
+    // game the relay returns total_ticks=0 → no-op.
+    let req = RelayClientMessage::Reconnect(ReconnectRequest {
+        game_id,
+        last_tick_consumed: sender.last_tick_consumed(),
+    });
+    if let Ok(data) = bincode::serde::encode_to_vec(&req, bincode::config::standard()) {
+        rs.send_reliable(CH_CONTROL, data);
     }
 
     let mut last_activity = std::time::Instant::now();
@@ -285,10 +309,10 @@ async fn udp_session(
                 last_activity = std::time::Instant::now();
                 match server_msg {
                     RelayServerMessage::Broadcast(frame) => receiver.push(frame),
-                    RelayServerMessage::GameStarted { game_id: g, seed, player_count } => {
-                        eprintln!("[NET] GameStarted: game_id={}, seed={}, players={}", g, seed, player_count);
+                    RelayServerMessage::GameStarted { game_id: g, seed, player_count, map_size } => {
+                        eprintln!("[NET] GameStarted: game_id={}, seed={}, players={}, map={:?}", g, seed, player_count, map_size);
                         game_started = true;
-                        event_receiver.push(NetworkEvent::GameStarted { game_id: g, seed, player_count });
+                        event_receiver.push(NetworkEvent::GameStarted { game_id: g, seed, player_count, map_size });
                     }
                     RelayServerMessage::GameJoined { game_id: g, player_id: p, player_count } => {
                         eprintln!("[NET] Joined game {} as player {} (of {})", g, p, player_count);
@@ -316,13 +340,14 @@ async fn udp_session(
                     }
                     RelayServerMessage::Error { code, message } => {
                         eprintln!("[NET] Error ({}): {}", code, message);
-                        // 重连场景失败(如 game_id 不一致)→ 重试;首次 → 放弃
-                        return sender.last_tick_consumed() == 0;
+                        // 一律重试(有界):快速重启窗口内 JoinGame 可能命中 Room is full,
+                        // 需重试直到旧席位变 Disconnected(Scene B)。上限由调用方控制。
+                        return false;
                     }
                     RelayServerMessage::JoinRejected { reason } => {
                         eprintln!("[NET] Join rejected: {}", reason);
-                        // 重连场景被拒 → 重试;首次 join 被拒 → 放弃
-                        return sender.last_tick_consumed() == 0;
+                        // 同上:快速重启窗口桥接靠重试,不按 last_tick_consumed 放弃
+                        return false;
                     }
                 }
             }
@@ -414,6 +439,10 @@ pub fn spawn_network_client(
                     break;
                 }
                 retry_count = retry_count.saturating_add(1);
+                if retry_count >= MAX_CONNECT_RETRIES {
+                    eprintln!("[NET] giving up after {} connect attempts", retry_count);
+                    break;
+                }
                 let delay = Duration::from_secs((1u64 << retry_count.min(5)).min(30));
                 eprintln!("[NET] reconnecting in {}s (attempt {})", delay.as_secs(), retry_count);
                 tokio::time::sleep(delay).await;
@@ -488,6 +517,10 @@ pub fn spawn_network_client_nonblocking(
                     break;
                 }
                 retry_count = retry_count.saturating_add(1);
+                if retry_count >= MAX_CONNECT_RETRIES {
+                    eprintln!("[NET] giving up after {} connect attempts", retry_count);
+                    break;
+                }
                 let delay = Duration::from_secs((1u64 << retry_count.min(5)).min(30));
                 eprintln!("[NET] reconnecting in {}s (attempt {})", delay.as_secs(), retry_count);
                 tokio::time::sleep(delay).await;

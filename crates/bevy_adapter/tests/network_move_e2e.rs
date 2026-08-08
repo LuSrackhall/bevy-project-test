@@ -83,6 +83,7 @@ fn build_client_app(
             reconnect_meta: None,
         }),
         bootstrap_phase: bevy_adapter::session::bootstrap::BootstrapPhase::Active,
+        catch_up: false,
     });
     app.insert_resource(TickClock::default());
     app.init_resource::<PendingEvents>();

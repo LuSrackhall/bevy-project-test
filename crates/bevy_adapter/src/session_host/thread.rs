@@ -166,6 +166,8 @@ async fn run_local_relay(
         ruleset_version: 1,
         seed: room.room_id.0,
         map_spec_hash: 0,
+        // 网络路径当前统一 Medium(reset_game_system 硬编码);map_id→MapSize 解析留后续
+        map_size: simulation::map::MapSize::Medium,
         player_count: room.max_players,
         input_delay: 3,
         current_clients: clients_count.clone(),

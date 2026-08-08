@@ -36,6 +36,8 @@ pub struct RelayConfig {
     pub ruleset_version: u32,
     pub seed: u64,
     pub map_spec_hash: u64,
+    /// Map size (Scene B rebuild needs it in reconnect metadata).
+    pub map_size: simulation::map::MapSize,
     pub player_count: u8,
     pub input_delay: u32,
     /// Live connected-client count, shared with the LAN beacon for current_players.
@@ -128,6 +130,7 @@ pub async fn run_relay(socket: UdpSocket, config: RelayConfig, stop: &AtomicBool
         config.ruleset_version,
         config.seed,
         config.map_spec_hash,
+        config.map_size,
         (0..config.player_count).collect(),
         config.input_delay,
         now_ms,
@@ -248,7 +251,7 @@ async fn handle_message(ctx: &Arc<RelayCtx>, session: &Arc<AsyncMutex<RelaySessi
         RelayClientMessage::JoinGame { room_id: _, relay_id } => {
             let result = { ctx.server.lock().unwrap().on_join_game(relay_id) };
             match result {
-                Ok(pid) => {
+                Ok((pid, reused)) => {
                     let mut s = session.lock().await;
                     s.player_id = Some(pid);
                     ctx.clients.lock().unwrap().insert(pid, session.clone());
@@ -260,6 +263,27 @@ async fn handle_message(ctx: &Arc<RelayCtx>, session: &Arc<AsyncMutex<RelaySessi
                     };
                     if let Ok(data) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
                         s.socket.send_reliable(1, data);
+                    }
+                    // Scene B: a player reusing a dropped seat in a started game is a
+                    // restarted process — re-send GameStarted so its lobby transitions
+                    // to Playing and rebuilds from the reconnect metadata seed.
+                    if reused {
+                        let (started, game_started, map_size) = {
+                            let server = ctx.server.lock().unwrap();
+                            (server.is_game_started(), server.seed(), server.map_size())
+                        };
+                        if started {
+                            let started = RelayServerMessage::GameStarted {
+                                game_id: 1,
+                                seed: game_started,
+                                map_size,
+                                player_count: ctx.player_count,
+                            };
+                            if let Ok(data) = bincode::serde::encode_to_vec(&started, bincode::config::standard()) {
+                                s.socket.send_reliable(1, data);
+                            }
+                            eprintln!("[RELAY] re-sent GameStarted to reconnecting player {}", pid);
+                        }
                     }
                 }
                 Err(reason) => {
@@ -278,10 +302,14 @@ async fn handle_message(ctx: &Arc<RelayCtx>, session: &Arc<AsyncMutex<RelaySessi
             };
 
             if game_just_started {
-                let seed = { ctx.server.lock().unwrap().seed() };
+                let (seed, map_size) = {
+                    let server = ctx.server.lock().unwrap();
+                    (server.seed(), server.map_size())
+                };
                 let started = RelayServerMessage::GameStarted {
                     game_id: 1,
                     seed,
+                    map_size,
                     player_count: ctx.player_count,
                 };
                 eprintln!("[RELAY] Broadcasting GameStarted (seed={}, players={})", seed, ctx.player_count);
@@ -358,10 +386,14 @@ async fn handle_message(ctx: &Arc<RelayCtx>, session: &Arc<AsyncMutex<RelaySessi
             broadcast(ctx, &update).await;
 
             if all_ready {
-                let seed = { ctx.server.lock().unwrap().seed() };
+                let (seed, map_size) = {
+                    let server = ctx.server.lock().unwrap();
+                    (server.seed(), server.map_size())
+                };
                 let started = RelayServerMessage::GameStarted {
                     game_id,
                     seed,
+                    map_size,
                     player_count: ctx.player_count,
                 };
                 eprintln!("[RELAY] All players ready! Starting game (seed={})", seed);

@@ -24,6 +24,7 @@ fn build_metadata(first: u32, total: u32) -> ReconnectResponse {
         ruleset_version: 1,
         seed: 42,
         map_spec_hash: 0,
+        map_size: MapSize::Small,
         first_tick: first,
         total_ticks: total,
         page_count: total.div_ceil(PAGE_TICKS),
@@ -79,6 +80,7 @@ fn test_reconnect_catchup_advances_multiple_ticks() {
         scheduler: SchedulerState::default(),
         source: CommandSource::Network(ns),
         bootstrap_phase: bevy_adapter::session::bootstrap::BootstrapPhase::Active,
+        catch_up: false,
     });
     app.insert_resource(TickClock::default());
     app.init_resource::<PendingEvents>();

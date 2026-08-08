@@ -121,6 +121,8 @@ pub struct ReconnectResponse {
     pub ruleset_version: u32,
     pub seed: u64,
     pub map_spec_hash: u64,
+    /// Map size for Scene B world rebuild (must match the live clients' map).
+    pub map_size: simulation::map::MapSize,
     /// First tick of the command log (= last_tick_consumed + 1).
     pub first_tick: u32,
     /// Number of log entries with tick > last_tick_consumed (count, not span).
@@ -171,8 +173,9 @@ pub enum RelayServerMessage {
     GameJoined { game_id: u64, player_id: u8, player_count: u8 },
     /// Join request rejected (room full, identity mismatch, etc.).
     JoinRejected { reason: String },
-    /// All players have connected; game is starting.
-    GameStarted { game_id: u64, seed: u64, player_count: u8 },
+    /// All players have connected; game is starting. Carries the map size so
+    /// clients build a world matching the game (no hardcoded default).
+    GameStarted { game_id: u64, seed: u64, player_count: u8, map_size: simulation::map::MapSize },
     /// Reconnect response with metadata; page_count pages follow on Control.
     ReconnectResponse(ReconnectResponse),
     /// One page of the reconnect command log (progressive replay).
@@ -198,7 +201,7 @@ pub enum NetworkEvent {
     /// Relay has accepted the player and assigned identity.
     GameJoined { player_id: u8, player_count: u8 },
     /// All players connected; game is starting.
-    GameStarted { game_id: u64, seed: u64, player_count: u8 },
+    GameStarted { game_id: u64, seed: u64, player_count: u8, map_size: simulation::map::MapSize },
     /// Lobby state update — player ready statuses.
     LobbyUpdate { game_id: u64, players: Vec<LobbyPlayerState> },
     /// Reconnect response with the reconnect metadata (first_tick, total_ticks, page_count).
@@ -405,6 +408,8 @@ pub struct RelayServer {
     ruleset_version: u32,
     seed: u64,
     map_spec_hash: u64,
+    /// Map size for the game (Scene B rebuild + map spec).
+    map_size: simulation::map::MapSize,
     all_players: Vec<u8>,
 
     /// Buffer per (tick, player_id) -> accumulated commands.
@@ -452,6 +457,7 @@ impl RelayServer {
         ruleset_version: u32,
         seed: u64,
         map_spec_hash: u64,
+        map_size: simulation::map::MapSize,
         players: Vec<u8>,
         input_delay: u32,
         now_ms: u64,
@@ -462,6 +468,7 @@ impl RelayServer {
             ruleset_version,
             seed,
             map_spec_hash,
+            map_size,
             all_players: players,
             buffer: HashMap::new(),
             ready: HashMap::new(),
@@ -488,8 +495,10 @@ impl RelayServer {
     }
 
     /// Process a JoinGame request.
-    /// Returns Ok(player_id) on acceptance, or Err(reason) on rejection.
-    pub fn on_join_game(&mut self, request_relay_id: RelayId) -> Result<u8, String> {
+    /// Returns `Ok((player_id, reused_disconnected_seat))` on acceptance (the
+    /// bool signals a reconnect — the seat was previously held by a dropped
+    /// player), or `Err(reason)` on rejection.
+    pub fn on_join_game(&mut self, request_relay_id: RelayId) -> Result<(u8, bool), String> {
         // Verify relay identity
         if request_relay_id != self.relay_id {
             return Err("Relay identity mismatch".into());
@@ -497,7 +506,7 @@ impl RelayServer {
         // 优先复用断线席位(重连场景),保证重连后拿回原 player_id
         if let Some(&pid) = self.disconnected.iter().min() {
             self.disconnected.remove(&pid);
-            return Ok(pid);
+            return Ok((pid, true));
         }
         // 否则按序分配新席位
         if (self.next_player_id as usize) >= self.all_players.len() {
@@ -505,7 +514,7 @@ impl RelayServer {
         }
         let player_id = self.next_player_id;
         self.next_player_id += 1;
-        Ok(player_id)
+        Ok((player_id, false))
     }
 
     /// Whether a specific player has signaled LobbyReady.
@@ -746,6 +755,7 @@ impl RelayServer {
             ruleset_version: self.ruleset_version,
             seed: self.seed,
             map_spec_hash: self.map_spec_hash,
+            map_size: self.map_size,
             first_tick: request.last_tick_consumed + 1,
             total_ticks,
             page_count: total_ticks.div_ceil(PAGE_TICKS),
@@ -812,6 +822,10 @@ impl RelayServer {
         self.seed
     }
 
+    pub fn map_size(&self) -> simulation::map::MapSize {
+        self.map_size
+    }
+
     pub fn player_count(&self) -> u8 {
         self.all_players.len() as u8
     }
@@ -845,7 +859,7 @@ mod relay_tests {
     /// Helper to create a relay with 2 players.
     fn relay_2p() -> RelayServer {
         let rid = crate::discovery::RelayId(42);
-        RelayServer::new(1, rid, 1, 42, 0xABC, vec![0, 1], 3, 1000)
+        RelayServer::new(1, rid, 1, 42, 0xABC, simulation::map::MapSize::Medium, vec![0, 1], 3, 1000)
     }
 
     fn make_empty_frame(tick: u32, player_id: u8, sid: u64) -> PlayerTickFrame {
@@ -1116,13 +1130,13 @@ mod relay_tests {
     fn test_disconnect_retains_seat_and_reconnect_reuses_id() {
         let mut relay = relay_2p();
         // 两个玩家加入(relay_2p relay_id = 42)
-        assert_eq!(relay.on_join_game(crate::discovery::RelayId(42)).unwrap(), 0);
-        assert_eq!(relay.on_join_game(crate::discovery::RelayId(42)).unwrap(), 1);
+        assert_eq!(relay.on_join_game(crate::discovery::RelayId(42)).unwrap(), (0, false));
+        assert_eq!(relay.on_join_game(crate::discovery::RelayId(42)).unwrap(), (1, false));
         // 玩家 0 掉线:席位保留,状态标 Disconnected
         let states = relay.on_disconnect(0);
         assert!(states.iter().any(|s| matches!(s, PlayerState::Disconnected { player_id: 0 })));
-        // 重连:复用原 player_id 0(而不是 Room is full)
-        assert_eq!(relay.on_join_game(crate::discovery::RelayId(42)).unwrap(), 0);
+        // 重连:复用原 player_id 0(而不是 Room is full),标记为重连
+        assert_eq!(relay.on_join_game(crate::discovery::RelayId(42)).unwrap(), (0, true));
         // 满员:第三方加入被拒
         let err = relay.on_join_game(crate::discovery::RelayId(42)).unwrap_err();
         assert!(err.contains("Room is full"), "err={}", err);
@@ -1272,6 +1286,7 @@ mod tests {
             ruleset_version: 2,
             seed: 1,
             map_spec_hash: 0,
+            map_size: simulation::map::MapSize::Medium,
             first_tick: 1,
             total_ticks: 0,
             page_count: 0,
@@ -1287,6 +1302,7 @@ mod tests {
             ruleset_version: 1,
             seed: 42,
             map_spec_hash: 0,
+            map_size: simulation::map::MapSize::Medium,
             first_tick: first,
             total_ticks: total,
             page_count: total.div_ceil(PAGE_TICKS),
@@ -1328,6 +1344,7 @@ mod tests {
             ruleset_version: 1,
             seed: 42,
             map_spec_hash: 0,
+            map_size: simulation::map::MapSize::Medium,
             first_tick: 100,
             total_ticks: PAGE_TICKS,
             page_count: 1,
@@ -1385,6 +1402,7 @@ mod tests {
             ruleset_version: 1,
             seed: 42,
             map_spec_hash: 0,
+            map_size: simulation::map::MapSize::Medium,
             first_tick: 100,
             total_ticks: PAGE_TICKS,
             page_count: 1,
@@ -1405,6 +1423,7 @@ mod tests {
             ruleset_version: 1,
             seed: 42,
             map_spec_hash: 0,
+            map_size: simulation::map::MapSize::Medium,
             first_tick: 50,
             total_ticks: 0,
             page_count: 0,
