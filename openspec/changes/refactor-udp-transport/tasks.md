@@ -1,14 +1,14 @@
 ## 1. 测试先行(可靠层单测,宪法 §10.1)
 
 - [x] 1.1 `DatagramChannel` trait + `channel_netem` 内存假通道(脚本化故障注入:丢包/乱序/重复/分片/丢 ACK + 虚拟时钟)
-- [x] 1.2 可靠层单测:丢包重传 / 乱序重组 / 重复去重 / seq 回绕 / 窗口停滞 / ACK 丢失兜底 / 分片重组 / RTO 退避(specs/reliable-udp-transport)
+- [x] 1.2 可靠层单测:丢包重传 / 乱序重组 / 重复去重 / seq 回绕 / 窗口停滞 / ACK 丢失兜底 / 分片重组 / RTO 重传触发(specs/reliable-udp-transport)
 - [x] 1.3 乱序定稿回归测试:UDP 乱序使高 tick 先定稿,try_finalize(扫描 log)正确性(衔接 Change 1 修复)
 
 ## 2. reliable_udp 模块
 
 - [x] 2.1 `ReliableSocket` 公共 API:send_reliable/send_control/send_unreliable + 连接状态事件(Connected/Dead)
 - [x] 2.2 三通道数据结构 + 每通道独立 seq
-- [x] 2.3 滑动窗口 + RTO 自适应(SRTT/Karn)+ 固定 pacing(无 AIMD)+ 重传上限降级(触发追平)
+- [x] 2.3 滑动窗口 + RTO 固定(200ms,SRTT/Karn 留后续)+ 固定 pacing(无 AIMD)+ 重传上限降级(触发追平)
 - [x] 2.4 分片/重组(MTU ≤1232,按 msg_id/frag_idx/frag_total)
 - [x] 2.5 `DatagramChannel` 的 UDP 真实现(channel_udp.rs)
 
