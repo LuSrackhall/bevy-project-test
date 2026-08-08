@@ -51,18 +51,37 @@ impl Default for ReliableConfig {
     }
 }
 
-#[derive(Default)]
 struct ChannelSender {
+    /// Next seq to assign. Starts at 1 so an ACK(0) unambiguously means
+    /// "nothing contiguous received yet" (a seq-0 frame must never exist).
     next_seq: u32,
     last_acked: u32,
     /// (seq, frame_bytes, retries, next_rto_at)
     unacked: VecDeque<(u32, Vec<u8>, u32, Duration)>,
 }
 
-#[derive(Default)]
+impl Default for ChannelSender {
+    fn default() -> Self {
+        Self {
+            next_seq: 1,
+            last_acked: 0,
+            unacked: VecDeque::new(),
+        }
+    }
+}
+
 struct ChannelReceiver {
     next_expected: u32,
     buffer: BTreeMap<u32, Vec<u8>>,
+}
+
+impl Default for ChannelReceiver {
+    fn default() -> Self {
+        Self {
+            next_expected: 1,
+            buffer: BTreeMap::new(),
+        }
+    }
 }
 
 struct FragAssembler {
@@ -242,6 +261,13 @@ impl ReliableSocket {
         match frame.frag {
             None => self.stage_data(ch, frame.seq, frame.payload),
             Some((msg_id, idx, total)) => {
+                // Stale fragment guard: drop fragments from an already-passed seq range.
+                {
+                    let recv = &self.receivers[ch];
+                    if frame.seq.wrapping_sub(recv.next_expected) >= (1u32 << 31) {
+                        return;
+                    }
+                }
                 let assembler = self.assemblers.entry((frame.channel, msg_id)).or_insert(FragAssembler {
                     total,
                     parts: BTreeMap::new(),
@@ -249,19 +275,29 @@ impl ReliableSocket {
                 assembler.parts.insert(idx, (frame.seq, frame.payload));
                 if assembler.parts.len() as u16 == assembler.total {
                     let mut data = Vec::new();
+                    let mut min_seq = u32::MAX;
                     let mut max_seq = 0u32;
                     for (_, (seq, part)) in &assembler.parts {
                         data.extend_from_slice(part);
+                        min_seq = min_seq.min(*seq);
                         max_seq = max_seq.max(*seq);
                     }
                     self.assemblers.remove(&(frame.channel, msg_id));
                     let recv = &mut self.receivers[ch];
-                    recv.next_expected = recv.next_expected.max(max_seq.wrapping_add(1));
-                    self.outbox.push_back(data);
-                    // drain any contiguous buffered frames after advancing
-                    while let Some(x) = recv.buffer.remove(&recv.next_expected) {
-                        recv.next_expected = recv.next_expected.wrapping_add(1);
-                        self.outbox.push_back(x);
+                    if min_seq == recv.next_expected {
+                        // contiguous with the expected stream: deliver + advance + drain
+                        recv.next_expected = recv.next_expected.max(max_seq.wrapping_add(1));
+                        self.outbox.push_back(data);
+                        while let Some(x) = recv.buffer.remove(&recv.next_expected) {
+                            recv.next_expected = recv.next_expected.wrapping_add(1);
+                            self.outbox.push_back(x);
+                        }
+                    } else {
+                        // a gap precedes this message: hold it until the stream
+                        // catches up (delivered via drain when next_expected reaches
+                        // min_seq). This preserves reliable-ordered semantics and
+                        // avoids ACKing over the gap (which would drop lost frames).
+                        recv.buffer.entry(min_seq).or_insert(data);
                     }
                 }
             }
@@ -478,5 +514,91 @@ mod tests {
 
         let msgs = b.take_messages();
         assert_eq!(msgs.len(), 2, "both channels deliver their messages");
+    }
+
+    #[test]
+    fn test_gap_retransmission_recovers_lost_frames() {
+        // #1 scenario: a middle-frame loss must be retransmitted (cumulative ACK
+        // must NOT ack over the gap and drop the lost frames from the queue).
+        let (mut a, ch_a) = mk_socket();
+        let (mut b, ch_b) = mk_socket();
+
+        a.send_reliable(CH_TICK, b"m1".to_vec());
+        a.send_reliable(CH_TICK, b"m2".to_vec());
+        a.send_reliable(CH_TICK, b"m3".to_vec());
+        pump(&mut a);
+        let sent = ch_a.lock().unwrap().sent().to_vec();
+        assert_eq!(sent.len(), 3);
+
+        // Deliver ONLY the third frame; m1/m2 frames are lost.
+        ch_b.lock().unwrap().inject("127.0.0.1:9001".parse().unwrap(), sent[2].clone());
+        pump(&mut b);
+        assert!(b.take_messages().is_empty(), "nothing contiguous delivered yet");
+
+        // Advance virtual clock past RTO and reprocess → gap frames retransmitted.
+        a.set_now(Duration::from_millis(250));
+        pump(&mut a);
+        let sent2 = ch_a.lock().unwrap().sent().to_vec();
+        assert!(sent2.len() >= 4, "gap frames must be retransmitted, got {}", sent2.len());
+
+        // Deliver everything A sent (originals + retransmissions) to B.
+        deliver_all(&ch_a, &ch_b);
+        pump(&mut b);
+        let msgs = b.take_messages();
+        assert_eq!(msgs, vec![b"m1".to_vec(), b"m2".to_vec(), b"m3".to_vec()]);
+    }
+
+    #[test]
+    fn test_retransmit_exhaustion_marks_dead() {
+        let (mut a, _ch_a) = mk_socket();
+        a.send_reliable(CH_TICK, b"m".to_vec());
+        // Never deliver anything; drive virtual clock past RTO repeatedly.
+        for i in 1..=10 {
+            a.set_now(Duration::from_millis(200 * i + 1));
+            pump(&mut a);
+        }
+        assert!(a.is_dead(), "retransmit exhaustion must mark the socket dead");
+    }
+
+    #[test]
+    fn test_multiple_fragmented_gap_preserves_order() {
+        // Two fragmented messages M1(seq1,2) and M2(seq3,4). Drop M1's second
+        // fragment. M2 reassembles first — it must NOT be delivered out of order
+        // and its ACK must NOT skip over the gap (which would drop M1 forever).
+        let (mut a, ch_a) = mk_socket();
+        let (mut b, ch_b) = mk_socket();
+
+        let big1 = vec![0xABu8; 2000];
+        let big2 = vec![0xCDu8; 2000];
+        a.send_reliable(CH_TICK, big1.clone());
+        a.send_reliable(CH_TICK, big2.clone());
+        pump(&mut a);
+        let sent = ch_a.lock().unwrap().sent().to_vec();
+        assert!(sent.len() >= 4, "both messages must fragment, got {}", sent.len());
+
+        // Deliver M1 frag0 (seq1), M2 frag0+frag1 (seq3,4). M1 frag1 (seq2) is lost.
+        ch_b.lock().unwrap().inject("127.0.0.1:9001".parse().unwrap(), sent[0].clone());
+        ch_b.lock().unwrap().inject("127.0.0.1:9001".parse().unwrap(), sent[2].clone());
+        ch_b.lock().unwrap().inject("127.0.0.1:9001".parse().unwrap(), sent[3].clone());
+        pump(&mut b);
+        assert!(b.take_messages().is_empty(), "M2 must not deliver ahead of M1");
+
+        // A must NOT have been told everything is acked (gap seq2 still in flight).
+        assert!(a.in_flight() > 0, "gap frame must remain in-flight");
+
+        // Drive RTO → A retransmits all in-flight frames. sent2[5] is the
+        // retransmission of the missing M1 frag1 (seq2): original 4 frames then
+        // retransmissions in unacked order (seq1,seq2,seq3,seq4).
+        a.set_now(Duration::from_millis(250));
+        pump(&mut a);
+        let sent2 = ch_a.lock().unwrap().sent().to_vec();
+        assert!(sent2.len() >= 6, "must retransmit, got {}", sent2.len());
+        ch_b.lock().unwrap().inject("127.0.0.1:9001".parse().unwrap(), sent2[5].clone());
+        pump(&mut b);
+
+        let msgs = b.take_messages();
+        assert_eq!(msgs.len(), 2, "both messages delivered once, in order");
+        assert_eq!(msgs[0], big1, "M1 first");
+        assert_eq!(msgs[1], big2, "M2 second");
     }
 }
