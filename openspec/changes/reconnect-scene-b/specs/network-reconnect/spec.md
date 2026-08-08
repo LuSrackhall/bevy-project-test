@@ -2,7 +2,7 @@
 
 ### Requirement: Client rebuilds world via replay
 
-Reconnect recovery distinguishes two scenes:
+Reconnect recovery SHALL distinguish two scenes:
 
 - **Scene A (network drop, process alive)**: the local world is intact at the
   disconnect point — the client SHALL NOT rebuild the world, only load the missed
