@@ -1,30 +1,20 @@
-//! Integration test: TCP relay with simulated clients.
+//! Integration test: reliable-UDP relay with simulated clients.
 //!
-//! Starts a relay server in-process, connects two virtual clients via TCP,
-//! sends PlayerTickFrames, and verifies BroadcastFrames arrive correctly.
+//! Starts a relay server in-process, connects two virtual clients via the
+//! reliable UDP transport, sends PlayerTickFrames, and verifies BroadcastFrames
+//! arrive correctly.
 
+use std::net::SocketAddr;
 use std::time::Duration;
-use tokio::io::AsyncReadExt;
-use tokio::io::AsyncWriteExt;
-use tokio::net::TcpStream;
-use tokio::time::timeout;
 
-use relay::start_relay;
 use bevy_adapter::discovery::{RelayId, RoomId};
 use bevy_adapter::network::{
     BroadcastFrame, PlayerTickFrame, RelayClientMessage, RelayServerMessage,
 };
-
-/// Find a free port.
-
-/// Helper: read message, skipping GameStarted (which arrives when both players connect)
-async fn read_broadcast(stream: &mut TcpStream, secs: u64) -> RelayServerMessage {
-    let msg = read_msg(stream, secs).await;
-    match msg {
-        RelayServerMessage::GameStarted { .. } => read_msg(stream, secs).await,
-        other => other,
-    }
-}
+use bevy_adapter::reliable_udp::channel_udp::UdpChannel;
+use bevy_adapter::reliable_udp::protocol::{CH_CONTROL, CH_TICK};
+use bevy_adapter::reliable_udp::{ReliableConfig, ReliableSocket};
+use relay::start_relay;
 
 async fn find_free_port() -> u16 {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -33,87 +23,96 @@ async fn find_free_port() -> u16 {
     listener.local_addr().unwrap().port()
 }
 
-/// Helper: write a relay client message to TCP.
-async fn write_msg(stream: &mut TcpStream, msg: &RelayClientMessage) {
-    let data = bincode::serde::encode_to_vec(msg, bincode::config::standard()).unwrap();
-    let len = (data.len() as u32).to_le_bytes();
-    stream.write_all(&len).await.unwrap();
-    stream.write_all(&data).await.unwrap();
-}
+/// Connect a UDP client, send JoinGame, and pump until GameJoined.
+/// Returns the reliable socket (still owned by the caller for later pumps).
+async fn udp_join(port: u16, relay_id: RelayId) -> (ReliableSocket, u8) {
+    let sock = UdpChannel::bind("0.0.0.0:0").await.unwrap();
+    let peer: SocketAddr = format!("127.0.0.1:{}", port).parse().unwrap();
+    let mut rs = ReliableSocket::new(Box::new(sock), peer, ReliableConfig::default());
+    let join = RelayClientMessage::JoinGame { room_id: RoomId(0), relay_id };
+    let data = bincode::serde::encode_to_vec(&join, bincode::config::standard()).unwrap();
+    rs.send_reliable(CH_CONTROL, data);
 
-/// Helper: read a relay server message from TCP.
-async fn read_msg(stream: &mut TcpStream, timeout_secs: u64) -> RelayServerMessage {
-    timeout(Duration::from_secs(timeout_secs), async {
-        let mut len_buf = [0u8; 4];
-        stream.read_exact(&mut len_buf).await.unwrap();
-        let len = u32::from_le_bytes(len_buf) as usize;
-        let mut buf = vec![0u8; len];
-        stream.read_exact(&mut buf).await.unwrap();
-        bincode::serde::decode_from_slice(&buf, bincode::config::standard())
-            .unwrap()
-            .0
-    })
-    .await
-    .expect("read_msg timed out")
-}
-
-/// Helper: connect a client, expect GameJoined, send a PlayerTickFrame.
-async fn connect_and_send(port: u16, tick: u32, player_id: u8) -> TcpStream {
-    let mut stream = TcpStream::connect(("127.0.0.1", port))
-        .await
-        .expect("connect failed");
-
-    // 先发 JoinGame 完成握手(relay 要求 relay_id 匹配)
-    write_msg(&mut stream, &RelayClientMessage::JoinGame {
-        room_id: RoomId(0),
-        relay_id: RelayId(42),
-    })
-    .await;
-
-    // Expect GameJoined
-    match read_msg(&mut stream, 5).await {
-        RelayServerMessage::GameJoined { player_id: pid, .. } => {
-            assert_eq!(pid, player_id, "assigned player_id must match");
+    let start = std::time::Instant::now();
+    loop {
+        if start.elapsed() > Duration::from_secs(5) {
+            panic!("udp_join timed out waiting for GameJoined");
         }
-        other => panic!("Expected GameJoined, got {:?}", other),
+        rs.set_now(start.elapsed());
+        rs.process();
+        rs.poll().await.unwrap();
+        for msg in rs.take_messages() {
+            if let Ok((RelayServerMessage::GameJoined { player_id, .. }, _)) =
+                bincode::serde::decode_from_slice::<RelayServerMessage, _>(&msg, bincode::config::standard())
+            {
+                return (rs, player_id);
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
     }
+}
 
-    // Send a frame
+/// Send a PlayerTickFrame for `tick` on the tick channel.
+async fn udp_send_tick(rs: &mut ReliableSocket, tick: u32, player_id: u8) {
     let frame = PlayerTickFrame {
         magic: 0xBEEF,
-            version: 1,
+        version: 1,
         game_id: 1,
         tick,
         player_id,
         commands: vec![],
         player_sid: 1,
     };
-    write_msg(&mut stream, &RelayClientMessage::PlayerTick(frame)).await;
+    let msg = RelayClientMessage::PlayerTick(frame);
+    let data = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();
+    rs.send_reliable(CH_TICK, data);
+    pump(rs).await;
+}
 
-    stream
+/// Pump the reliable socket until a non-GameStarted relay message arrives.
+async fn udp_recv_message(rs: &mut ReliableSocket, secs: u64) -> RelayServerMessage {
+    let start = std::time::Instant::now();
+    loop {
+        if start.elapsed() > Duration::from_secs(secs) {
+            panic!("udp_recv_message timed out");
+        }
+        pump(rs).await;
+        for msg in rs.take_messages() {
+            if let Ok((m, _)) =
+                bincode::serde::decode_from_slice::<RelayServerMessage, _>(&msg, bincode::config::standard())
+            {
+                match m {
+                    RelayServerMessage::GameStarted { .. } => continue,
+                    other => return other,
+                }
+            }
+        }
+    }
+}
+
+/// One round: stage due frames, flush outbound, pump inbound.
+async fn pump(rs: &mut ReliableSocket) {
+    rs.process();
+    rs.poll().await.unwrap();
 }
 
 #[tokio::test(flavor = "current_thread")]
 async fn test_relay_two_clients_full_cycle() {
     let port = find_free_port().await;
-
-    // Start relay in background task
     tokio::spawn(async move {
         start_relay(port, 42, 2, Some(RelayId(42))).await.unwrap();
     });
-
-    // Allow relay to start
     tokio::time::sleep(Duration::from_millis(200)).await;
 
-    // Client 0: connect, send frame for tick 1
-    let mut c0 = connect_and_send(port, 1, 0).await;
+    let (mut c0, pid0) = udp_join(port, RelayId(42)).await;
+    let (mut c1, pid1) = udp_join(port, RelayId(42)).await;
+    assert_eq!((pid0, pid1), (0, 1));
 
-    // Client 1: connect, send frame for tick 1 → both players ready → barrier fires
-    let mut c1 = connect_and_send(port, 1, 1).await;
+    udp_send_tick(&mut c0, 1, 0).await;
+    udp_send_tick(&mut c1, 1, 1).await;
 
-    // Both clients should receive BroadcastFrame for tick 1
-    let b0 = read_broadcast(&mut c0, 5).await;
-    let b1 = read_broadcast(&mut c1, 5).await;
+    let b0 = udp_recv_message(&mut c0, 5).await;
+    let b1 = udp_recv_message(&mut c1, 5).await;
 
     match (&b0, &b1) {
         (
@@ -132,18 +131,19 @@ async fn test_relay_two_clients_full_cycle() {
 #[tokio::test(flavor = "current_thread")]
 async fn test_relay_correct_tick_advancement() {
     let port = find_free_port().await;
-
     tokio::spawn(async move {
         start_relay(port, 42, 2, Some(RelayId(42))).await.unwrap();
     });
     tokio::time::sleep(Duration::from_millis(200)).await;
 
-    let mut c0 = connect_and_send(port, 5, 0).await;
-    let mut c1 = connect_and_send(port, 5, 1).await;
+    let (mut c0, _) = udp_join(port, RelayId(42)).await;
+    let (mut c1, _) = udp_join(port, RelayId(42)).await;
 
-    // Both send for tick 5 → verify both get tick 5 back
-    let b0 = read_broadcast(&mut c0, 5).await;
-    let b1 = read_broadcast(&mut c1, 5).await;
+    udp_send_tick(&mut c0, 5, 0).await;
+    udp_send_tick(&mut c1, 5, 1).await;
+
+    let b0 = udp_recv_message(&mut c0, 5).await;
+    let b1 = udp_recv_message(&mut c1, 5).await;
 
     match (&b0, &b1) {
         (
@@ -160,32 +160,20 @@ async fn test_relay_correct_tick_advancement() {
 #[tokio::test(flavor = "current_thread")]
 async fn test_relay_three_ticks_sequential() {
     let port = find_free_port().await;
-
     tokio::spawn(async move {
         start_relay(port, 42, 2, Some(RelayId(42))).await.unwrap();
     });
     tokio::time::sleep(Duration::from_millis(200)).await;
 
-    // Connect both clients first, each sending JoinGame for handshake
-    let mut c0 = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
-    write_msg(&mut c0, &RelayClientMessage::JoinGame { room_id: RoomId(0), relay_id: RelayId(42) }).await;
-    read_msg(&mut c0, 5).await;
-    let mut c1 = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
-    write_msg(&mut c1, &RelayClientMessage::JoinGame { room_id: RoomId(0), relay_id: RelayId(42) }).await;
-    read_msg(&mut c1, 5).await;
+    let (mut c0, _) = udp_join(port, RelayId(42)).await;
+    let (mut c1, _) = udp_join(port, RelayId(42)).await;
 
-    // Send frames for tick 1, 2, 3 from both players
     for tick in 1u32..=3 {
-        write_msg(&mut c0, &RelayClientMessage::PlayerTick(PlayerTickFrame {
-            magic: 0xBEEF, version: 1, game_id: 1, tick, player_id: 0, commands: vec![], player_sid: tick as u64,
-        })).await;
-        write_msg(&mut c1, &RelayClientMessage::PlayerTick(PlayerTickFrame {
-            magic: 0xBEEF, version: 1, game_id: 1, tick, player_id: 1, commands: vec![], player_sid: tick as u64,
-        })).await;
+        udp_send_tick(&mut c0, tick, 0).await;
+        udp_send_tick(&mut c1, tick, 1).await;
 
-        // Both should get the broadcast
-        let msg0 = read_broadcast(&mut c0, 5).await;
-        let msg1 = read_broadcast(&mut c1, 5).await;
+        let msg0 = udp_recv_message(&mut c0, 5).await;
+        let msg1 = udp_recv_message(&mut c1, 5).await;
 
         match (&msg0, &msg1) {
             (
