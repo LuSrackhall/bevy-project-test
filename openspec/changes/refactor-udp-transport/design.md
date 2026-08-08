@@ -18,12 +18,11 @@ Change 2 目标:传输层从 TCP 改造为自写可靠 UDP。高层设计已由 
 
 ```
 reliable_udp/
-  mod.rs          — ReliableSocket(公共 API)
-  channel.rs      — DatagramChannel trait(AsyncRead/Write 抽象)
+  mod.rs          — ReliableSocket(核心:seq/窗口/RTO/去重/分片,sender/receiver 内联)
+  protocol.rs     — 帧格式(seq/kind/frag 编码解码)
+  channel.rs      — DatagramChannel trait
   channel_udp.rs  — tokio UdpSocket 实现
   channel_netem.rs— 测试假通道(脚本化故障注入 + 虚拟时钟)
-  sender.rs       — seq 分配、滑动窗口、RTO 重传、pacing
-  receiver.rs     — 按序缓存、去重、cumulative ACK、分片重组
 ```
 
 **`DatagramChannel` trait**(测试基石):
@@ -51,8 +50,8 @@ enum Channel { Tick, Control, Heartbeat }  // Tick/Control 可靠,Heartbeat 不�
 
 - **seq + cumulative ACK**:发送方每帧带单调 seq;接收方回 cumulative ACK(确认至某 seq);发送方按 ACK 推进窗口
 - **滑动窗口**:发送未 ACK 上限(如 32 帧),满则 pacing 等待
-- **RTO 自适应**:SRTT/Karn 估计 + 最小下限(≥2×RTT)+ 指数退避;重传上限(如 5 次)
-- **重传耗尽降级**:超上限后**不阻塞游戏**——丢弃该帧,升级触发 `apply_reconnect` 追平(宁追平不等包)
+- **RTO 固定**:200ms 初始 + 重传上限(5 次)。SRTT/Karn 自适应与指数退避留后续(当前 LAN 低延迟可用)
+- **重传耗尽降级**:超上限后**不阻塞游戏**——置 dead 标志并丢弃该帧,transport 检测 is_dead 触发 `apply_reconnect` 追平(宁追平不等包)
 - **去重**:接收方按 seq 缓存,重复帧丢弃;seq 回绕防护(窗口 ≤ 半 seq 空间,seq 用 u32)
 - **分片**:帧 > MTU 有效载荷(IPv6 ≤1232)时分片;每片带 (msg_id, frag_idx, frag_total);重组后交付。分片主载体是重连大日志
 - **固定 pacing**:发送间隔 ≥ 某阈值(如 1ms),无拥塞控制(AIMD 在低带宽下不适用)
@@ -95,11 +94,10 @@ struct RelaySession {   // 每客户端一个
 - JoinGame 前未认证报文:缓冲到最小会话(仅缓存源地址),等 JoinGame 建立完整会话
 - 端口变化/NAT rebinding:JoinGame 重发时更新 addr
 
-### D8: 重连日志分页
+### D8: 重连日志分页(后续优化)
 
-- `ReconnectResponse` 拆分:首帧返回元信息(seed/map_spec_hash/first_tick/总页数),客户端逐页拉取
-- 新消息 `ReconnectPage { page_idx, ticks: Vec<TickCommands> }`,按 tick 分页(每页 ≤ MTU)
-- 客户端收齐所有页后灌入 relay_buffer(衔接 Change 1 apply_reconnect)
+- 设计:`ReconnectResponse` 拆分首帧元信息 + 客户端逐页拉取 `ReconnectPage`。
+- **实现状态**:当前 `handle_reconnect` 返回全量日志(短断线 < MTU 时正确,分片兜底);长断线(数分钟)大日志的分页拉取为后续优化,记录于已知限制。
 
 ### 宪法约束落地
 

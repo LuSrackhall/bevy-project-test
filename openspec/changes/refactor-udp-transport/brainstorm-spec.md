@@ -22,7 +22,7 @@
 
 ### D1 — 独立 `reliable_udp` 模块 + `DatagramChannel` trait
 
-封装可靠连接,客户端 transport + relay 服务器复用。**抽象 `DatagramChannel` trait**:真实 `tokio::UdpSocket` 实现 + 测试用内存 netem 假通道(脚本化故障注入:丢包/乱序/重复/分片/丢 ACK)。`ReliableSocket` 输出**连接状态事件**(`Connected`/`Dead`),供 transport 触发重连、relay_core 调 `on_disconnect`(recv 返回 Option 无法区分"无数据"vs"连接死亡")。拆 sender/receiver 子模块(seq/ACK/窗口/重传/分片)。
+封装可靠连接,客户端 transport + relay 服务器复用。**抽象 `DatagramChannel` trait**:真实 `tokio::UdpSocket` 实现 + 测试用内存 netem 假通道(脚本化故障注入:丢包/乱序/重复/分片/丢 ACK)。`ReliableSocket` 输出**连接状态事件**(`Connected`/`Dead`),供 transport 触发重连、relay_core 调 `on_disconnect`(recv 返回 Option 无法区分"无数据"vs"连接死亡")。`ChannelSender`/`ChannelReceiver`/`FragAssembler` 内联在 `mod.rs`(seq/ACK/窗口/重传/分片)。
 
 ### D2 — 三通道
 
@@ -33,7 +33,7 @@
 ### D3 — 可靠机制(**无 AIMD**)
 
 - 单调 seq + **cumulative ACK** + 滑动窗口(发送未 ACK 上限)+ 去重(接收方按 seq,防重复)
-- RTO **自适应**(SRTT/Karn,下限保护)+ 重传上限
+- RTO **固定 200ms** + 重传上限(5 次);SRTT/Karn 自适应留后续(当前 LAN 低延迟可用)
 - **重传耗尽 → 降级走 `apply_reconnect` 追平**(宁追平不等包,不阻塞游戏)——防止命令延迟破坏 lockstep
 - **MTU 感知分片**(IPv6 最小 MTU 1280 → 有效载荷 ≤1232),分片载体主要是重连大日志
 - **固定速率 pacing**(无拥塞控制:AIMD 在 8 人×20Hz≈几十 KB/s 带宽下减窗会拖停 lockstep,丢包≠拥塞)
@@ -65,10 +65,10 @@
 - **心跳超时清扫**:空闲会话超时触发 `on_disconnect`(无 read error 时 relay 端靠此驱动掉线)
 - 会话表与 Change 1 席位复用/重连竞态对齐(ADR 0009)
 
-### D8 — 重连大日志分页传输(新增)
+### D8 — 重连大日志分页传输(后续优化)
 
-- `ReconnectResponse` 含断点后全部命令日志,断线数分钟 = 几千 tick × ~100B = **几百 KB**,超 64KB datagram 与 MTU
-- 日志**按 tick 分页可靠传输**(客户端逐页拉取),配合 D3 分片
+- 动机:`ReconnectResponse` 含断点后全部命令日志,断线数分钟 = 几千 tick × ~100B = **几百 KB**,超 64KB datagram 与 MTU
+- **实现状态**:当前 `ReconnectResponse` 返回全量日志(短断线 < MTU 正确,配合 D3 MTU 分片兜底);长断线(数分钟)按 tick 分页拉取为后续优化,记录于已知限制
 
 ### 宪法约束(双向可靠 + 降级)
 
@@ -79,7 +79,7 @@
 ## Risks / Trade-offs
 
 - [可靠层实现 bug(丢包/重传/窗口/分片)] → `DatagramChannel` netem 单测(脚本化故障注入 + 虚拟时钟,零 sleep,确定性复现)
-- [重连日志超 UDP 上限] → D8 分页 + D3 MTU 分片
+- [重连日志超 UDP 上限] → D3 MTU 分片(当前兜底)+ D8 分页(后续优化)
 - [重传延迟吞命令] → 重传上限 + 降级追平 + jitter 调优
 - [掉线误判] → D6 心跳超时阶梯 + 防假阳性测试
 - [relay 会话管理复杂度] → D7 会话表 + 空闲清扫,单测覆盖
