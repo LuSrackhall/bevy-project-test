@@ -300,12 +300,34 @@ async fn handle_message(ctx: &Arc<RelayCtx>, session: &Arc<AsyncMutex<RelaySessi
         }
         RelayClientMessage::Reconnect(req) => {
             let resp = { ctx.server.lock().unwrap().handle_reconnect(&req) };
-            let msg = match resp {
-                Ok(r) => RelayServerMessage::ReconnectResponse(r),
-                Err(e) => RelayServerMessage::Error { code: 1, message: e },
-            };
-            if let Ok(data) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
-                session.lock().await.socket.send_reliable(1, data);
+            match resp {
+                Ok(meta) => {
+                    // Metadata first, then page_count pages on the reliable
+                    // Control channel (ReliableOrdered preserves page order).
+                    if let Ok(data) = bincode::serde::encode_to_vec(
+                        &RelayServerMessage::ReconnectResponse(meta.clone()),
+                        bincode::config::standard(),
+                    ) {
+                        session.lock().await.socket.send_reliable(1, data);
+                    }
+                    for page_index in 0..meta.page_count {
+                        let page = { ctx.server.lock().unwrap().reconnect_page(&meta, page_index) };
+                        if let Some(page) = page {
+                            if let Ok(data) = bincode::serde::encode_to_vec(
+                                &RelayServerMessage::ReconnectPage(page),
+                                bincode::config::standard(),
+                            ) {
+                                session.lock().await.socket.send_reliable(1, data);
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    let msg = RelayServerMessage::Error { code: 1, message: e };
+                    if let Ok(data) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+                        session.lock().await.socket.send_reliable(1, data);
+                    }
+                }
             }
         }
         RelayClientMessage::LobbyReady { game_id, player_id, ready, map_size: _ } => {

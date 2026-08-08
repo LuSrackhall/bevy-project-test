@@ -127,10 +127,13 @@ impl Plugin for BevyAdapterPlugin {
                             .or_else(resource_exists_and_equals(NetworkActive(true))),
                     ),
             )
-            // Reconnect recovery: only during Playing (GameActive), before tick driver
+            // Reconnect recovery: only during Playing (GameActive), before tick driver.
+            // Must run before network_poll_system so reconnect metadata/pages are
+            // applied before the same frame's broadcasts enter relay_buffer (D3).
             .add_systems(
                 Update,
                 crate::transport::reconnect_recovery_system
+                    .before(crate::transport::network_poll_system)
                     .before(SimulationTickSet)
                     .run_if(resource_exists_and_equals(GameActive(true))),
             )

@@ -98,8 +98,12 @@ pub struct PlayerTickFrame {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Reconnect — request / response
+// Reconnect — request / response / pages
 // ═══════════════════════════════════════════════════════════════
+
+/// Ticks per reconnect page. A page (~3.2 KB for ~100B/tick) maps to a few
+/// MTU fragments, keeping per-message delivery bounded and progressive.
+pub const PAGE_TICKS: u32 = 32;
 
 /// Client-to-relay reconnect request after disconnection.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -109,7 +113,8 @@ pub struct ReconnectRequest {
     pub last_tick_consumed: u32,
 }
 
-/// Relay-to-client reconnect response.
+/// Relay-to-client reconnect metadata (page_count pages follow on the
+/// reliable Control channel). Carries no command log — pages do.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ReconnectResponse {
     pub game_id: u64,
@@ -118,10 +123,24 @@ pub struct ReconnectResponse {
     pub map_spec_hash: u64,
     /// First tick of the command log (= last_tick_consumed + 1).
     pub first_tick: u32,
-    /// Command log from first_tick to current finalized tick.
-    pub ticks: Vec<TickCommands>,
+    /// Number of log entries with tick > last_tick_consumed (count, not span).
+    pub total_ticks: u32,
+    /// ceil(total_ticks / PAGE_TICKS); 0 when total_ticks = 0.
+    pub page_count: u32,
     /// All player states at the time of reconnect.
     pub players: Vec<PlayerState>,
+}
+
+/// One page of the reconnect command log, pushed after the metadata response.
+/// Pages cover contiguous tick ranges bucketed by tick VALUE (the finalized
+/// log is append-ordered, not tick-ordered — see D2).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ReconnectPage {
+    pub page_index: u32,
+    pub page_count: u32,
+    /// First tick of this page (for defensive validation).
+    pub first_tick: u32,
+    pub ticks: Vec<TickCommands>,
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -154,8 +173,10 @@ pub enum RelayServerMessage {
     JoinRejected { reason: String },
     /// All players have connected; game is starting.
     GameStarted { game_id: u64, seed: u64, player_count: u8 },
-    /// Reconnect response with full state recovery data.
+    /// Reconnect response with metadata; page_count pages follow on Control.
     ReconnectResponse(ReconnectResponse),
+    /// One page of the reconnect command log (progressive replay).
+    ReconnectPage(ReconnectPage),
     /// Broadcast frame for a finalized tick.
     Broadcast(BroadcastFrame),
     /// Game over notification.
@@ -180,8 +201,10 @@ pub enum NetworkEvent {
     GameStarted { game_id: u64, seed: u64, player_count: u8 },
     /// Lobby state update — player ready statuses.
     LobbyUpdate { game_id: u64, players: Vec<LobbyPlayerState> },
-    /// Reconnect response with the command log from the disconnect point onward.
+    /// Reconnect response with the reconnect metadata (first_tick, total_ticks, page_count).
     Reconnect(ReconnectResponse),
+    /// One page of the reconnect command log.
+    ReconnectPage(ReconnectPage),
 
 }
 
@@ -209,6 +232,16 @@ use crate::driver::DriverContext;
 /// **No merge logic.** `commands_for_tick()` returns only what the relay broadcast.
 /// Local player input is uplinked via `cmd_buf` → relay → broadcast back to all clients.
 /// This source does NOT read from the Bevy `cmd_buf` at execution time.
+/// Reconnect replay cursor — set when reconnect metadata is applied, cleared
+/// when the last page is applied. Drives `apply_reconnect_page` validation.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ReconnectCursor {
+    pub first_tick: u32,
+    pub total_ticks: u32,
+    pub page_count: u32,
+    pub next_page: u32,
+}
+
 #[derive(Default)]
 pub struct NetworkCommandSource {
     /// Incoming finalized command batches from relay, indexed by tick.
@@ -221,6 +254,8 @@ pub struct NetworkCommandSource {
     /// Input delay in ticks (default 3). Applied when constructing PlayerTickFrame.
     /// D5: Offset happens only inside NetworkCommandSource.
     pub input_delay: u32,
+    /// Reconnect page cursor (Some between metadata and last page).
+    pub reconnect_meta: Option<ReconnectCursor>,
 }
 
 impl NetworkCommandSource {
@@ -269,18 +304,13 @@ impl NetworkCommandSource {
         local_tick + self.input_delay
     }
 
-    /// Process a ReconnectResponse: load the command log into the relay buffer.
+    /// Process a ReconnectResponse (metadata): validate, set the replay cursor,
+    /// and clear only stale ticks. Reconnect log pages are applied progressively
+    /// via `apply_reconnect_page` as they arrive on the Control channel.
     ///
-    /// The reconnect path (D11) uses replay-based recovery:
-    /// - Scene A (network drop, process alive): local world is intact at the
-    ///   disconnect point — only the missed ticks are loaded and the driver resumes.
-    /// - Scene B (process restart): the world MUST be rebuilt via
-    ///   `init_simulation_world_multi(seed, PlayerSlots::multi_player(N, local))`
-    ///   + `run_tick(enable_ai:false)` — matching the live network path.
-    ///   `init_simulation_world` (2-slot) / `run_tick_default` (AI on) are FORBIDDEN (R1):
-    ///   they diverge from the network PlayerSlots/NoOp set and desync (specs/network-reconnect).
-    ///
-    /// This method stores the tick log so the driver can consume it sequentially.
+    /// D3: `relay_buffer` is cleared ONLY below `first_tick` — live broadcasts
+    /// for ticks finalized after the reconnect request (≥ first_tick, outside the
+    /// page range) must survive, else a deterministic gap forms.
     ///
     /// D12: Validates ruleset_version — mismatch returns an error.
     pub fn apply_reconnect(&mut self, response: &ReconnectResponse, expected_version: u32) -> Result<(), String> {
@@ -296,9 +326,60 @@ impl NetworkCommandSource {
         self.game_id = response.game_id;
         self.ruleset_version = response.ruleset_version;
         self.connected = true;
-        self.relay_buffer.clear();
-        for batch in &response.ticks {
+        self.relay_buffer.retain(|tick, _| *tick >= response.first_tick);
+        // page_count = 0 → nothing to fetch; replay completes immediately.
+        self.reconnect_meta = (response.page_count > 0).then(|| ReconnectCursor {
+            first_tick: response.first_tick,
+            total_ticks: response.total_ticks,
+            page_count: response.page_count,
+            next_page: 0,
+        });
+        Ok(())
+    }
+
+    /// Apply one reconnect page, inserting its ticks into the relay buffer.
+    ///
+    /// D4: rejects out-of-order/duplicate/out-of-range pages and pages whose
+    /// `page_count` mismatches the metadata (defense against stale pages from a
+    /// previous session). The reliable Control channel already delivers in order,
+    /// so a rejection means a protocol/state error — surfaced for logging.
+    pub fn apply_reconnect_page(&mut self, page: &ReconnectPage) -> Result<(), String> {
+        let meta = match self.reconnect_meta {
+            Some(m) => m,
+            None => return Err("ReconnectPage received without reconnect metadata".into()),
+        };
+        if page.page_count != meta.page_count {
+            return Err(format!(
+                "page_count mismatch: page={}, metadata={}",
+                page.page_count, meta.page_count
+            ));
+        }
+        if page.page_index != meta.next_page {
+            return Err(format!(
+                "out-of-order page: got {}, expected {}",
+                page.page_index, meta.next_page
+            ));
+        }
+        if page.page_index >= meta.page_count {
+            return Err(format!(
+                "page_index {} out of range (page_count={})",
+                page.page_index, meta.page_count
+            ));
+        }
+        for batch in &page.ticks {
+            if batch.tick < meta.first_tick {
+                return Err(format!(
+                    "page contains tick {} below first_tick {}",
+                    batch.tick, meta.first_tick
+                ));
+            }
             self.relay_buffer.insert(batch.tick, batch.clone());
+        }
+        let next_page = meta.next_page + 1;
+        if next_page >= meta.page_count {
+            self.reconnect_meta = None; // last page — replay complete
+        } else {
+            self.reconnect_meta = Some(ReconnectCursor { next_page, ..meta });
         }
         Ok(())
     }
@@ -642,28 +723,59 @@ impl RelayServer {
     }
 
     /// Handle reconnect request.
-    /// D11: Returns TickCommands from last_tick_consumed+1 to current.
-    /// D12: Validates ruleset_version compatibility.
+    /// D11: Build reconnect metadata only — the command log is delivered as
+    /// `page_count` `ReconnectPage` pushes on the reliable Control channel.
+    /// D2: `total_ticks` = COUNT of log entries with `tick > last_tick_consumed`
+    /// (not a tick span); pages are bucketed by tick VALUE below.
+    /// D12: Validates ruleset_version compatibility (done client-side on apply).
     pub fn handle_reconnect(&self, request: &ReconnectRequest) -> Result<ReconnectResponse, String> {
         // 安全:拒绝跨对局的日志请求
         if request.game_id != self.game_id {
             return Err(format!("game_id mismatch: {} != {}", request.game_id, self.game_id));
         }
-        let ticks: Vec<TickCommands> = self
+        if self.frozen {
+            return Err("game is frozen — reconnect rejected".into());
+        }
+        let total_ticks = self
             .log
             .iter()
             .filter(|b| b.tick > request.last_tick_consumed)
-            .cloned()
-            .collect();
-
+            .count() as u32;
         Ok(ReconnectResponse {
             game_id: self.game_id,
             ruleset_version: self.ruleset_version,
             seed: self.seed,
             map_spec_hash: self.map_spec_hash,
             first_tick: request.last_tick_consumed + 1,
-            ticks,
+            total_ticks,
+            page_count: total_ticks.div_ceil(PAGE_TICKS),
             players: self.player_states(),
+        })
+    }
+
+    /// Build reconnect page `page_index`: log entries whose tick falls in
+    /// `[first_tick + i*PAGE_TICKS, first_tick + (i+1)*PAGE_TICKS)`.
+    ///
+    /// Bucketed by tick VALUE, not log position — the finalized log is
+    /// append-ordered and may finalize out of tick order (D2). Returns None
+    /// when `page_index >= page_count`.
+    pub fn reconnect_page(&self, response: &ReconnectResponse, page_index: u32) -> Option<ReconnectPage> {
+        if page_index >= response.page_count {
+            return None;
+        }
+        let lo = response.first_tick + page_index * PAGE_TICKS;
+        let hi = response.first_tick + (page_index + 1) * PAGE_TICKS;
+        let ticks: Vec<TickCommands> = self
+            .log
+            .iter()
+            .filter(|b| b.tick >= lo && b.tick < hi)
+            .cloned()
+            .collect();
+        Some(ReconnectPage {
+            page_index,
+            page_count: response.page_count,
+            first_tick: lo,
+            ticks,
         })
     }
 
@@ -823,8 +935,147 @@ mod relay_tests {
         };
         let resp = relay.handle_reconnect(&req).unwrap();
         assert_eq!(resp.first_tick, 2);
-        assert_eq!(resp.ticks.len(), 1); // Only tick 2
+        assert_eq!(resp.total_ticks, 1); // Only tick 2
+        assert_eq!(resp.page_count, 1);
         assert_eq!(resp.seed, 42);
+        let page = relay.reconnect_page(&resp, 0).unwrap();
+        assert_eq!(page.page_index, 0);
+        assert_eq!(page.page_count, 1);
+        assert_eq!(page.ticks.len(), 1);
+        assert_eq!(page.ticks[0].tick, 2);
+        assert!(relay.reconnect_page(&resp, 1).is_none()); // out of range
+    }
+
+    #[test]
+    fn test_reconnect_pagination_boundaries() {
+        let mut relay = relay_2p();
+        let now = 1000;
+        // Finalize ticks 1..=65 in order
+        for tick in 1u32..=65 {
+            let r = relay.on_player_frame(&make_empty_frame(tick, 0, tick as u64), now + tick as u64);
+            assert!(r.0.is_none(), "tick {} waits for player 1", tick);
+            let r = relay.on_player_frame(&make_empty_frame(tick, 1, tick as u64 + 100), now + tick as u64);
+            assert!(r.0.is_some(), "tick {} should finalize", tick);
+        }
+        assert_eq!(relay.command_log().len(), 65);
+
+        // Reconnect from tick 0 → first=1, 65 ticks, 3 pages (32/32/1)
+        let resp = relay
+            .handle_reconnect(&ReconnectRequest { game_id: 1, last_tick_consumed: 0 })
+            .unwrap();
+        assert_eq!(resp.first_tick, 1);
+        assert_eq!(resp.total_ticks, 65);
+        assert_eq!(resp.page_count, 3);
+
+        let p0 = relay.reconnect_page(&resp, 0).unwrap();
+        assert_eq!(p0.ticks.len(), 32);
+        assert_eq!(p0.first_tick, 1);
+        assert_eq!(p0.ticks[0].tick, 1);
+        assert_eq!(p0.ticks[31].tick, 32);
+        let p1 = relay.reconnect_page(&resp, 1).unwrap();
+        assert_eq!(p1.ticks.len(), 32);
+        assert_eq!(p1.first_tick, 33);
+        assert_eq!(p1.ticks[0].tick, 33);
+        assert_eq!(p1.ticks[31].tick, 64);
+        let p2 = relay.reconnect_page(&resp, 2).unwrap();
+        assert_eq!(p2.ticks.len(), 1);
+        assert_eq!(p2.first_tick, 65);
+        assert_eq!(p2.ticks[0].tick, 65);
+        assert!(relay.reconnect_page(&resp, 3).is_none()); // out of range
+    }
+
+    #[test]
+    fn test_reconnect_buckets_out_of_order_log() {
+        let mut relay = relay_2p();
+        let now = 1000;
+        // 乱序定稿:5 → 3 → 4(log append 序 [5,3,4],非 tick 序)
+        relay.on_player_frame(&make_empty_frame(5, 0, 1), now);
+        let r5 = relay.on_player_frame(&make_empty_frame(5, 1, 2), now);
+        assert!(r5.0.is_some());
+        relay.on_player_frame(&make_empty_frame(3, 0, 3), now);
+        let r3 = relay.on_player_frame(&make_empty_frame(3, 1, 4), now);
+        assert!(r3.0.is_some());
+        relay.on_player_frame(&make_empty_frame(4, 0, 5), now);
+        let r4 = relay.on_player_frame(&make_empty_frame(4, 1, 6), now);
+        assert!(r4.0.is_some());
+        let log_ticks: Vec<u32> = relay.command_log().iter().map(|b| b.tick).collect();
+        assert_eq!(log_ticks, vec![5, 3, 4]);
+
+        // Reconnect from tick 2 → total=3,单页按值覆盖 tick 3,4,5
+        let resp = relay
+            .handle_reconnect(&ReconnectRequest { game_id: 1, last_tick_consumed: 2 })
+            .unwrap();
+        assert_eq!(resp.first_tick, 3);
+        assert_eq!(resp.total_ticks, 3);
+        assert_eq!(resp.page_count, 1);
+        let page = relay.reconnect_page(&resp, 0).unwrap();
+        let mut page_ticks: Vec<u32> = page.ticks.iter().map(|b| b.tick).collect();
+        // 按值归桶:包含 3,4,5 各一次(页内顺序无关,客户端按 tick 键入 HashMap)
+        page_ticks.sort_unstable();
+        assert_eq!(page_ticks, vec![3, 4, 5]);
+    }
+
+    #[test]
+    fn test_reconnect_edges_empty_and_frozen() {
+        let mut relay = relay_2p();
+        let now = 1000;
+        // 无定稿 → total_ticks=0, page_count=0,无页面
+        let resp0 = relay
+            .handle_reconnect(&ReconnectRequest { game_id: 1, last_tick_consumed: 0 })
+            .unwrap();
+        assert_eq!(resp0.total_ticks, 0);
+        assert_eq!(resp0.page_count, 0);
+        assert!(relay.reconnect_page(&resp0, 0).is_none());
+
+        // 全体掉线 → frozen → reconnect 拒绝
+        relay.on_disconnect(0);
+        relay.on_disconnect(1);
+        relay.on_full_disconnect(now);
+        let resp = relay.handle_reconnect(&ReconnectRequest { game_id: 1, last_tick_consumed: 0 });
+        assert!(resp.is_err(), "frozen game must reject reconnect");
+    }
+
+    #[test]
+    fn test_reconnect_resume_no_overlap() {
+        let mut relay = relay_2p();
+        let now = 1000;
+        // Finalize ticks 1..=100
+        for tick in 1u32..=100 {
+            relay.on_player_frame(&make_empty_frame(tick, 0, tick as u64), now + tick as u64);
+            let r = relay.on_player_frame(&make_empty_frame(tick, 1, tick as u64 + 100), now + tick as u64);
+            assert!(r.0.is_some());
+        }
+
+        // 第一次重连:从 tick 10 起,74 ticks → 3 页(32/32/10)
+        let resp1 = relay
+            .handle_reconnect(&ReconnectRequest { game_id: 1, last_tick_consumed: 10 })
+            .unwrap();
+        assert_eq!(resp1.first_tick, 11);
+        assert_eq!(resp1.total_ticks, 90);
+        assert_eq!(resp1.page_count, 3);
+        // 应用前 2 页(至 tick 74)→ 模拟已推进
+        let applied: Vec<u32> = relay
+            .reconnect_page(&resp1, 0)
+            .unwrap()
+            .ticks
+            .iter()
+            .chain(relay.reconnect_page(&resp1, 1).unwrap().ticks.iter())
+            .map(|b| b.tick)
+            .collect();
+        let last_applied = *applied.iter().max().unwrap();
+        assert_eq!(last_applied, 74);
+
+        // 再掉线,从 last_applied 续传:first_tick = 75,无重叠无缺口
+        let resp2 = relay
+            .handle_reconnect(&ReconnectRequest { game_id: 1, last_tick_consumed: last_applied })
+            .unwrap();
+        assert_eq!(resp2.first_tick, 75);
+        assert_eq!(resp2.total_ticks, 26); // 75..=100
+        assert_eq!(resp2.page_count, 1);
+        let page = relay.reconnect_page(&resp2, 0).unwrap();
+        assert_eq!(page.ticks.len(), 26);
+        assert_eq!(page.ticks[0].tick, 75);
+        assert_eq!(page.ticks[25].tick, 100);
     }
 
     #[test]
@@ -1013,7 +1264,7 @@ mod tests {
     }
 
     #[test]
-    fn test_apply_reconnect_loads_log_and_validates_version() {
+    fn test_apply_reconnect_metadata_then_pages() {
         let mut source = NetworkCommandSource::default();
         // 版本不匹配 → Err(D12)
         let resp_bad = ReconnectResponse {
@@ -1022,25 +1273,145 @@ mod tests {
             seed: 1,
             map_spec_hash: 0,
             first_tick: 1,
-            ticks: vec![],
+            total_ticks: 0,
+            page_count: 0,
             players: vec![],
         };
         assert!(source.apply_reconnect(&resp_bad, 1).is_err());
-        // 版本匹配 → 灌入 log + 更新身份
+
+        // 版本匹配,33 ticks → 2 页(32/1)
+        let first = 2u32;
+        let total = PAGE_TICKS + 1;
         let resp = ReconnectResponse {
             game_id: 1,
             ruleset_version: 1,
             seed: 42,
             map_spec_hash: 0,
-            first_tick: 2,
-            ticks: vec![make_tick(2, 0), make_tick(3, 1)],
+            first_tick: first,
+            total_ticks: total,
+            page_count: total.div_ceil(PAGE_TICKS),
             players: vec![],
         };
         source.apply_reconnect(&resp, 1).unwrap();
-        assert!(source.is_tick_ready(2));
-        assert!(source.is_tick_ready(3));
+        assert!(source.reconnect_meta.is_some());
         assert_eq!(source.game_id, 1);
         assert!(source.connected);
+        // 页面未应用前 tick 不可用
+        assert!(!source.is_tick_ready(first));
+
+        // 逐页应用(页内 tick 由 [lo, hi) 构成,与 D2 分桶一致)
+        for i in 0..resp.page_count {
+            let lo = first + i * PAGE_TICKS;
+            let hi = first + (i + 1) * PAGE_TICKS;
+            let ticks: Vec<TickCommands> = (lo..hi).map(|t| make_tick(t, 0)).collect();
+            let page = ReconnectPage {
+                page_index: i,
+                page_count: resp.page_count,
+                first_tick: lo,
+                ticks,
+            };
+            source.apply_reconnect_page(&page).unwrap();
+        }
+        // 末页后游标清除
+        assert!(source.reconnect_meta.is_none());
+        // 全部 tick 就绪
+        for t in first..(first + total) {
+            assert!(source.is_tick_ready(t));
+        }
+    }
+
+    #[test]
+    fn test_apply_reconnect_page_validation_rejects_stale() {
+        let mut source = NetworkCommandSource::default();
+        let meta = ReconnectResponse {
+            game_id: 1,
+            ruleset_version: 1,
+            seed: 42,
+            map_spec_hash: 0,
+            first_tick: 100,
+            total_ticks: PAGE_TICKS,
+            page_count: 1,
+            players: vec![],
+        };
+        source.apply_reconnect(&meta, 1).unwrap();
+
+        // 无元数据 → 拒绝
+        let mut orphan = NetworkCommandSource::default();
+        assert!(orphan.apply_reconnect_page(&ReconnectPage {
+            page_index: 0,
+            page_count: 1,
+            first_tick: 100,
+            ticks: vec![],
+        }).is_err());
+
+        // page_count 与元数据不符 → 拒绝(旧会话 stale 页)
+        assert!(source.apply_reconnect_page(&ReconnectPage {
+            page_index: 0,
+            page_count: 2,
+            first_tick: 100,
+            ticks: vec![],
+        }).is_err());
+
+        // page_index 越界 → 拒绝
+        assert!(source.apply_reconnect_page(&ReconnectPage {
+            page_index: 1,
+            page_count: 1,
+            first_tick: 100,
+            ticks: vec![],
+        }).is_err());
+
+        // 正常页 → 接受
+        let ok = ReconnectPage {
+            page_index: 0,
+            page_count: 1,
+            first_tick: 100,
+            ticks: (100..100 + PAGE_TICKS).map(|t| make_tick(t, 0)).collect(),
+        };
+        source.apply_reconnect_page(&ok).unwrap();
+        assert!(source.reconnect_meta.is_none());
+
+        // 末页后再来重复页 → 无元数据,拒绝
+        assert!(source.apply_reconnect_page(&ok).is_err());
+    }
+
+    #[test]
+    fn test_apply_reconnect_limited_clear_preserves_live_broadcast() {
+        let mut source = NetworkCommandSource::default();
+        // 重连前:陈旧 tick(1)+ 实时 broadcast tick(150,页面范围外)
+        source.relay_buffer.insert(1, make_tick(1, 0));
+        source.relay_buffer.insert(150, make_tick(150, 0));
+        let meta = ReconnectResponse {
+            game_id: 1,
+            ruleset_version: 1,
+            seed: 42,
+            map_spec_hash: 0,
+            first_tick: 100,
+            total_ticks: PAGE_TICKS,
+            page_count: 1,
+            players: vec![],
+        };
+        source.apply_reconnect(&meta, 1).unwrap();
+        // 陈旧项被清,实时项保留(D3 限定 clear)
+        assert!(!source.is_tick_ready(1));
+        assert!(source.is_tick_ready(150));
+        assert!(source.reconnect_meta.is_some());
+    }
+
+    #[test]
+    fn test_apply_reconnect_zero_ticks_completes_immediately() {
+        let mut source = NetworkCommandSource::default();
+        let meta = ReconnectResponse {
+            game_id: 1,
+            ruleset_version: 1,
+            seed: 42,
+            map_spec_hash: 0,
+            first_tick: 50,
+            total_ticks: 0,
+            page_count: 0,
+            players: vec![],
+        };
+        source.apply_reconnect(&meta, 1).unwrap();
+        assert!(source.reconnect_meta.is_none()); // 无页可拉,立即完成
     }
 }
 
