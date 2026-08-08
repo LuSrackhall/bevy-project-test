@@ -42,22 +42,21 @@ pub struct ReconnectResponse {
 
 ### driver 快速回放(driver.rs)(D5/W3)
 
-- 增 `catch_up: Option<u32>`(剩余待追平 tick 数)状态。
-- Scene B 重建后置位;每帧在 is_tick_ready 门控下批量执行 `min(剩余, BATCH)` 个 tick(复用 handle_seek 的批量 run_tick 逻辑,不把 clock 推到实时上限),直到 relay_buffer 耗尽/追平。
-- 追平后清 catch_up,恢复 20Hz 实时。
+- 增 `catch_up: bool` 状态;`reconnect_recovery_system` 在 `is_scene_b_reconnect(current_tick==0 && total_ticks>0)` 时置位。
+- 追赶帧:批量 seed accumulator(= CATCH_UP_BATCH×tick_dur)使 tick 循环每帧消费至多 500 tick;缓冲耗尽(is_tick_ready false)时清 catch_up 并复位 accumulator,恢复 20Hz 实时。
 
-### render_view lobby 过渡(W6)
+### render_view lobby 过渡(W6,实现简化)
 
-- `lobby_update_system` 增 `NetworkEvent::Reconnect` 分支:用 ReconnectResponse 的 seed + map_size 设置 `NetworkGameStart` → 转 Playing(与 GameStarted 同路径)。
-- `reset_game_system` 网络模式改用 `NetworkGameStart.map_size`(替代硬编码 Medium)。
-- **防重复重建**:仅在 LobbyPhase 处理 Reconnect 分支触发重建;Playing 期间的 Reconnect 事件留给 reconnect_recovery_system(Scene A)。
+- **GameStarted 增 map_size 字段**(比单独 ReconnectResponse 分支更简洁):lobby 收到 GameStarted(含重连补发)时用其 seed+map_size 设置 `NetworkGameStart` → 转 Playing。
+- `reset_game_system` 网络模式用 `NetworkGameStart.map_size`(替代硬编码 Medium),Scene B 重建地图与在线一致。
+- **防重复重建**:仅 LobbyPhase 处理 GameStarted/Reconnect 触发重建;Playing 期间的重连事件留给 reconnect_recovery_system(Scene A)。
 
 ### Scene A/B 判定(D3)
 
-- 重连响应到达时的状态:
-  - Playing(driver 运行)→ reconnect_recovery_system 处理(Scene A,现状)
-  - Lobby(全新)→ lobby 系统处理(Scene B,重建)
-- 边界:Playing 断在 tick0(世界存在)→ Scene A 不重建。
+- `is_scene_b_reconnect(current_tick, total_ticks) = current_tick == 0 && total_ticks > 0`。
+  - 全新进程(driver tick 0)+ 有日志 → Scene B:重建 + catch_up 快速回放
+  - Playing 断在 tick0(世界存在,current=0,无日志/小日志)→ Scene A:不重建
+  - 断点 > 0 → Scene A:累计器续放
 
 ### 宪法落地
 
