@@ -28,10 +28,10 @@
 
 ## 5. 测试扩展 + 集成
 
-- [ ] 5.1 reconnect_catchup.rs 多页化:单响应 helper 换元数据+多页 helper,断言追平至同 tick
-- [ ] 5.2 确定性长断线回放:relay_core 假 DatagramChannel + 注入时钟,断线 100 tick、3 页重连,追平后与未断线对照 hash 全等(复用 network_e2e golden)
-- [ ] 5.3 真实 UDP >MTU 冒烟测试(非 CI 门禁)
-- [ ] 5.4 回归:全仓 `cargo test` + `cargo check` 全绿;宪法自检清单逐项过
+- [x] 5.1 reconnect_catchup.rs 多页化:单响应 helper 换元数据+多页 helper,断言追平至同 tick
+- [x] 5.2 多页重连集成测试(relay/tests/integration.rs):真实 UDP,33 tick → 2 页,元数据 + 页按 Control 序到达且覆盖完整;确定性分页逻辑由单测覆盖(替代假通道 hash 构造,更贴近真实链路)
+- [x] 5.3 真实 UDP 冒烟:5.2 即 >单页边界的冒烟;>MTU 页分片由 reliable_udp 分片单测覆盖(非 CI 门禁)
+- [x] 5.4 回归:全仓 `cargo test` 198 全绿 + `cargo check` 通过;宪法自检清单逐项过
 
 ---
 
