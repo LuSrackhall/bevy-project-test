@@ -117,6 +117,7 @@ impl Plugin for RenderViewPlugin {
             .init_resource::<LocalPlayerIdentity>()
             .init_resource::<LobbyPlayerList>()
             .init_resource::<IsHost>()
+            .init_resource::<crate::debug_shape::RenderInterpolation>()
             .add_plugins(crate::ui::UiPlugin)
             .add_systems(Startup, crate::camera::setup_camera)
             .init_resource::<crate::unit_info_bar::UnitInfoBarSettings>();
@@ -212,6 +213,8 @@ impl Plugin for RenderViewPlugin {
                 crate::debug_shape::draw_debug_shapes_system,
                 crate::unit_info_bar::unit_info_bar_system,
             )
+                // 插值需要读 tick 后的 sim 位置:显式声明在 tick 之后,不依赖隐式排序
+                .after(bevy_adapter::SimulationTickSet)
                 .run_if(
                     in_state(GameState::Playing)
                         .and_then(not(resource_exists_and_equals(bevy_adapter::Paused(true))))
@@ -400,7 +403,10 @@ pub fn lobby_update_system(
                     });
                     if local_ready {
                         state.phase = LobbyPhase::Ready;
-                        return;
+                        // Do NOT return here: the relay broadcasts LobbyUpdate then
+                        // GameStarted back-to-back when the last player readies. Both
+                        // land in the same drain batch, and returning would drop the
+                        // GameStarted, leaving the client stuck in the lobby forever.
                     }
                 }
             }
@@ -452,9 +458,14 @@ fn reset_game_system(
     mut current_map_size: ResMut<bevy_adapter::CurrentMapSize>,
     mut recorder: ResMut<bevy_adapter::replay::ReplayRecorder>,
     mut network_start: ResMut<NetworkGameStart>,
+    mut render_interp: ResMut<crate::debug_shape::RenderInterpolation>,
     game_entities: Query<Entity, With<bevy_adapter::binding::LogicEntityRef>>,
 ) {
     paused.0 = false;
+    // 新局重建世界,清空渲染插值缓存,避免旧局 Entity 复用导致首帧残留插值
+    render_interp.prev.clear();
+    render_interp.cur.clear();
+    render_interp.last_tick = 0;
     game_active.0 = true;
     network_active.0 = false; // Network mode already active, disable lobby
 

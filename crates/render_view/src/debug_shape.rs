@@ -1,10 +1,46 @@
 use bevy::prelude::*;
-use bevy_adapter::tick::SimulationWorld;
+use bevy_adapter::tick::{SimulationWorld, TickClock};
 use simulation::combat::Arrow;
 use simulation::soldier::config::SoldierConfig;
 use simulation::soldier::*;
+use std::collections::HashMap;
 
-/// Render all simulation entities as colored circles using Gizmos.
+/// Per-entity interpolation state for smoothing 20Hz sim ticks to 60fps render.
+/// Maintained by `draw_debug_shapes_system` (no separate capture system — the
+/// draw pass already iterates the sim world every frame).
+///
+/// Standard one-tick-lag interpolation: `prev` holds positions at the start of
+/// the current inter-tick interval, `cur` holds positions at the interval end
+/// (captured last frame). At each tick boundary `prev`/`cur` are swapped.
+#[derive(Resource, Default)]
+pub struct RenderInterpolation {
+    /// Positions at the previous tick boundary (interval start).
+    pub prev: HashMap<Entity, Vec2>,
+    /// Positions at the current tick boundary (interval end), captured last frame.
+    pub cur: HashMap<Entity, Vec2>,
+    /// Tick whose positions are in `cur`.
+    pub last_tick: u32,
+}
+
+impl RenderInterpolation {
+    /// Advance the interval if a tick completed this frame: promote `cur` → `prev`.
+    fn advance(&mut self, current_tick: u32) {
+        if current_tick != self.last_tick {
+            std::mem::swap(&mut self.prev, &mut self.cur);
+            self.cur.clear();
+            self.last_tick = current_tick;
+        }
+    }
+
+    /// Interpolated draw position for one entity; records `current` for the
+    /// next tick boundary. Entities without a `prev` record fall back to `current`.
+    fn sample(&mut self, entity: Entity, current: Vec2, alpha: f32) -> Vec2 {
+        let prev_pos = self.prev.get(&entity).copied().unwrap_or(current);
+        let pos = prev_pos.lerp(current, alpha);
+        self.cur.insert(entity, current);
+        pos
+    }
+}
 
 fn is_player_faction(f: simulation::types::FactionId, lid: u8) -> bool {
     f == simulation::types::FactionId(lid)
@@ -17,12 +53,17 @@ fn faction_is_active_enemy(f: simulation::types::FactionId, lid: u8) -> bool {
 pub fn draw_debug_shapes_system(
     mut gizmos: Gizmos,
     sim_world: bevy::ecs::system::NonSend<SimulationWorld>,
+    tick_clock: Res<TickClock>,
+    mut interp: ResMut<RenderInterpolation>,
     q_windows: Query<&Window>,
     q_camera: Query<(&Camera, &GlobalTransform), With<crate::camera::MainCamera>>,
     q_proj: Query<&Projection, With<crate::camera::MainCamera>>,
 ) {
     let world = sim_world.world_ref();
     let lid = crate::local_player_id(&*sim_world);
+
+    interp.advance(tick_clock.current_tick);
+    let alpha = (tick_clock.accumulator / tick_clock.tick_duration).clamp(0.0, 1.0);
 
 
     // Compute viewport AABB for culling
@@ -44,14 +85,20 @@ pub fn draw_debug_shapes_system(
     // Draw cities
     {
         let mut q = sim_world.query::<(
+            Entity,
             &LogicalPosition,
             &CityRadius,
             &FactionComponent,
             &CityComponent,
         )>();
-        for (pos, radius, faction, _city) in q.iter(world) {
-            let px = pos.0.x.to_float();
-            let py = pos.0.y.to_float();
+        for (entity, pos, radius, faction, _city) in q.iter(world) {
+            let p = interp.sample(
+                entity,
+                Vec2::new(pos.0.x.to_float(), pos.0.y.to_float()),
+                alpha,
+            );
+            let px = p.x;
+            let py = p.y;
             if !in_view(px, py) { continue; }
                         let color = if is_player_faction(faction.0, lid) {
                 Color::srgb(0.2, 0.6, 1.0)
@@ -77,7 +124,11 @@ pub fn draw_debug_shapes_system(
             Option<&simulation::types::FacingDirection>,
         )>();
         for (entity, pos, faction, stype, facing) in q.iter(world) {
-            let p = Vec2::new(pos.0.x.to_float(), pos.0.y.to_float());
+            let p = interp.sample(
+                entity,
+                Vec2::new(pos.0.x.to_float(), pos.0.y.to_float()),
+                alpha,
+            );
             if !in_view(p.x, p.y) { continue; }
                         let color = if is_player_faction(faction.0, lid) {
                 Color::srgb(0.3, 0.5, 0.9)
@@ -139,9 +190,13 @@ pub fn draw_debug_shapes_system(
 
     // Draw arrows — bright yellow, with decay-phase alpha/shrink
     {
-        let mut q = sim_world.query::<(&LogicalPosition, &Arrow)>();
-        for (pos, arrow) in q.iter(world) {
-            let p = Vec2::new(pos.0.x.to_float(), pos.0.y.to_float());
+        let mut q = sim_world.query::<(Entity, &LogicalPosition, &Arrow)>();
+        for (entity, pos, arrow) in q.iter(world) {
+            let p = interp.sample(
+                entity,
+                Vec2::new(pos.0.x.to_float(), pos.0.y.to_float()),
+                alpha,
+            );
 
             // In decay phase: shrink and fade; in flight: full bright yellow
             let (radius, alpha) = if arrow.decay_remaining > 0 {
@@ -206,5 +261,127 @@ pub fn draw_dropped_shields_system(
         gizmos.line_2d(corners[1], corners[2], color);
         gizmos.line_2d(corners[2], corners[3], color);
         gizmos.line_2d(corners[3], corners[0], color);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_advance_swaps_cur_to_prev_on_new_tick() {
+        let e = Entity::from_raw_u32(1).unwrap();
+        let mut interp = RenderInterpolation {
+            cur: HashMap::from([(e, Vec2::new(10.0, 10.0))]),
+            last_tick: 5,
+            ..Default::default()
+        };
+        interp.advance(6);
+        assert_eq!(interp.prev.get(&e), Some(&Vec2::new(10.0, 10.0)));
+        assert!(interp.cur.is_empty(), "cur must be cleared after swap");
+        assert_eq!(interp.last_tick, 6);
+    }
+
+    #[test]
+    fn test_no_advance_without_tick() {
+        let e = Entity::from_raw_u32(1).unwrap();
+        let mut interp = RenderInterpolation {
+            prev: HashMap::from([(e, Vec2::new(1.0, 1.0))]),
+            cur: HashMap::from([(e, Vec2::new(2.0, 2.0))]),
+            last_tick: 5,
+        };
+        interp.advance(5);
+        assert_eq!(interp.prev.get(&e), Some(&Vec2::new(1.0, 1.0)));
+        assert_eq!(interp.cur.get(&e), Some(&Vec2::new(2.0, 2.0)));
+    }
+
+    #[test]
+    fn test_sample_lerps_between_prev_and_current() {
+        let e = Entity::from_raw_u32(1).unwrap();
+        let mut interp = RenderInterpolation {
+            prev: HashMap::from([(e, Vec2::new(0.0, 0.0))]),
+            ..Default::default()
+        };
+        let pos = interp.sample(e, Vec2::new(100.0, 0.0), 0.5);
+        assert_eq!(pos, Vec2::new(50.0, 0.0));
+        // current recorded for the next tick boundary
+        assert_eq!(interp.cur.get(&e), Some(&Vec2::new(100.0, 0.0)));
+    }
+
+    #[test]
+    fn test_sample_new_entity_falls_back_to_current() {
+        let e = Entity::from_raw_u32(1).unwrap();
+        let mut interp = RenderInterpolation::default();
+        let pos = interp.sample(e, Vec2::new(7.0, 9.0), 0.5);
+        assert_eq!(pos, Vec2::new(7.0, 9.0), "no prev record → render at current");
+        assert_eq!(interp.cur.get(&e), Some(&Vec2::new(7.0, 9.0)));
+    }
+
+    #[test]
+    fn test_sample_alpha_zero_returns_prev() {
+        let e = Entity::from_raw_u32(1).unwrap();
+        let mut interp = RenderInterpolation {
+            prev: HashMap::from([(e, Vec2::new(10.0, 10.0))]),
+            ..Default::default()
+        };
+        // Right after a tick alpha≈0 → must stay at the previous interval's end.
+        assert_eq!(interp.sample(e, Vec2::new(20.0, 20.0), 0.0), Vec2::new(10.0, 10.0));
+    }
+
+    #[test]
+    fn test_sample_alpha_one_returns_current() {
+        let e = Entity::from_raw_u32(1).unwrap();
+        let mut interp = RenderInterpolation {
+            prev: HashMap::from([(e, Vec2::new(10.0, 10.0))]),
+            ..Default::default()
+        };
+        // Just before the next tick alpha→1 → must reach the current position.
+        assert_eq!(interp.sample(e, Vec2::new(20.0, 20.0), 1.0), Vec2::new(20.0, 20.0));
+    }
+
+    #[test]
+    fn test_sequence_tick_frame_then_glide() {
+        // The full one-tick-lag cycle the fix implements:
+        //   cur={e:P0} at tick 1 → tick 2 completes → advance swaps cur→prev,
+        //   sample renders ≈P0 (alpha 0), then glides toward P1 over the interval.
+        let e = Entity::from_raw_u32(1).unwrap();
+        let mut interp = RenderInterpolation {
+            cur: HashMap::from([(e, Vec2::new(0.0, 0.0))]),
+            last_tick: 1,
+            ..Default::default()
+        };
+        // Frame 3: tick 2 completes.
+        interp.advance(2);
+        assert_eq!(interp.prev.get(&e), Some(&Vec2::new(0.0, 0.0)));
+        assert!(interp.cur.is_empty());
+        // Tick frame: alpha≈0 → renders previous interval's end (continuous, no jump).
+        assert_eq!(interp.sample(e, Vec2::new(100.0, 0.0), 0.0), Vec2::new(0.0, 0.0));
+        assert_eq!(interp.cur.get(&e), Some(&Vec2::new(100.0, 0.0)));
+        // Frames 4-5: no tick, alpha ramps → glides from P0 toward P1.
+        assert_eq!(interp.sample(e, Vec2::new(100.0, 0.0), 0.5), Vec2::new(50.0, 0.0));
+        assert_eq!(interp.sample(e, Vec2::new(100.0, 0.0), 1.0), Vec2::new(100.0, 0.0));
+        // prev must remain stable across the interval (not clobbered by samples).
+        assert_eq!(interp.prev.get(&e), Some(&Vec2::new(0.0, 0.0)));
+    }
+
+    #[test]
+    fn test_no_tick_prev_stable_across_frames() {
+        let e = Entity::from_raw_u32(1).unwrap();
+        let mut interp = RenderInterpolation {
+            prev: HashMap::from([(e, Vec2::new(0.0, 0.0))]),
+            cur: HashMap::from([(e, Vec2::new(100.0, 0.0))]),
+            last_tick: 3,
+        };
+        interp.advance(3); // same tick → no swap
+        assert_eq!(interp.prev.get(&e), Some(&Vec2::new(0.0, 0.0)));
+        for i in 1..5 {
+            let a = i as f32 / 5.0;
+            interp.sample(e, Vec2::new(100.0, 0.0), a);
+            assert_eq!(
+                interp.prev.get(&e),
+                Some(&Vec2::new(0.0, 0.0)),
+                "prev must not be clobbered within an interval"
+            );
+        }
     }
 }
