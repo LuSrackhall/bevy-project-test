@@ -117,6 +117,7 @@ impl Plugin for RenderViewPlugin {
             .init_resource::<LocalPlayerIdentity>()
             .init_resource::<LobbyPlayerList>()
             .init_resource::<IsHost>()
+            .init_resource::<crate::debug_shape::RenderInterpolation>()
             .add_plugins(crate::ui::UiPlugin)
             .add_systems(Startup, crate::camera::setup_camera)
             .init_resource::<crate::unit_info_bar::UnitInfoBarSettings>();
