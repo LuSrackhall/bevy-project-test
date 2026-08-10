@@ -213,6 +213,8 @@ impl Plugin for RenderViewPlugin {
                 crate::debug_shape::draw_debug_shapes_system,
                 crate::unit_info_bar::unit_info_bar_system,
             )
+                // 插值需要读 tick 后的 sim 位置:显式声明在 tick 之后,不依赖隐式排序
+                .after(bevy_adapter::SimulationTickSet)
                 .run_if(
                     in_state(GameState::Playing)
                         .and_then(not(resource_exists_and_equals(bevy_adapter::Paused(true))))
