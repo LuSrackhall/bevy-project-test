@@ -61,6 +61,12 @@ fn test_game_started_same_batch_as_ready_lobby_update_is_not_dropped() {
          client is stuck in the lobby forever (无法开局)"
     );
     assert_eq!(ns.seed, 42);
+
+    // The user-visible symptom is staying in the lobby: assert the state actually
+    // transitions to Playing (NextState applied on the following frame).
+    app.update();
+    let state = app.world().resource::<bevy::state::state::State<GameState>>();
+    assert_eq!(state.get(), &GameState::Playing, "lobby must transition to Playing");
 }
 
 #[test]

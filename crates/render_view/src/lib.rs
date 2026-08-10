@@ -456,9 +456,14 @@ fn reset_game_system(
     mut current_map_size: ResMut<bevy_adapter::CurrentMapSize>,
     mut recorder: ResMut<bevy_adapter::replay::ReplayRecorder>,
     mut network_start: ResMut<NetworkGameStart>,
+    mut render_interp: ResMut<crate::debug_shape::RenderInterpolation>,
     game_entities: Query<Entity, With<bevy_adapter::binding::LogicEntityRef>>,
 ) {
     paused.0 = false;
+    // 新局重建世界,清空渲染插值缓存,避免旧局 Entity 复用导致首帧残留插值
+    render_interp.prev.clear();
+    render_interp.cur.clear();
+    render_interp.last_tick = 0;
     game_active.0 = true;
     network_active.0 = false; // Network mode already active, disable lobby
 

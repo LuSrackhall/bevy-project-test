@@ -316,4 +316,72 @@ mod tests {
         assert_eq!(pos, Vec2::new(7.0, 9.0), "no prev record → render at current");
         assert_eq!(interp.cur.get(&e), Some(&Vec2::new(7.0, 9.0)));
     }
+
+    #[test]
+    fn test_sample_alpha_zero_returns_prev() {
+        let e = Entity::from_raw_u32(1).unwrap();
+        let mut interp = RenderInterpolation {
+            prev: HashMap::from([(e, Vec2::new(10.0, 10.0))]),
+            ..Default::default()
+        };
+        // Right after a tick alpha≈0 → must stay at the previous interval's end.
+        assert_eq!(interp.sample(e, Vec2::new(20.0, 20.0), 0.0), Vec2::new(10.0, 10.0));
+    }
+
+    #[test]
+    fn test_sample_alpha_one_returns_current() {
+        let e = Entity::from_raw_u32(1).unwrap();
+        let mut interp = RenderInterpolation {
+            prev: HashMap::from([(e, Vec2::new(10.0, 10.0))]),
+            ..Default::default()
+        };
+        // Just before the next tick alpha→1 → must reach the current position.
+        assert_eq!(interp.sample(e, Vec2::new(20.0, 20.0), 1.0), Vec2::new(20.0, 20.0));
+    }
+
+    #[test]
+    fn test_sequence_tick_frame_then_glide() {
+        // The full one-tick-lag cycle the fix implements:
+        //   cur={e:P0} at tick 1 → tick 2 completes → advance swaps cur→prev,
+        //   sample renders ≈P0 (alpha 0), then glides toward P1 over the interval.
+        let e = Entity::from_raw_u32(1).unwrap();
+        let mut interp = RenderInterpolation {
+            cur: HashMap::from([(e, Vec2::new(0.0, 0.0))]),
+            last_tick: 1,
+            ..Default::default()
+        };
+        // Frame 3: tick 2 completes.
+        interp.advance(2);
+        assert_eq!(interp.prev.get(&e), Some(&Vec2::new(0.0, 0.0)));
+        assert!(interp.cur.is_empty());
+        // Tick frame: alpha≈0 → renders previous interval's end (continuous, no jump).
+        assert_eq!(interp.sample(e, Vec2::new(100.0, 0.0), 0.0), Vec2::new(0.0, 0.0));
+        assert_eq!(interp.cur.get(&e), Some(&Vec2::new(100.0, 0.0)));
+        // Frames 4-5: no tick, alpha ramps → glides from P0 toward P1.
+        assert_eq!(interp.sample(e, Vec2::new(100.0, 0.0), 0.5), Vec2::new(50.0, 0.0));
+        assert_eq!(interp.sample(e, Vec2::new(100.0, 0.0), 1.0), Vec2::new(100.0, 0.0));
+        // prev must remain stable across the interval (not clobbered by samples).
+        assert_eq!(interp.prev.get(&e), Some(&Vec2::new(0.0, 0.0)));
+    }
+
+    #[test]
+    fn test_no_tick_prev_stable_across_frames() {
+        let e = Entity::from_raw_u32(1).unwrap();
+        let mut interp = RenderInterpolation {
+            prev: HashMap::from([(e, Vec2::new(0.0, 0.0))]),
+            cur: HashMap::from([(e, Vec2::new(100.0, 0.0))]),
+            last_tick: 3,
+        };
+        interp.advance(3); // same tick → no swap
+        assert_eq!(interp.prev.get(&e), Some(&Vec2::new(0.0, 0.0)));
+        for i in 1..5 {
+            let a = i as f32 / 5.0;
+            interp.sample(e, Vec2::new(100.0, 0.0), a);
+            assert_eq!(
+                interp.prev.get(&e),
+                Some(&Vec2::new(0.0, 0.0)),
+                "prev must not be clobbered within an interval"
+            );
+        }
+    }
 }

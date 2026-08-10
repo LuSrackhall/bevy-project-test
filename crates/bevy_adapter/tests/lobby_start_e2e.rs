@@ -1,12 +1,15 @@
-//! E2E: two clients through the REAL client transport (spawn_network_client_nonblocking
-//! → udp_session → reliable UDP) must reach GameStarted via BOTH start paths:
+//! E2E (transport-level): two clients through the REAL client transport
+//! (spawn_network_client_nonblocking → udp_session → reliable UDP) must reach
+//! GameStarted via BOTH relay start paths:
 //!   A. auto-start: both clients uplink PlayerTick frames while in the lobby
 //!      (the relay's on_player_frame flips game_started when all seats connect);
 //!   B. ready-path: both clients signal LobbyReady (relay broadcasts GameStarted
 //!      on all-ready).
 //!
-//! If either path fails to deliver GameStarted, the render_view lobby can never
-//! leave Lobby — the "无法开局" symptom.
+//! NOTE: this is a transport smoke test — it does NOT instantiate render_view's
+//! lobby_update_system (that system's same-batch GameStarted drop is covered by
+//! crates/render_view/tests/lobby_system.rs). Its purpose is to anchor the
+//! relay→transport delivery contract both paths depend on.
 
 use std::net::TcpListener;
 use std::thread;
