@@ -400,7 +400,10 @@ pub fn lobby_update_system(
                     });
                     if local_ready {
                         state.phase = LobbyPhase::Ready;
-                        return;
+                        // Do NOT return here: the relay broadcasts LobbyUpdate then
+                        // GameStarted back-to-back when the last player readies. Both
+                        // land in the same drain batch, and returning would drop the
+                        // GameStarted, leaving the client stuck in the lobby forever.
                     }
                 }
             }
