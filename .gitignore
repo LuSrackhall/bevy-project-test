@@ -4,3 +4,9 @@ dist/
 .worktrees/
 .DS_Store
 replays/
+
+# 临时/草稿文件:任何 agent 的 tmp 目录都不应入库
+.claude/tmp/
+.agents/tmp/
+*.orig
+*.rej
