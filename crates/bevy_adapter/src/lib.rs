@@ -8,6 +8,9 @@ pub mod mapper;
 pub mod network;
 pub mod relay_core;
 pub mod reliable_udp;
+/// 运行时可观测（BRP）：仅在 `remote` feature 下编译，见 `remote.rs` 的模块文档。
+#[cfg(feature = "remote")]
+pub mod remote;
 pub mod replay;
 pub mod session;
 pub mod session_host;

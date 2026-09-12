@@ -7,6 +7,14 @@ name = "city-conquest"
 version = "0.3.3"
 edition = "2021"
 
+[features]
+default = []
+# 运行时可观测：Bevy Remote Protocol（BRP），供 agent 用 JSON-RPC 查询运行中的客户端。
+# 宪法 §21.1：属 debug/editor 类能力，仅 render_view/presentation/bevy_adapter 层感知。
+# 注意：simulation 组件不派生 Reflect（§1.4 白名单），因此仿真状态由适配层以
+# 自定义 BRP 方法暴露，而不是依赖 BRP 内置的 world.query。
+remote = ["bevy/bevy_remote", "bevy_adapter/remote"]
+
 [dependencies]
 bevy = "0.19"
 icu_provider = { version = "2", features = ["logging"] }

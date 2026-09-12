@@ -6,6 +6,9 @@ edition = "2021"
 [features]
 default = []
 tracing = ["dep:tracing", "dep:tracing-tracy", "dep:tracing-subscriber"]
+# 运行时可观测：Bevy Remote Protocol（BRP）。
+# 宪法 §21.1：属 debug/editor 类能力，仅适配层与渲染层感知，simulation 永不感知。
+remote = ["bevy/bevy_remote", "dep:serde_json"]
 
 [dependencies]
 simulation = { path = "../simulation" }
@@ -17,6 +20,8 @@ async-trait = "0.1"
 tracing = { version = "0.1", optional = true }
 tracing-tracy = { version = "0.11", optional = true }
 tracing-subscriber = { version = "0.3", optional = true, features = ["registry"] }
+# 仅在 remote feature 下需要：BRP 探针的 JSON 序列化
+serde_json = { version = "1", optional = true }
 
 [dev-dependencies]
 relay = { path = "../relay" }

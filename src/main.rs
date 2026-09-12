@@ -36,6 +36,15 @@ fn main() {
         .insert_non_send(SimulationWorld::new(simulation::init_simulation_world(0)))
         .add_plugins((BevyAdapterPlugin, PresentationPlugin, RenderViewPlugin));
 
+    // 运行时可观测（P0.4）：`--features remote` 时开放 BRP。
+    // agent 可用 JSON-RPC 查询运行中的仿真状态（`city_conquest/probe`），
+    // 也可调用官方内置方法（world.query / world.trigger_event / Screenshot）做 UI 验收。
+    #[cfg(feature = "remote")]
+    app.add_plugins((
+        bevy_adapter::remote::plugin(),
+        bevy::remote::http::RemoteHttpPlugin::default(),
+    ));
+
     // CLI args for network mode (Phase 1 testing)
     let args: Vec<String> = std::env::args().collect();
     if let Some(pos) = args.iter().position(|a| a == "--relay") {

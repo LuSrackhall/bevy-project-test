@@ -122,3 +122,10 @@ jobs:
       - name: Constitution — hash_world_state coverage
         if: runner.os == 'Linux'
         run: python3 scripts/check-hash-coverage.py
+
+      - name: Runtime observability — BRP probe (feature-gated)
+        if: runner.os == 'Linux'
+        run: |
+          echo "Checking the feature-gated runtime observability path (ADR 0012)..."
+          cargo clippy -p bevy_adapter --features remote --all-targets -- -D warnings
+          cargo test -p bevy_adapter --features remote --lib remote::
