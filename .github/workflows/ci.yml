@@ -100,6 +100,13 @@ jobs:
           cargo run -p sim-cli -- scenario --seed 42 --map small --ticks 500 \
             --repeat 2 --record /tmp/golden-scenario.ron --json
 
+      - name: Machine acceptance — AI self-play must reach a decision
+        if: runner.os == 'Linux'
+        run: |
+          echo "Requiring the AI to actually prosecute an offensive (symmetric self-play)..."
+          cargo run -p sim-cli -- selfplay --seed 42 --map small --ticks 4000 \
+            --symmetric --require-decided
+
       - name: Constitution — dependency topology
         if: runner.os == 'Linux'
         run: |

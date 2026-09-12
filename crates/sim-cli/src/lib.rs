@@ -89,6 +89,8 @@ pub struct SelfPlayArgs {
     pub map: MapSize,
     pub ticks: u32,
     pub players: u8,
+    /// 所有槽位都由 AI 控制（真·对称自对弈）；否则 faction 0 被动、其余为 AI。
+    pub symmetric: bool,
     pub require_decided: bool,
     pub json: bool,
     pub quiet: bool,
@@ -266,6 +268,7 @@ fn parse_selfplay(rest: &[String]) -> Result<SelfPlayArgs, CliError> {
         map: map_of(&flags, "map", MapSize::Small)?,
         ticks: num(&flags, "ticks", 6000u32)?,
         players,
+        symmetric: bool_of(&flags, "symmetric", false)?,
         require_decided: bool_of(&flags, "require-decided", false)?,
         json: bool_of(&flags, "json", false)?,
         quiet: bool_of(&flags, "quiet", false)?,
@@ -709,18 +712,19 @@ fn run_replay(args: &ReplayArgs) -> Result<Outcome, CliError> {
 
 /// 构建 AI 对被动玩家的槽位：faction 0 为人类（不产生命令），其余为 AI。
 ///
-/// 限制（如实暴露，不掩盖）：当前 `simulation::ai::ai_decide_for_faction`
-/// 把对手硬编码为 `FactionId(0)`，因此真正的**对称** AI 自对弈尚不可用；
-/// 本子命令跑的是"AI 进攻被动方"，其价值在于：完整对局可无头跑到决出胜负、
-/// 全程确定性、可产出黄金哈希。对称自对弈需要单独改造 AI（见 ADR 待办）。
-fn ai_vs_passive_slots(players: u8) -> PlayerSlots {
+/// 构建 selfplay 的槽位配置。
+///
+/// - `symmetric = true`：全部槽位由 AI 控制 → **真·对称自对弈**
+///   （依赖 `simulation::ai` 已泛化敌方选择，不再硬编码 `FactionId(0)`）。
+/// - `symmetric = false`：faction 0 为被动人类（不产生命令），其余为 AI。
+fn selfplay_slots(players: u8, symmetric: bool) -> PlayerSlots {
     let slots = (0..players)
         .map(|i| PlayerSlot {
             slot_id: SlotId(i),
-            controller: if i == 0 {
-                Controller::HumanLocal
-            } else {
+            controller: if symmetric || i > 0 {
                 Controller::AI(AiProfile::default())
+            } else {
+                Controller::HumanLocal
             },
             faction: FactionId(i),
             team: TeamId(i),
@@ -735,7 +739,7 @@ fn run_selfplay(args: &SelfPlayArgs) -> Result<Outcome, CliError> {
         args.map,
         args.ticks,
         true,
-        Some(ai_vs_passive_slots(args.players)),
+        Some(selfplay_slots(args.players, args.symmetric)),
         false,
     );
     let winner = decided_winner(&result.counts);
@@ -750,16 +754,22 @@ fn run_selfplay(args: &SelfPlayArgs) -> Result<Outcome, CliError> {
     }
     let ok = failures.is_empty();
 
+    let ai_factions: Vec<u8> = if args.symmetric {
+        (0..args.players).collect()
+    } else {
+        (1..args.players).collect()
+    };
+    let passive_factions: Vec<u8> = if args.symmetric { vec![] } else { vec![0] };
+
     let json = json!({
         "subcommand": "selfplay",
         "seed": args.seed,
         "map": format!("{:?}", args.map).to_lowercase(),
         "max_ticks": args.ticks,
         "players": args.players,
-        "ai_factions": (1..args.players).collect::<Vec<u8>>(),
-        "passive_factions": [0u8],
-        "symmetric": false,
-        "limitation": "AI 将对手硬编码为 FactionId(0)，对称 AI 自对弈需先改造 simulation::ai",
+        "symmetric": args.symmetric,
+        "ai_factions": ai_factions,
+        "passive_factions": passive_factions,
         "decided_winner": winner,
         "final_hash": result.final_hash,
         "factions": factions_json(&result.counts),
@@ -772,8 +782,8 @@ fn run_selfplay(args: &SelfPlayArgs) -> Result<Outcome, CliError> {
     if !args.quiet {
         let _ = writeln!(
             text,
-            "selfplay seed={} map={:?} max_ticks={} players={} (AI factions 1..{})",
-            args.seed, args.map, args.ticks, args.players, args.players
+            "selfplay seed={} map={:?} max_ticks={} players={} symmetric={}",
+            args.seed, args.map, args.ticks, args.players, args.symmetric
         );
         let _ = writeln!(text, "  final_hash   = {}", result.final_hash);
         let _ = writeln!(text, "  factions     = {}", factions_text(&result.counts));
@@ -786,10 +796,12 @@ fn run_selfplay(args: &SelfPlayArgs) -> Result<Outcome, CliError> {
                 |w| format!("faction {w}")
             )
         );
-        let _ = writeln!(
-            text,
-            "  note         = 非对称：AI 只进攻被动方 faction 0（当前 AI 的既有约束）"
-        );
+        if !args.symmetric {
+            let _ = writeln!(
+                text,
+                "  note         = 非对称：faction 0 被动，AI 控制其余槽位"
+            );
+        }
         for f in &failures {
             let _ = writeln!(text, "  FAIL: {f}");
         }
@@ -819,7 +831,7 @@ sim-cli —— simulation 的无头验证入口（agent 原生闭环）
   sim-cli replay <file.ron> [--no-ai] [--expect-final-hash H] [--json]
 
   sim-cli selfplay [--seed N] [--map SIZE] [--ticks N] [--players N]
-                   [--require-decided] [--json] [--quiet]
+                   [--symmetric] [--require-decided] [--json] [--quiet]
 
 说明：
   scenario  跑 seed+map+ticks 的确定性仿真。默认 repeat=2（内置确定性门），
@@ -827,7 +839,8 @@ sim-cli —— simulation 的无头验证入口（agent 原生闭环）
             可用 --require-decided 断言对局在 tick 上限内决出胜负。
   replay    重放回放文件，逐 20 tick（DESYNC_CHECK_INTERVAL）比对已记录哈希。
             格式版本不兼容时快速失败（宪法 §20.2）。
-  selfplay  AI 对被动方跑到 tick 上限，报告胜负、阵营统计与终态哈希。
+  selfplay  AI 对被动方（--symmetric 时为 AI 对 AI 的对称自对弈）跑到 tick 上限，
+            报告胜负、阵营统计与终态哈希。
 
 退出码：0 通过 / 1 验证失败 / 2 用法、IO 或格式错误。
 ";

@@ -58,22 +58,46 @@
 - `hash_world_state` 覆盖补齐后**黄金哈希值改变**（`6342140384826867723` →
   `16188193490060276267`）：所有以旧哈希为准的记录（含仓库内 v2 回放的
   `tick_hashes`）永久失效。上文的实测已证明它们此前就已失效。
+- 随后 AI 进攻逻辑修复（见下文「后续修订」）再次改变行为，当前黄金哈希为
+  `3052343124539132435`。
 - `sim-cli` 引入一个新依赖（`serde_json`）与一个新的独立二进制；按 §21
   属「独立二进制」类，不进入 `simulation` 依赖图，也不新增 feature flag。
-- `selfplay` **不是对称自对弈**：`simulation::ai::ai_decide_for_faction`
-  把对手硬编码为 `FactionId(0)`（见 `crates/simulation/src/ai/mod.rs`），
-  因此当前只能跑「AI 进攻被动方」。CLI 在 JSON 中以 `symmetric: false`
-  与 `limitation` 字段如实暴露该限制。
 - `too_many_arguments` 的三处（`RelayServer::new`、`udp_session`、
   `lobby_update_system`、`update_room_list`）以显式 `#[allow]` + 说明豁免，
   未做参数结构体重构。
+
+## 后续修订（同日）
+
+本 ADR 初稿把 `selfplay` 记为「非对称，AI 无法自对弈」。随后在实现 P0 的
+「AI 自对弈」验收门时发现根因并修复，故 `limitation` 字段已删除：
+
+- **AI 死锁（行为缺陷）**：扩张/进攻的门槛是「目标城附近已有己方士兵」
+  （`ai_nearby > 0`），而士兵初始都待在本城 → 第一波永远派不出去。
+  实测（seed=42, Small）：修复前 4000 与 12000 tick 下 `spawned` 恒为 60、
+  `destroyed/captured/damage` 恒为 0，世界在初始产兵后彻底冻结；
+  修复后 4000 tick 内 `destroyed=173 captured=8`，AI 全取 6 城。
+- **敌方选择泛化**：从硬编码 `FactionId(0)` 改为「所有非己方、非中立阵营」，
+  使 AI 之间可互相对抗（对称自对弈）。
+- **忙碌判定修正**：AI 原先用 `mov.target.is_some()` 判断士兵已派遣，但
+  `MoveTo` 设置的是 `waypoint`（见 `soldier::apply_movement`）→ 正在行军的
+  士兵被误判为空闲，每 40 tick 重复下发同一命令。改为
+  `target.is_some() || waypoint.is_some()`。
+- **阵营标识修正**：低血城池换兵种分支硬编码 `player_id: 1`，导致非 faction 1
+  的 AI（例如对称自对弈中的 faction 0）命令会被 `validate_commands` 拒绝。
+
+由此 `selfplay --symmetric` 成为真正的对称自对弈，并新增三条机器门禁：
+`ai_prosecutes_offensive_within_budget`、`symmetric_selfplay_reaches_decision`、
+`selfplay_is_deterministic`，以及 CI 步骤
+`Machine acceptance — AI self-play must reach a decision`。
 
 ## 修改条件
 
 满足以下任一条件时应重新评估本决策：
 
-1. AI 改造为「以最近敌方阵营为目标」后，`selfplay` 升级为真正的对称自对弈，
-   届时「AI 自对弈策略质量」可作为新的机器验收门（本 ADR 的 `limitation` 字段删除）。
+1. ~~AI 改造为「以最近敌方阵营为目标」后…~~ **已满足**（见「后续修订」）：
+   对称自对弈的**存在性**已可作门禁。下一步若要把「AI 策略质量」也纳入门禁
+   （例如要求胜者在合理 tick 内决出、或对局不得退化为互不接触），需先定义
+   可机器判定的策略指标。
 2. 引入 `bevy_remote`（BRP）运行时可观测后（P0.4），
    `sim-cli` 的职责边界需重新划分：静态/回放验证留在 CLI，
    运行时状态断言移交 BRP，避免两套入口语义重叠。
