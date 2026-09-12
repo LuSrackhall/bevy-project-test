@@ -72,9 +72,12 @@ Implement tasks from an OpenSpec change. Wraps OpenSpec's apply workflow with au
    - [x] Task group 2: ...
    ```
 
-   Then prompt: **"All tasks complete. Run myspec-verify skill to verify implementation and get user acceptance."**
+   Then prompt: **"All tasks complete. Run myspec-verify skill to run the machine acceptance gate."**
 
-   **Do NOT** run build, test, merge, archive, or any other post-implementation action.
+   **Self-check as you go**: after each task group, run the relevant fast checks yourself
+   (e.g. `cargo test -p simulation`, and `cargo fmt --all` / `cargo clippy -- -D warnings`
+   if you touched Rust). Do NOT merge or archive — those belong to myspec-merge, and the
+   authoritative acceptance gate is myspec-verify.
 
 ## Guardrails
 
