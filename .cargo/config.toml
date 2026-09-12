@@ -1,10 +1,12 @@
 [build]
-# 所有 worktree 共享同一 target 目录,避免每个工作树重复编译/重复占用磁盘。
+# 构建缓存刻意留在工作区之外(仍在 SSD980 上):
+#   1. 所有 worktree 共享同一 target 目录,避免每个工作树重复编译/重复占用磁盘;
+#   2. 6 万+ 构建产物不会淹没 git status / IDE 索引 / ripgrep 等文件级工具。
 # 注意:Cargo 1.95 不对该路径做 $HOME/$CARGO_HOME 展开,只能写绝对路径。
 # 换机器/其他开发者需自行覆盖 CARGO_TARGET_DIR(见 CI workflow env)。
-# 2026-09-11 迁移:项目已由系统盘 ~/Desktop/资源管理器/safe/bevy-test 迁至 SSD980,
-# 原 ~/.cache/bevy-test-target(29G)已删除,缓存改在 SSD 上重建。
-target-dir = "/Volumes/SSD980/dsh-safe/bevy-test/target"
+# 2026-09-11:项目由系统盘迁至 SSD980,原 ~/.cache/bevy-test-target(29G)已删除。
+# 2026-09-13:缓存由仓内 target/ 移出至同盘独立目录(原地 mv,缓存内容保留)。
+target-dir = "/Volumes/SSD980/bevy-cache/target"
 
 [target.wasm32-unknown-unknown]
 rustflags = ['--cfg', 'getrandom_backend="wasm_js"', '-Ctarget-feature=+atomics']
