@@ -37,6 +37,13 @@ bevy_adapter = { path = "crates/bevy_adapter" }
 presentation = { path = "crates/presentation" }
 render_view = { path = "crates/render_view" }
 
+# ── 本地迭代提速（勿用于 CI/发布）──
+#   cargo run --features bevy/dynamic_linking -- --windowed
+# 官方称这是最有效的编译时间优化。本机实测（改 render_view 一行后重建客户端）：
+#   静态链接 4.60s → dynamic_linking 0.99–1.55s（约 3–4.6×）
+# 代价：冷编译略慢（415.0s → 425.6s），另需 target/debug/libbevy_dylib.dylib（157M）。
+# 发布构建必须关闭：需随包分发 dylib、阻碍优化、增大体积。
+# Bevy 官方另提示：开启后 `cargo test --doc` 需把 `rustc --print target-libdir` 加入 PATH。
 [profile.dev]
 opt-level = 1
 
