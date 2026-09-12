@@ -93,15 +93,15 @@ fn test_beacon_bind_to_9876_conflicts_with_listener() {
     let _guard = PORT_9876.lock().unwrap();
     // A socket holds 0.0.0.0:9876 synchronously (simulating the browsing
     // listener, whose bind is async in a thread — avoid that race here).
-    let _holder = UdpSocket::bind("0.0.0.0:9876").expect("holder binds 9876");
+    let _holder = UdpSocket::bind("127.0.0.1:9876").expect("holder binds 9876");
     // A second bind to 0.0.0.0:9876 (the OLD beacon path) must fail.
-    let err = UdpSocket::bind("0.0.0.0:9876");
+    let err = UdpSocket::bind("127.0.0.1:9876");
     assert!(
         err.is_err(),
         "old beacon bind to 9876 must conflict with the browsing listener (EADDRINUSE)"
     );
     // Sanity: an ephemeral bind (the fix) succeeds while 9876 is held.
-    let fixed = UdpSocket::bind("0.0.0.0:0").expect("ephemeral beacon bind succeeds");
+    let fixed = UdpSocket::bind("127.0.0.1:0").expect("ephemeral beacon bind succeeds");
     assert!(fixed.set_broadcast(true).is_ok());
 }
 
@@ -110,6 +110,10 @@ fn test_beacon_bind_to_9876_conflicts_with_listener() {
 #[test]
 fn test_beacon_reaches_listener_while_browsing() {
     let _guard = PORT_9876.lock().unwrap();
+    // 本测试会绑定真实 socket（监听器 + host 中继/beacon），必须显式走回环：
+    // 否则每次重新编译（测试二进制哈希变化）都会重新触发操作系统防火墙的
+    // "是否允许接受传入网络连接"询问。
+    bevy_adapter::lan::use_loopback_bindings_for_tests();
     // Browsing listener holds 9876 (the scenario that disabled the old beacon).
     let listener = LanDiscoveryListener::start_on(9876);
 
@@ -133,7 +137,8 @@ fn test_beacon_source_port_is_not_9876() {
     // A raw socket on 9876 (not the production listener, so we can read the
     // source port) captures the beacon. This only works once the beacon binds
     // an ephemeral port — before the fix it failed to bind at all.
-    let probe = UdpSocket::bind("0.0.0.0:9876").expect("probe binds 9876");
+    bevy_adapter::lan::use_loopback_bindings_for_tests();
+    let probe = UdpSocket::bind("127.0.0.1:9876").expect("probe binds 9876");
     probe
         .set_read_timeout(Some(Duration::from_secs(2)))
         .unwrap();

@@ -35,6 +35,7 @@ fn spawn_relay(port: u16, seed: u64, players: u8, relay_id: RelayId) -> thread::
                 .enable_time()
                 .build()
                 .expect("relay tokio runtime");
+            relay::set_discovery_scope(relay::DiscoveryScope::Loopback);
             rt.block_on(relay::start_relay(port, seed, players, Some(relay_id)))
                 .expect("relay server")
         })

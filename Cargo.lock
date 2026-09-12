@@ -419,6 +419,7 @@ dependencies = [
  "serde",
  "serde_json",
  "simulation",
+ "socket2",
  "tokio",
  "tracing",
  "tracing-subscriber",

@@ -18,6 +18,28 @@ use simulation::command::CommandBuffer;
 use std::collections::VecDeque;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
+
+/// 绑定**双栈** UDP socket（同时接受 IPv6 与 IPv4-mapped 客户端）。
+///
+/// 为什么需要显式处理：`IPV6_V6ONLY` 的默认值在各平台不同——
+/// Linux/macOS 为 0（`bind("[::]")` 即双栈），而 **Windows 为 1**，
+/// 于是同一行 `bind("[::]")` 在 Windows 上只收 IPv6：IPv4 客户端
+/// （局域网中的绝大多数）永远连不上，表现为服务端"已就绪"、
+/// 客户端反复重连超时。CI 在 Windows 上 `lobby_start_e2e` 的超时即由此而来。
+///
+/// 这里显式关闭 v6only，使三平台语义一致，落实 ADR 0010 的 "IPv6 dual-stack"。
+pub fn bind_dual_stack_udp(port: u16) -> std::io::Result<tokio::net::UdpSocket> {
+    use socket2::{Domain, Protocol, Socket, Type};
+
+    let socket = Socket::new(Domain::IPV6, Type::DGRAM, Some(Protocol::UDP))?;
+    // 必须在 bind 之前设置（Windows 上 bind 后再改无效）。
+    socket.set_only_v6(false)?;
+    // socket2 建出的 socket 默认阻塞；tokio 的 from_std 拒绝注册阻塞 socket。
+    socket.set_nonblocking(true)?;
+    let addr = SocketAddr::from((std::net::Ipv6Addr::UNSPECIFIED, port));
+    socket.bind(&addr.into())?;
+    tokio::net::UdpSocket::from_std(socket.into())
+}
 use std::time::Duration;
 
 // ═══════════════════════════════════════════════════════════════
@@ -273,7 +295,13 @@ async fn udp_session(
         Ok(a) => a,
         Err(_) => return false,
     };
-    let sock = match UdpChannel::bind("0.0.0.0:0").await {
+    // 生产绑通配地址；回环范围（集成测试）绑 127.0.0.1，避免 OS 防火墙
+    // 反复询问测试二进制的入站连接授权。
+    let client_bind: &str = match crate::lan::discovery_scope() {
+        crate::lan::DiscoveryScope::Loopback => "127.0.0.1:0",
+        crate::lan::DiscoveryScope::AllInterfaces => "0.0.0.0:0",
+    };
+    let sock = match UdpChannel::bind(client_bind).await {
         Ok(s) => s,
         Err(_) => return false,
     };

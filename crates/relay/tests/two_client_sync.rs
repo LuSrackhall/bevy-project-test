@@ -25,7 +25,8 @@ async fn pump(rs: &mut ReliableSocket) {
 
 /// Connect a UDP client and pump until GameJoined. Returns socket + player_id.
 async fn udp_join(port: u16, relay_id: RelayId) -> (ReliableSocket, u8) {
-    let sock = UdpChannel::bind("0.0.0.0:0").await.unwrap();
+    // 绑回环（对端 127.0.0.1），避免测试进程触发 OS 防火墙入站询问。
+    let sock = UdpChannel::bind("127.0.0.1:0").await.unwrap();
     let peer: SocketAddr = format!("127.0.0.1:{}", port).parse().unwrap();
     let mut rs = ReliableSocket::new(Box::new(sock), peer, ReliableConfig::default());
     let join = RelayClientMessage::JoinGame {
@@ -126,6 +127,7 @@ async fn udp_recv(rs: &mut ReliableSocket, secs: u64) -> RelayServerMessage {
 async fn test_two_clients_receive_identical_broadcasts() {
     let port = find_free_port().await;
     tokio::spawn(async move {
+        relay::set_discovery_scope(relay::DiscoveryScope::Loopback);
         start_relay(port, 42, 2, Some(RelayId(42))).await.unwrap();
     });
     tokio::time::sleep(Duration::from_millis(200)).await;
@@ -183,6 +185,7 @@ async fn test_two_clients_receive_identical_broadcasts() {
 async fn test_two_clients_lobby_ready_then_game_started() {
     let port = find_free_port().await;
     tokio::spawn(async move {
+        relay::set_discovery_scope(relay::DiscoveryScope::Loopback);
         start_relay(port, 42, 2, Some(RelayId(42))).await.unwrap();
     });
     tokio::time::sleep(Duration::from_millis(200)).await;
@@ -261,6 +264,7 @@ async fn test_two_clients_lobby_ready_then_game_started() {
 async fn test_heartbeat_timeout_releases_seat() {
     let port = find_free_port().await;
     tokio::spawn(async move {
+        relay::set_discovery_scope(relay::DiscoveryScope::Loopback);
         start_relay(port, 42, 2, Some(RelayId(42))).await.unwrap();
     });
     tokio::time::sleep(Duration::from_millis(200)).await;

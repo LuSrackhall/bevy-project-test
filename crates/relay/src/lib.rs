@@ -11,6 +11,9 @@ use tokio::net::UdpSocket;
 use bevy_adapter::discovery::RelayId;
 use bevy_adapter::relay_core::{self, RelayConfig};
 
+// 供集成测试切换发现/中继的绑定范围（回环可避免 OS 防火墙的入站授权询问）。
+pub use bevy_adapter::lan::{discovery_scope, set_discovery_scope, DiscoveryScope};
+
 /// Start the relay server. Accepts connections until shutdown.
 ///
 /// If `relay_id` is `None`, a random `RelayId` is generated.
@@ -22,8 +25,12 @@ pub async fn start_relay(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let relay_id = relay_id.unwrap_or_else(|| RelayId(rand::random::<u64>()));
 
-    // Dual-stack UDP socket — accepts IPv4/IPv6 clients
-    let socket = UdpSocket::bind(format!("[::]:{}", port)).await?;
+    // 生产：显式双栈（Windows 的 IPV6_V6ONLY 默认为 1，必须显式关闭才能收 IPv4 客户端）。
+    // 测试范围：IPv4 回环。
+    let socket = match discovery_scope() {
+        DiscoveryScope::Loopback => UdpSocket::bind(("127.0.0.1", port)).await?,
+        DiscoveryScope::AllInterfaces => bevy_adapter::transport::bind_dual_stack_udp(port)?,
+    };
     println!(
         "Relay on port {} (players={}, seed={})",
         port, player_count, seed

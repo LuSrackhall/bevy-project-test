@@ -432,7 +432,15 @@ impl NetworkCommandSource {
 /// The transport layer (TCP/UDP) injects `on_player_frame()` calls
 /// and consumes broadcast outputs.
 ///
-/// D4: Relay does NOT simulate, sort, assign ordering keys, or inspect Action semantics.
+/// Relay scope — design.md D5, brainstorm-spec D8/D13, T6:
+///
+/// - Does NOT simulate, does NOT assign ordering keys (the key is
+///   simulation-defined), does NOT modify command payloads, and does NOT parse
+///   `Action` semantics to branch on them.
+/// - DOES finalize deterministically: inject a `NoOp` for every silent player
+///   (D7), then sort the batch by `(player_id, Action::sort_tag())`.
+///   `sort_tag()` is consumed as an opaque key — the relay never defines it.
+/// - Clients MUST consume the broadcast order as-is and MUST NOT re-sort.
 pub struct RelayServer {
     /// Game session configuration.
     game_id: u64,
@@ -590,7 +598,7 @@ impl RelayServer {
     /// - `Option<TickCommands>` — finalized batch if tick was just completed, or `None`
     /// - `bool` — `true` if game_started transitioned from false to true (all players connected)
     ///
-    /// D4: Relay does NOT modify commands.
+    /// D8: Relay does NOT modify commands; a batch is immutable once finalized.
     /// D10: Dedup uses (tick, player_id, player_sid).
     pub fn on_player_frame(
         &mut self,

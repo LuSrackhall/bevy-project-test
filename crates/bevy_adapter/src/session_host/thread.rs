@@ -78,8 +78,13 @@ async fn run_local_relay(
     // and the relay (updated on join/disconnect).
     let clients_count = Arc::new(AtomicUsize::new(0));
 
-    // Bind dual-stack UDP socket — accept connections over IPv4/IPv6, OS allocates port
-    let socket = match UdpSocket::bind("[::]:0").await {
+    // Bind UDP socket — 生产为**显式双栈**（Windows 的 IPV6_V6ONLY 默认为 1，
+    // 见 transport::bind_dual_stack_udp）；测试范围绑 IPv4 回环。
+    let socket_result = match crate::lan::discovery_scope() {
+        crate::lan::DiscoveryScope::Loopback => UdpSocket::bind(("127.0.0.1", 0)).await,
+        crate::lan::DiscoveryScope::AllInterfaces => crate::transport::bind_dual_stack_udp(0),
+    };
+    let socket = match socket_result {
         Ok(s) => s,
         Err(e) => {
             let _ = port_tx.send(Err(RelayError::StartFailed(format!(
@@ -98,10 +103,14 @@ async fn run_local_relay(
     // browsing the room list) already holds 0.0.0.0:9876, so a 9876 beacon bind
     // fails with EADDRINUSE and silently disables discovery. The listener
     // matches rooms by the packet's `relay_id`, not the source port.
-    let udp_socket = match UdpSocket::bind("0.0.0.0:0").await {
+    let beacon_bind = SocketAddr::new(crate::lan::discovery_bind_addr(), 0);
+    let udp_socket = match UdpSocket::bind(beacon_bind).await {
         Ok(s) => {
-            if let Err(e) = s.set_broadcast(true) {
-                eprintln!("[BEACON] set_broadcast(true) failed: {}", e);
+            // 广播需要通配绑定；回环范围下不发广播，也就无需开启 SO_BROADCAST。
+            if crate::lan::discovery_scope() == crate::lan::DiscoveryScope::AllInterfaces {
+                if let Err(e) = s.set_broadcast(true) {
+                    eprintln!("[BEACON] set_broadcast(true) failed: {}", e);
+                }
             }
             Some(s)
         }
@@ -152,9 +161,12 @@ async fn run_local_relay(
                     room: beacon_room.clone(),
                 });
                 if let Ok(data) = pkt.encode() {
-                    let _ = socket.send_to(&data, "255.255.255.255:9876").await;
-                    if let Some(bc) = &subnet_broadcast {
-                        let _ = socket.send_to(&data, format!("{}:9876", bc)).await;
+                    // 广播仅在生产范围下发送；回环范围只发本机一份。
+                    if crate::lan::discovery_scope() == crate::lan::DiscoveryScope::AllInterfaces {
+                        let _ = socket.send_to(&data, "255.255.255.255:9876").await;
+                        if let Some(bc) = &subnet_broadcast {
+                            let _ = socket.send_to(&data, format!("{}:9876", bc)).await;
+                        }
                     }
                     let _ = socket.send_to(&data, "127.0.0.1:9876").await;
                 }
@@ -208,6 +220,11 @@ impl RelayHandle for ThreadRelayHandle {
 /// Detect this machine's LAN IP by opening a UDP socket to an external address.
 /// Falls back to 127.0.0.1 if detection fails (e.g., no network).
 fn detect_lan_ip() -> std::net::IpAddr {
+    // 回环范围（集成测试）无需探测出网接口：直接用 127.0.0.1，
+    // 同时避免一次通配绑定触发 OS 防火墙的入站授权询问。
+    if crate::lan::discovery_scope() == crate::lan::DiscoveryScope::Loopback {
+        return std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST);
+    }
     std::net::UdpSocket::bind("0.0.0.0:0")
         .and_then(|s| s.connect("8.8.8.8:80").and_then(|_| s.local_addr()))
         .map(|a| a.ip())

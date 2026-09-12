@@ -27,7 +27,9 @@ async fn find_free_port() -> u16 {
 /// Connect a UDP client, send JoinGame, and pump until GameJoined.
 /// Returns the reliable socket (still owned by the caller for later pumps).
 async fn udp_join(port: u16, relay_id: RelayId) -> (ReliableSocket, u8) {
-    let sock = UdpChannel::bind("0.0.0.0:0").await.unwrap();
+    // 客户端绑 IPv4 回环（对端本就是 127.0.0.1）：避免测试进程出现通配绑定，
+    // 否则 macOS 防火墙会反复询问入站连接授权。
+    let sock = UdpChannel::bind("127.0.0.1:0").await.unwrap();
     let peer: SocketAddr = format!("127.0.0.1:{}", port).parse().unwrap();
     let mut rs = ReliableSocket::new(Box::new(sock), peer, ReliableConfig::default());
     let join = RelayClientMessage::JoinGame {
@@ -224,6 +226,7 @@ async fn udp_recv_broadcast_tick(rs: &mut ReliableSocket, want_tick: u32, secs: 
 async fn test_relay_resends_game_started_to_reconnect() {
     let port = find_free_port().await;
     tokio::spawn(async move {
+        relay::set_discovery_scope(relay::DiscoveryScope::Loopback);
         start_relay(port, 42, 2, Some(RelayId(42))).await.unwrap();
     });
     tokio::time::sleep(Duration::from_millis(200)).await;
@@ -250,7 +253,9 @@ async fn test_relay_resends_game_started_to_reconnect() {
 
     // Scene B: a fresh process (new socket) joins → reuses seat 0, and since the
     // game already started, the relay re-sends GameStarted (with map_size).
-    let sock = UdpChannel::bind("0.0.0.0:0").await.unwrap();
+    // 客户端绑 IPv4 回环（对端本就是 127.0.0.1）：避免测试进程出现通配绑定，
+    // 否则 macOS 防火墙会反复询问入站连接授权。
+    let sock = UdpChannel::bind("127.0.0.1:0").await.unwrap();
     let peer: SocketAddr = format!("127.0.0.1:{}", port).parse().unwrap();
     let mut rs = ReliableSocket::new(Box::new(sock), peer, ReliableConfig::default());
     let join = RelayClientMessage::JoinGame {
@@ -296,6 +301,7 @@ async fn test_relay_resends_game_started_to_reconnect() {
 async fn test_relay_reconnect_multipage() {
     let port = find_free_port().await;
     tokio::spawn(async move {
+        relay::set_discovery_scope(relay::DiscoveryScope::Loopback);
         start_relay(port, 42, 2, Some(RelayId(42))).await.unwrap();
     });
     tokio::time::sleep(Duration::from_millis(200)).await;
@@ -352,6 +358,7 @@ async fn test_relay_reconnect_multipage() {
 async fn test_relay_two_clients_full_cycle() {
     let port = find_free_port().await;
     tokio::spawn(async move {
+        relay::set_discovery_scope(relay::DiscoveryScope::Loopback);
         start_relay(port, 42, 2, Some(RelayId(42))).await.unwrap();
     });
     tokio::time::sleep(Duration::from_millis(200)).await;
@@ -387,6 +394,7 @@ async fn test_relay_two_clients_full_cycle() {
 async fn test_relay_correct_tick_advancement() {
     let port = find_free_port().await;
     tokio::spawn(async move {
+        relay::set_discovery_scope(relay::DiscoveryScope::Loopback);
         start_relay(port, 42, 2, Some(RelayId(42))).await.unwrap();
     });
     tokio::time::sleep(Duration::from_millis(200)).await;
@@ -416,6 +424,7 @@ async fn test_relay_correct_tick_advancement() {
 async fn test_relay_three_ticks_sequential() {
     let port = find_free_port().await;
     tokio::spawn(async move {
+        relay::set_discovery_scope(relay::DiscoveryScope::Loopback);
         start_relay(port, 42, 2, Some(RelayId(42))).await.unwrap();
     });
     tokio::time::sleep(Duration::from_millis(200)).await;
