@@ -5,11 +5,11 @@
 
 pub use crate::discovery::{RelayId, RoomId, RoomMetadata, RoomState};
 
+use bevy::prelude::Resource;
 use serde::{Deserialize, Serialize};
 use simulation::command::GameCommand;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
-use bevy::prelude::Resource;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum PlayerState {
     /// Player is actively connected and submitting frames.
@@ -25,7 +25,6 @@ pub struct LobbyPlayerState {
     pub ready: bool,
     pub selected_map: Option<simulation::map::MapSize>,
 }
-
 
 /// Game initialization parameters, seeded and versioned for determinism.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -86,11 +85,11 @@ pub struct BroadcastFrame {
 /// Client-to-relay upstream frame containing one player's commands for one tick.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PlayerTickFrame {
-    pub magic: u16,          // Protocol magic number for validation
-    pub version: u16,         // Protocol version (currently 1)
+    pub magic: u16,   // Protocol magic number for validation
+    pub version: u16, // Protocol version (currently 1)
 
     pub game_id: u64,
-    pub tick: u32,           // Target tick (current_tick + input_delay)
+    pub tick: u32, // Target tick (current_tick + input_delay)
     pub player_id: u8,
     pub commands: Vec<GameCommand>,
     /// Client-side monotonically increasing sequence number (idempotency).
@@ -169,20 +168,33 @@ pub enum RelayClientMessage {
     /// Reconnect after disconnect.
     Reconnect(ReconnectRequest),
     /// Signal lobby readiness with optional map selection.
-    LobbyReady { game_id: u64, player_id: u8, ready: bool, map_size: Option<simulation::map::MapSize> },
-
+    LobbyReady {
+        game_id: u64,
+        player_id: u8,
+        ready: bool,
+        map_size: Option<simulation::map::MapSize>,
+    },
 }
 
 /// Messages sent from relay to client.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum RelayServerMessage {
     /// Game session accepted — player identity assigned by relay.
-    GameJoined { game_id: u64, player_id: u8, player_count: u8 },
+    GameJoined {
+        game_id: u64,
+        player_id: u8,
+        player_count: u8,
+    },
     /// Join request rejected (room full, identity mismatch, etc.).
     JoinRejected { reason: String },
     /// All players have connected; game is starting. Carries the map size so
     /// clients build a world matching the game (no hardcoded default).
-    GameStarted { game_id: u64, seed: u64, player_count: u8, map_size: simulation::map::MapSize },
+    GameStarted {
+        game_id: u64,
+        seed: u64,
+        player_count: u8,
+        map_size: simulation::map::MapSize,
+    },
     /// Reconnect response with metadata; page_count pages follow on Control.
     ReconnectResponse(ReconnectResponse),
     /// One page of the reconnect command log (progressive replay).
@@ -194,8 +206,10 @@ pub enum RelayServerMessage {
     /// Error / version mismatch.
     Error { code: u32, message: String },
     /// Lobby state update — all connected players' ready status.
-    LobbyUpdate { game_id: u64, players: Vec<LobbyPlayerState> },
-
+    LobbyUpdate {
+        game_id: u64,
+        players: Vec<LobbyPlayerState>,
+    },
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -208,14 +222,21 @@ pub enum NetworkEvent {
     /// Relay has accepted the player and assigned identity.
     GameJoined { player_id: u8, player_count: u8 },
     /// All players connected; game is starting.
-    GameStarted { game_id: u64, seed: u64, player_count: u8, map_size: simulation::map::MapSize },
+    GameStarted {
+        game_id: u64,
+        seed: u64,
+        player_count: u8,
+        map_size: simulation::map::MapSize,
+    },
     /// Lobby state update — player ready statuses.
-    LobbyUpdate { game_id: u64, players: Vec<LobbyPlayerState> },
+    LobbyUpdate {
+        game_id: u64,
+        players: Vec<LobbyPlayerState>,
+    },
     /// Reconnect response with the reconnect metadata (first_tick, total_ticks, page_count).
     Reconnect(ReconnectResponse),
     /// One page of the reconnect command log.
     ReconnectPage(ReconnectPage),
-
 }
 
 /// Cross-thread channel for NetworkEvents (tokio → Bevy).
@@ -323,7 +344,11 @@ impl NetworkCommandSource {
     /// page range) must survive, else a deterministic gap forms.
     ///
     /// D12: Validates ruleset_version — mismatch returns an error.
-    pub fn apply_reconnect(&mut self, response: &ReconnectResponse, expected_version: u32) -> Result<(), String> {
+    pub fn apply_reconnect(
+        &mut self,
+        response: &ReconnectResponse,
+        expected_version: u32,
+    ) -> Result<(), String> {
         // D12: ruleset_version compatibility check
         if response.ruleset_version != expected_version {
             return Err(format!(
@@ -336,9 +361,10 @@ impl NetworkCommandSource {
         self.game_id = response.game_id;
         self.ruleset_version = response.ruleset_version;
         self.connected = true;
-        self.relay_buffer.retain(|tick, _| *tick >= response.first_tick);
+        self.relay_buffer
+            .retain(|tick, _| *tick >= response.first_tick);
         // page_count = 0 → nothing to fetch; replay completes immediately.
-        self.reconnect_meta = (response.page_count > 0).then(|| ReconnectCursor {
+        self.reconnect_meta = (response.page_count > 0).then_some(ReconnectCursor {
             first_tick: response.first_tick,
             total_ticks: response.total_ticks,
             page_count: response.page_count,
@@ -453,11 +479,12 @@ pub struct RelayServer {
     disconnected: HashSet<u8>,
     /// Next player_id to assign for JoinGame.
     next_player_id: u8,
-
 }
 
 impl RelayServer {
     /// Create a new relay server for a game session.
+    // 会话初始化参数天然较多；收敛为参数结构体属公开 API 变更，留待专门重构。
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         game_id: u64,
         relay_id: RelayId,
@@ -565,7 +592,11 @@ impl RelayServer {
     ///
     /// D4: Relay does NOT modify commands.
     /// D10: Dedup uses (tick, player_id, player_sid).
-    pub fn on_player_frame(&mut self, frame: &PlayerTickFrame, now_ms: u64) -> (Option<TickCommands>, bool) {
+    pub fn on_player_frame(
+        &mut self,
+        frame: &PlayerTickFrame,
+        now_ms: u64,
+    ) -> (Option<TickCommands>, bool) {
         if self.frozen {
             return (None, false);
         }
@@ -596,7 +627,10 @@ impl RelayServer {
             .extend(frame.commands.clone());
 
         // Mark player as ready for this tick
-        self.ready.entry(frame.tick).or_default().push(frame.player_id);
+        self.ready
+            .entry(frame.tick)
+            .or_default()
+            .push(frame.player_id);
 
         // Check if all players have connected (at least one frame from each).
         // Prevents timeout-based finalization before all players join the game.
@@ -605,7 +639,9 @@ impl RelayServer {
         if !self.game_started {
             let connected: std::collections::HashSet<&u8> =
                 self.ready.values().flat_map(|v| v.iter()).collect();
-            let now_started = self.all_players.iter()
+            let now_started = self
+                .all_players
+                .iter()
                 .filter(|p| !self.disconnected.contains(*p))
                 .all(|p| connected.contains(p));
             if now_started {
@@ -632,10 +668,14 @@ impl RelayServer {
         }
 
         let all_ready = {
-            let ready_set: std::collections::HashSet<&u8> =
-                self.ready.get(&tick).map(|r| r.iter().collect()).unwrap_or_default();
+            let ready_set: std::collections::HashSet<&u8> = self
+                .ready
+                .get(&tick)
+                .map(|r| r.iter().collect())
+                .unwrap_or_default();
             // R3: Disconnected 席位放行(不阻塞 barrier),其 NoOp 由下方注入
-            self.all_players.iter()
+            self.all_players
+                .iter()
                 .filter(|p| !self.disconnected.contains(*p))
                 .all(|p| ready_set.contains(p))
         };
@@ -650,8 +690,7 @@ impl RelayServer {
         }
 
         // Collect all commands for this tick, filtering out disconnected players
-        let active_players: std::collections::HashSet<&u8> =
-            self.all_players.iter().collect();
+        let active_players: std::collections::HashSet<&u8> = self.all_players.iter().collect();
         let mut all_cmds: Vec<GameCommand> = self
             .buffer
             .get(&tick)
@@ -665,8 +704,11 @@ impl RelayServer {
             .unwrap_or_default();
 
         // D7: NoOp injection for missing players (pure function of tick, player_id)
-        let ready_set: std::collections::HashSet<&u8> =
-            self.ready.get(&tick).map(|r| r.iter().collect()).unwrap_or_default();
+        let ready_set: std::collections::HashSet<&u8> = self
+            .ready
+            .get(&tick)
+            .map(|r| r.iter().collect())
+            .unwrap_or_default();
         for pid in &self.all_players {
             if !ready_set.contains(pid) {
                 all_cmds.push(GameCommand {
@@ -744,10 +786,16 @@ impl RelayServer {
     /// D2: `total_ticks` = COUNT of log entries with `tick > last_tick_consumed`
     /// (not a tick span); pages are bucketed by tick VALUE below.
     /// D12: Validates ruleset_version compatibility (done client-side on apply).
-    pub fn handle_reconnect(&self, request: &ReconnectRequest) -> Result<ReconnectResponse, String> {
+    pub fn handle_reconnect(
+        &self,
+        request: &ReconnectRequest,
+    ) -> Result<ReconnectResponse, String> {
         // 安全:拒绝跨对局的日志请求
         if request.game_id != self.game_id {
-            return Err(format!("game_id mismatch: {} != {}", request.game_id, self.game_id));
+            return Err(format!(
+                "game_id mismatch: {} != {}",
+                request.game_id, self.game_id
+            ));
         }
         if self.frozen {
             return Err("game is frozen — reconnect rejected".into());
@@ -776,7 +824,11 @@ impl RelayServer {
     /// Bucketed by tick VALUE, not log position — the finalized log is
     /// append-ordered and may finalize out of tick order (D2). Returns None
     /// when `page_index >= page_count`.
-    pub fn reconnect_page(&self, response: &ReconnectResponse, page_index: u32) -> Option<ReconnectPage> {
+    pub fn reconnect_page(
+        &self,
+        response: &ReconnectResponse,
+        page_index: u32,
+    ) -> Option<ReconnectPage> {
         if page_index >= response.page_count {
             return None;
         }
@@ -866,7 +918,17 @@ mod relay_tests {
     /// Helper to create a relay with 2 players.
     fn relay_2p() -> RelayServer {
         let rid = crate::discovery::RelayId(42);
-        RelayServer::new(1, rid, 1, 42, 0xABC, simulation::map::MapSize::Medium, vec![0, 1], 3, 1000)
+        RelayServer::new(
+            1,
+            rid,
+            1,
+            42,
+            0xABC,
+            simulation::map::MapSize::Medium,
+            vec![0, 1],
+            3,
+            1000,
+        )
     }
 
     fn make_empty_frame(tick: u32, player_id: u8, sid: u64) -> PlayerTickFrame {
@@ -931,7 +993,10 @@ mod relay_tests {
 
         let batch = result.0.unwrap();
         // Both players have 1 command each (player 1 never submitted, gets NoOp)
-        let noop = batch.commands.iter().find(|c| c.player_id == 1)
+        let noop = batch
+            .commands
+            .iter()
+            .find(|c| c.player_id == 1)
             .expect("player 1 should have a command");
         assert_eq!(noop.action, Action::NoOp);
     }
@@ -973,12 +1038,18 @@ mod relay_tests {
         let now = 1000;
         for tick in 1u32..=5 {
             relay.on_player_frame(&make_empty_frame(tick, 0, tick as u64), now + tick as u64);
-            let r = relay.on_player_frame(&make_empty_frame(tick, 1, tick as u64 + 100), now + tick as u64);
+            let r = relay.on_player_frame(
+                &make_empty_frame(tick, 1, tick as u64 + 100),
+                now + tick as u64,
+            );
             assert!(r.0.is_some(), "tick {} finalize", tick);
         }
         // Scene B: fresh process (last_tick_consumed=0) → full log + map_size
         let resp = relay
-            .handle_reconnect(&ReconnectRequest { game_id: 1, last_tick_consumed: 0 })
+            .handle_reconnect(&ReconnectRequest {
+                game_id: 1,
+                last_tick_consumed: 0,
+            })
             .unwrap();
         assert_eq!(resp.first_tick, 1);
         assert_eq!(resp.total_ticks, 5);
@@ -1008,7 +1079,10 @@ mod relay_tests {
         relay.on_disconnect(0);
         relay.on_disconnect(1);
         relay.on_full_disconnect(now);
-        let resp = relay.handle_reconnect(&ReconnectRequest { game_id: 1, last_tick_consumed: 0 });
+        let resp = relay.handle_reconnect(&ReconnectRequest {
+            game_id: 1,
+            last_tick_consumed: 0,
+        });
         assert!(resp.is_err(), "frozen game rejects reconnect");
     }
 
@@ -1018,16 +1092,23 @@ mod relay_tests {
         let now = 1000;
         // Finalize ticks 1..=65 in order
         for tick in 1u32..=65 {
-            let r = relay.on_player_frame(&make_empty_frame(tick, 0, tick as u64), now + tick as u64);
+            let r =
+                relay.on_player_frame(&make_empty_frame(tick, 0, tick as u64), now + tick as u64);
             assert!(r.0.is_none(), "tick {} waits for player 1", tick);
-            let r = relay.on_player_frame(&make_empty_frame(tick, 1, tick as u64 + 100), now + tick as u64);
+            let r = relay.on_player_frame(
+                &make_empty_frame(tick, 1, tick as u64 + 100),
+                now + tick as u64,
+            );
             assert!(r.0.is_some(), "tick {} should finalize", tick);
         }
         assert_eq!(relay.command_log().len(), 65);
 
         // Reconnect from tick 0 → first=1, 65 ticks, 3 pages (32/32/1)
         let resp = relay
-            .handle_reconnect(&ReconnectRequest { game_id: 1, last_tick_consumed: 0 })
+            .handle_reconnect(&ReconnectRequest {
+                game_id: 1,
+                last_tick_consumed: 0,
+            })
             .unwrap();
         assert_eq!(resp.first_tick, 1);
         assert_eq!(resp.total_ticks, 65);
@@ -1069,7 +1150,10 @@ mod relay_tests {
 
         // Reconnect from tick 2 → total=3,单页按值覆盖 tick 3,4,5
         let resp = relay
-            .handle_reconnect(&ReconnectRequest { game_id: 1, last_tick_consumed: 2 })
+            .handle_reconnect(&ReconnectRequest {
+                game_id: 1,
+                last_tick_consumed: 2,
+            })
             .unwrap();
         assert_eq!(resp.first_tick, 3);
         assert_eq!(resp.total_ticks, 3);
@@ -1087,7 +1171,10 @@ mod relay_tests {
         let now = 1000;
         // 无定稿 → total_ticks=0, page_count=0,无页面
         let resp0 = relay
-            .handle_reconnect(&ReconnectRequest { game_id: 1, last_tick_consumed: 0 })
+            .handle_reconnect(&ReconnectRequest {
+                game_id: 1,
+                last_tick_consumed: 0,
+            })
             .unwrap();
         assert_eq!(resp0.total_ticks, 0);
         assert_eq!(resp0.page_count, 0);
@@ -1097,7 +1184,10 @@ mod relay_tests {
         relay.on_disconnect(0);
         relay.on_disconnect(1);
         relay.on_full_disconnect(now);
-        let resp = relay.handle_reconnect(&ReconnectRequest { game_id: 1, last_tick_consumed: 0 });
+        let resp = relay.handle_reconnect(&ReconnectRequest {
+            game_id: 1,
+            last_tick_consumed: 0,
+        });
         assert!(resp.is_err(), "frozen game must reject reconnect");
     }
 
@@ -1108,13 +1198,19 @@ mod relay_tests {
         // Finalize ticks 1..=100
         for tick in 1u32..=100 {
             relay.on_player_frame(&make_empty_frame(tick, 0, tick as u64), now + tick as u64);
-            let r = relay.on_player_frame(&make_empty_frame(tick, 1, tick as u64 + 100), now + tick as u64);
+            let r = relay.on_player_frame(
+                &make_empty_frame(tick, 1, tick as u64 + 100),
+                now + tick as u64,
+            );
             assert!(r.0.is_some());
         }
 
         // 第一次重连:从 tick 10 起,74 ticks → 3 页(32/32/10)
         let resp1 = relay
-            .handle_reconnect(&ReconnectRequest { game_id: 1, last_tick_consumed: 10 })
+            .handle_reconnect(&ReconnectRequest {
+                game_id: 1,
+                last_tick_consumed: 10,
+            })
             .unwrap();
         assert_eq!(resp1.first_tick, 11);
         assert_eq!(resp1.total_ticks, 90);
@@ -1133,7 +1229,10 @@ mod relay_tests {
 
         // 再掉线,从 last_applied 续传:first_tick = 75,无重叠无缺口
         let resp2 = relay
-            .handle_reconnect(&ReconnectRequest { game_id: 1, last_tick_consumed: last_applied })
+            .handle_reconnect(&ReconnectRequest {
+                game_id: 1,
+                last_tick_consumed: last_applied,
+            })
             .unwrap();
         assert_eq!(resp2.first_tick, 75);
         assert_eq!(resp2.total_ticks, 26); // 75..=100
@@ -1182,15 +1281,28 @@ mod relay_tests {
     fn test_disconnect_retains_seat_and_reconnect_reuses_id() {
         let mut relay = relay_2p();
         // 两个玩家加入(relay_2p relay_id = 42)
-        assert_eq!(relay.on_join_game(crate::discovery::RelayId(42)).unwrap(), (0, false));
-        assert_eq!(relay.on_join_game(crate::discovery::RelayId(42)).unwrap(), (1, false));
+        assert_eq!(
+            relay.on_join_game(crate::discovery::RelayId(42)).unwrap(),
+            (0, false)
+        );
+        assert_eq!(
+            relay.on_join_game(crate::discovery::RelayId(42)).unwrap(),
+            (1, false)
+        );
         // 玩家 0 掉线:席位保留,状态标 Disconnected
         let states = relay.on_disconnect(0);
-        assert!(states.iter().any(|s| matches!(s, PlayerState::Disconnected { player_id: 0 })));
+        assert!(states
+            .iter()
+            .any(|s| matches!(s, PlayerState::Disconnected { player_id: 0 })));
         // 重连:复用原 player_id 0(而不是 Room is full),标记为重连
-        assert_eq!(relay.on_join_game(crate::discovery::RelayId(42)).unwrap(), (0, true));
+        assert_eq!(
+            relay.on_join_game(crate::discovery::RelayId(42)).unwrap(),
+            (0, true)
+        );
         // 满员:第三方加入被拒
-        let err = relay.on_join_game(crate::discovery::RelayId(42)).unwrap_err();
+        let err = relay
+            .on_join_game(crate::discovery::RelayId(42))
+            .unwrap_err();
         assert!(err.contains("Room is full"), "err={}", err);
     }
 
@@ -1202,10 +1314,16 @@ mod relay_tests {
         relay.on_disconnect(0);
         // 玩家 1 提交 tick 1 → 应定稿,不挂起
         let r1 = relay.on_player_frame(&make_empty_frame(1, 1, 1), now);
-        assert!(r1.0.is_some(), "Disconnected seat must not hang the barrier");
+        assert!(
+            r1.0.is_some(),
+            "Disconnected seat must not hang the barrier"
+        );
         let batch = r1.0.unwrap();
         // 玩家 0 被注入 NoOp
-        assert!(batch.commands.iter().any(|c| c.player_id == 0 && c.action == Action::NoOp));
+        assert!(batch
+            .commands
+            .iter()
+            .any(|c| c.player_id == 0 && c.action == Action::NoOp));
     }
 
     #[test]
@@ -1228,10 +1346,14 @@ mod relay_tests {
         assert_eq!(ticks.iter().filter(|t| **t == 5).count(), 1);
         // 再次提交 tick 5(重复迟到帧)→ 不重复定稿
         let late = relay.on_player_frame(&make_empty_frame(5, 0, 9), now);
-        assert!(late.0.is_none(), "already-finalized tick 5 not re-finalized");
+        assert!(
+            late.0.is_none(),
+            "already-finalized tick 5 not re-finalized"
+        );
     }
 }
 
+#[cfg(test)]
 mod tests {
     use super::*;
     use simulation::command::{Action, CommandBuffer, GameCommand};
@@ -1406,28 +1528,34 @@ mod tests {
 
         // 无元数据 → 拒绝
         let mut orphan = NetworkCommandSource::default();
-        assert!(orphan.apply_reconnect_page(&ReconnectPage {
-            page_index: 0,
-            page_count: 1,
-            first_tick: 100,
-            ticks: vec![],
-        }).is_err());
+        assert!(orphan
+            .apply_reconnect_page(&ReconnectPage {
+                page_index: 0,
+                page_count: 1,
+                first_tick: 100,
+                ticks: vec![],
+            })
+            .is_err());
 
         // page_count 与元数据不符 → 拒绝(旧会话 stale 页)
-        assert!(source.apply_reconnect_page(&ReconnectPage {
-            page_index: 0,
-            page_count: 2,
-            first_tick: 100,
-            ticks: vec![],
-        }).is_err());
+        assert!(source
+            .apply_reconnect_page(&ReconnectPage {
+                page_index: 0,
+                page_count: 2,
+                first_tick: 100,
+                ticks: vec![],
+            })
+            .is_err());
 
         // page_index 越界 → 拒绝
-        assert!(source.apply_reconnect_page(&ReconnectPage {
-            page_index: 1,
-            page_count: 1,
-            first_tick: 100,
-            ticks: vec![],
-        }).is_err());
+        assert!(source
+            .apply_reconnect_page(&ReconnectPage {
+                page_index: 1,
+                page_count: 1,
+                first_tick: 100,
+                ticks: vec![],
+            })
+            .is_err());
 
         // 正常页 → 接受
         let ok = ReconnectPage {

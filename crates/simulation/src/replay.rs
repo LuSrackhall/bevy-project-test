@@ -178,9 +178,7 @@ mod tests {
             // Simulate a player command at tick 50: move a player soldier
             if tick == 50 {
                 let mut q = world1.query::<(&UnitIdComponent, &FactionComponent, &SoldierMarker)>();
-                if let Some((id, _fac, _)) =
-                    q.iter(&world1).find(|(_, f, _)| f.0 == FactionId(0))
-                {
+                if let Some((id, _fac, _)) = q.iter(&world1).find(|(_, f, _)| f.0 == FactionId(0)) {
                     let uid = id.0;
                     let target = FixedVec2::new(Fixed::from_int(300), Fixed::from_int(300));
                     let cmd = GameCommand {
@@ -323,7 +321,6 @@ mod tests {
         );
     }
 
-
     /// Large-scale replay determinism: many units, multiple commands, 500 ticks.
     /// Catches HashMap iteration order non-determinism that simple tests miss.
     #[test]
@@ -342,7 +339,8 @@ mod tests {
             if tick == 10 {
                 let mut cmds = Vec::new();
                 let mut q = world1.query::<(&UnitIdComponent, &FactionComponent, &SoldierMarker)>();
-                let soldier_uids: Vec<UnitId> = q.iter(&world1)
+                let soldier_uids: Vec<UnitId> = q
+                    .iter(&world1)
                     .filter(|(_, f, _)| f.0 == FactionId(0))
                     .map(|(id, _, _)| id.0)
                     .collect();
@@ -367,7 +365,8 @@ mod tests {
             if tick == 100 {
                 let mut cmds = Vec::new();
                 let mut q = world1.query::<(&UnitIdComponent, &FactionComponent, &SoldierMarker)>();
-                let soldier_uids: Vec<UnitId> = q.iter(&world1)
+                let soldier_uids: Vec<UnitId> = q
+                    .iter(&world1)
                     .filter(|(_, f, _)| f.0 == FactionId(0))
                     .take(50)
                     .map(|(id, _, _)| id.0)
@@ -409,7 +408,8 @@ mod tests {
 
         assert_eq!(
             hash1, hash2,
-            "Large-scale replay determinism failed. hash1={}, hash2={}", hash1, hash2
+            "Large-scale replay determinism failed. hash1={}, hash2={}",
+            hash1, hash2
         );
     }
 }

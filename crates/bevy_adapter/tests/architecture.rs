@@ -94,9 +94,7 @@ fn test_render_view_no_direct_simulation_import() {
         for (i, line) in content.lines().enumerate() {
             // simulation::World import is forbidden.
             // Component/type/config imports are allowed for queries.
-            if line.contains("use simulation::World")
-                || line.contains("use simulation::world;")
-            {
+            if line.contains("use simulation::World") || line.contains("use simulation::world;") {
                 violations.push(format!("{}:{}: {}", rel_path, i + 1, line.trim()));
             }
         }

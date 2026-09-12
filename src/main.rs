@@ -40,12 +40,14 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     if let Some(pos) = args.iter().position(|a| a == "--relay") {
         if let Some(relay_addr) = args.get(pos + 1) {
-            let player_id: u8 = args.iter()
+            let player_id: u8 = args
+                .iter()
                 .position(|a| a == "--player-id")
                 .and_then(|i| args.get(i + 1))
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(0);
-            let player_count: u8 = args.iter()
+            let player_count: u8 = args
+                .iter()
                 .position(|a| a == "--players")
                 .and_then(|i| args.get(i + 1))
                 .and_then(|s| s.parse().ok())
@@ -56,9 +58,12 @@ fn main() {
                 player_id: Some(player_id),
                 relay_id: RelayId(0),
             });
-            app.add_systems(Startup, |mut next: ResMut<NextState<render_view::GameState>>| {
-                next.set(render_view::GameState::Lobby);
-            });
+            app.add_systems(
+                Startup,
+                |mut next: ResMut<NextState<render_view::GameState>>| {
+                    next.set(render_view::GameState::Lobby);
+                },
+            );
         }
     }
 

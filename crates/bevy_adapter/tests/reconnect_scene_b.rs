@@ -17,7 +17,10 @@ fn make_move_cmd(tick: u32, uid: UnitId) -> GameCommand {
         player_id: 0,
         action: Action::MoveTo {
             unit: uid,
-            target: FixedVec2::new(Fixed::from_int(300), Fixed::from_int(300 + tick as i32 * 10)),
+            target: FixedVec2::new(
+                Fixed::from_int(300),
+                Fixed::from_int(300 + tick as i32 * 10),
+            ),
         },
     }
 }
@@ -31,7 +34,10 @@ fn test_scene_b_rebuild_matches_live_hash() {
     let total = 60u32;
 
     // ── Phase A: online client (init_multi + generate_map + run ticks) ──
-    let mut online = simulation::init_simulation_world_multi(seed, PlayerSlots::multi_player(player_count, local));
+    let mut online = simulation::init_simulation_world_multi(
+        seed,
+        PlayerSlots::multi_player(player_count, local),
+    );
     simulation::map::generate_map(&mut online, map_size);
     let uid = {
         let mut q = online.query::<(&UnitIdComponent, &FactionComponent)>();
@@ -41,8 +47,15 @@ fn test_scene_b_rebuild_matches_live_hash() {
             .expect("player 0 has a unit")
     };
     for tick in 1..=total {
-        online.resource_mut::<CommandBuffer>().0.push(make_move_cmd(tick, uid));
-        simulation::run_tick(&mut online, tick, &simulation::RunConfig { enable_ai: false });
+        online
+            .resource_mut::<CommandBuffer>()
+            .0
+            .push(make_move_cmd(tick, uid));
+        simulation::run_tick(
+            &mut online,
+            tick,
+            &simulation::RunConfig { enable_ai: false },
+        );
     }
     let online_hash = simulation::golden_test::hash_world_state(&mut online);
 
@@ -50,8 +63,15 @@ fn test_scene_b_rebuild_matches_live_hash() {
     let mut rebuilt = bevy_adapter::session::reconnect::rebuild_world(seed, player_count, local);
     simulation::map::generate_map(&mut rebuilt, map_size);
     for tick in 1..=total {
-        rebuilt.resource_mut::<CommandBuffer>().0.push(make_move_cmd(tick, uid));
-        simulation::run_tick(&mut rebuilt, tick, &simulation::RunConfig { enable_ai: false });
+        rebuilt
+            .resource_mut::<CommandBuffer>()
+            .0
+            .push(make_move_cmd(tick, uid));
+        simulation::run_tick(
+            &mut rebuilt,
+            tick,
+            &simulation::RunConfig { enable_ai: false },
+        );
     }
     let rebuilt_hash = simulation::golden_test::hash_world_state(&mut rebuilt);
 

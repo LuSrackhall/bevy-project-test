@@ -11,14 +11,12 @@ use std::time::Duration;
 use bevy::prelude::*;
 use bevy_adapter::discovery::RelayId;
 use bevy_adapter::driver::{
-    CommandSource, SimulationDriver, SchedulerState, TickClock, simulation_driver_system,
+    simulation_driver_system, CommandSource, SchedulerState, SimulationDriver, TickClock,
 };
 use bevy_adapter::network::{NetworkCommandSource, NetworkEventReceiver};
 use bevy_adapter::replay::ReplayRecorder;
 use bevy_adapter::tick::{PendingEvents, SimulationWorld};
-use bevy_adapter::transport::{
-    network_flush_system, network_poll_system, spawn_network_client,
-};
+use bevy_adapter::transport::{network_flush_system, network_poll_system, spawn_network_client};
 use simulation::command::{CommandBuffer, GameCommand};
 use simulation::map::MapSize;
 use simulation::soldier::{FactionComponent, SoldierMarker, UnitIdComponent};
@@ -97,7 +95,12 @@ fn build_client_app(
     app.insert_non_send(sim_world);
     app.add_systems(
         Update,
-        (network_poll_system, network_flush_system, simulation_driver_system).chain(),
+        (
+            network_poll_system,
+            network_flush_system,
+            simulation_driver_system,
+        )
+            .chain(),
     );
     (app, unit)
 }
@@ -121,11 +124,21 @@ fn test_two_player_move_command_executes() {
     let ev0 = NetworkEventReceiver::default();
     let ev1 = NetworkEventReceiver::default();
     let (nrecv0, nsend0, h0) = spawn_network_client(
-        format!("127.0.0.1:{port}"), 1, 0, 1, ev0.clone(), RelayId(1),
+        format!("127.0.0.1:{port}"),
+        1,
+        0,
+        1,
+        ev0.clone(),
+        RelayId(1),
     )
     .expect("host client connect");
     let (nrecv1, nsend1, h1) = spawn_network_client(
-        format!("127.0.0.1:{port}"), 1, 1, 1, ev1.clone(), RelayId(1),
+        format!("127.0.0.1:{port}"),
+        1,
+        1,
+        1,
+        ev1.clone(),
+        RelayId(1),
     )
     .expect("joiner client connect");
     // Leak the handles so their Drop doesn't block on joining the network threads,
@@ -156,7 +169,9 @@ fn test_two_player_move_command_executes() {
         if last_issued_tick != Some(target) {
             last_issued_tick = Some(target);
             issued_ticks.push(target);
-            app0.world_mut().resource_mut::<CommandBuffer>().0
+            app0.world_mut()
+                .resource_mut::<CommandBuffer>()
+                .0
                 .push(GameCommand {
                     tick: target,
                     player_id: 0,
@@ -176,10 +191,18 @@ fn test_two_player_move_command_executes() {
 
         // Progress diagnostics + stall detection
         if frame % 20 == 0 {
-            let t = app0.world().resource::<SimulationDriver>().clock.current_tick;
+            let t = app0
+                .world()
+                .resource::<SimulationDriver>()
+                .clock
+                .current_tick;
             eprintln!("[TEST] frame {}: host tick={}", frame, t);
         }
-        let t = app0.world().resource::<SimulationDriver>().clock.current_tick;
+        let t = app0
+            .world()
+            .resource::<SimulationDriver>()
+            .clock
+            .current_tick;
         if t == last_tick {
             stalled_frames += 1;
         } else {
@@ -193,7 +216,11 @@ fn test_two_player_move_command_executes() {
     }
 
     // 5. Verify: EVERY issued MoveTo reached the simulation (command_log).
-    let final_tick = app0.world().resource::<SimulationDriver>().clock.current_tick;
+    let final_tick = app0
+        .world()
+        .resource::<SimulationDriver>()
+        .clock
+        .current_tick;
     eprintln!("[TEST] final tick = {}", final_tick);
     assert!(
         final_tick >= 20,
@@ -206,9 +233,8 @@ fn test_two_player_move_command_executes() {
         .command_log
         .iter()
         .filter(|(_, cmds)| {
-            cmds.iter().any(|c| {
-                matches!(c.action, simulation::command::Action::MoveTo { .. })
-            })
+            cmds.iter()
+                .any(|c| matches!(c.action, simulation::command::Action::MoveTo { .. }))
         })
         .map(|(tick, _)| *tick)
         .collect();
@@ -216,7 +242,11 @@ fn test_two_player_move_command_executes() {
     // Commands target current_tick + input_delay; the final few issued ticks
     // are future ticks the relay hasn't finalized yet by the time the loop ends.
     let issued: std::collections::HashSet<u32> = issued_ticks.iter().copied().collect();
-    let processed_issued: Vec<u32> = issued.iter().copied().filter(|t| *t <= final_tick).collect();
+    let processed_issued: Vec<u32> = issued
+        .iter()
+        .copied()
+        .filter(|t| *t <= final_tick)
+        .collect();
     let missing: Vec<u32> = processed_issued
         .iter()
         .filter(|t| !delivered_ticks.contains(t))

@@ -26,7 +26,11 @@ fn test_snapshot_verifier_pass() {
     }
     .run();
 
-    assert!(result.is_ok(), "SnapshotVerifier should pass: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "SnapshotVerifier should pass: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -41,7 +45,10 @@ fn test_snapshot_verifier_fail() {
     }
     .run();
 
-    assert!(result.is_err(), "SnapshotVerifier should fail on wrong hash");
+    assert!(
+        result.is_err(),
+        "SnapshotVerifier should fail on wrong hash"
+    );
 }
 
 #[test]
@@ -53,13 +60,15 @@ fn test_event_verifier_spawned_at_tick_1() {
         config: RunConfig::default(),
         commands: vec![],
         max_tick: 5,
-        verifier: Box::new(
-            EventVerifier::new().expect_spawned_at(1, |s| !s.is_empty()),
-        ),
+        verifier: Box::new(EventVerifier::new().expect_spawned_at(1, |s| !s.is_empty())),
     }
     .run();
 
-    assert!(result.is_ok(), "EventVerifier should pass: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "EventVerifier should pass: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -70,9 +79,7 @@ fn test_event_verifier_fail() {
         config: RunConfig::default(),
         commands: vec![],
         max_tick: 2,
-        verifier: Box::new(
-            EventVerifier::new().expect_spawned_at(1, |s| s.len() > 100),
-        ),
+        verifier: Box::new(EventVerifier::new().expect_spawned_at(1, |s| s.len() > 100)),
     }
     .run();
 
@@ -99,7 +106,11 @@ fn test_invariant_verifier_health() {
     }
     .run();
 
-    assert!(result.is_ok(), "InvariantVerifier should pass: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "InvariantVerifier should pass: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -125,7 +136,11 @@ fn test_composite_verifier() {
     }
     .run();
 
-    assert!(result.is_ok(), "CompositeVerifier should pass: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "CompositeVerifier should pass: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -159,7 +174,11 @@ fn test_scenario_with_commands() {
     }
     .run();
 
-    assert!(result.is_ok(), "Scenario with commands should pass: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Scenario with commands should pass: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -174,7 +193,11 @@ fn test_scenario_no_ai() {
     }
     .run();
 
-    assert!(result.is_ok(), "Scenario with AI disabled should pass: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Scenario with AI disabled should pass: {:?}",
+        result.err()
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -274,13 +297,11 @@ fn test_missing_player_noop_injection() {
         seed: 42,
         map_size: map::MapSize::Small,
         config: RunConfig { enable_ai: false },
-        commands: vec![
-            GameCommand {
-                tick: 5,
-                player_id: 0,
-                action: Action::MoveTo { unit: uid0, target },
-            },
-        ],
+        commands: vec![GameCommand {
+            tick: 5,
+            player_id: 0,
+            action: Action::MoveTo { unit: uid0, target },
+        }],
         max_tick: 10,
         verifier: Box::new(InvariantVerifier::new().check(move |world| {
             if !has_movement_component(world, uid0) {
@@ -314,12 +335,18 @@ fn test_commands_sorting_by_player_then_action() {
             GameCommand {
                 tick: 5,
                 player_id: 1,
-                action: Action::MoveTo { unit: uid1, target: target_b },
+                action: Action::MoveTo {
+                    unit: uid1,
+                    target: target_b,
+                },
             },
             GameCommand {
                 tick: 5,
                 player_id: 0,
-                action: Action::MoveTo { unit: uid0, target: target_a },
+                action: Action::MoveTo {
+                    unit: uid0,
+                    target: target_a,
+                },
             },
         ],
         max_tick: 10,
@@ -348,7 +375,7 @@ fn test_many_commands_per_tick() {
     let (uid0, uid1) = find_both_faction_unit_ids(42, map::MapSize::Small, 30);
     let mut cmds = Vec::new();
     for i in 0..10 {
-        let offset = Fixed::from_int((i as i32) * 10);
+        let offset = Fixed::from_int(i * 10);
         cmds.push(GameCommand {
             tick: 5,
             player_id: 0,

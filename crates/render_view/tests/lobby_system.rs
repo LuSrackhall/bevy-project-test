@@ -10,7 +10,9 @@
 use bevy::prelude::*;
 use bevy_adapter::driver::SimulationDriver;
 use bevy_adapter::network::{LobbyPlayerState, NetworkEvent, NetworkEventReceiver};
-use render_view::{GameState, LobbyConnectionState, LobbyPhase, NetworkGameStart, lobby_update_system};
+use render_view::{
+    lobby_update_system, GameState, LobbyConnectionState, LobbyPhase, NetworkGameStart,
+};
 
 /// Build a minimal app in the Lobby state with a Connected lobby session and a
 /// player-1 identity (relay-assigned), then push a single batch:
@@ -20,12 +22,17 @@ fn make_connected_lobby_app() -> App {
     app.add_plugins(bevy::state::app::StatesPlugin);
     app.init_resource::<NetworkGameStart>();
     app.init_resource::<render_view::ConnectionPollRx>();
-    app.insert_resource(LobbyConnectionState { phase: LobbyPhase::Connected });
+    app.insert_resource(LobbyConnectionState {
+        phase: LobbyPhase::Connected,
+    });
     app.init_resource::<NetworkEventReceiver>();
     app.init_resource::<bevy_adapter::NetworkActive>();
     app.insert_resource(SimulationDriver::new_network());
     app.insert_state(GameState::Lobby);
-    app.add_systems(Update, lobby_update_system.run_if(in_state(GameState::Lobby)));
+    app.add_systems(
+        Update,
+        lobby_update_system.run_if(in_state(GameState::Lobby)),
+    );
 
     app.world_mut().resource_mut::<NetworkGameStart>().player_id = 1;
     app
@@ -40,8 +47,16 @@ fn test_game_started_same_batch_as_ready_lobby_update_is_not_dropped() {
         events.push(NetworkEvent::LobbyUpdate {
             game_id: 1,
             players: vec![
-                LobbyPlayerState { player_id: 0, ready: true, selected_map: None },
-                LobbyPlayerState { player_id: 1, ready: true, selected_map: None },
+                LobbyPlayerState {
+                    player_id: 0,
+                    ready: true,
+                    selected_map: None,
+                },
+                LobbyPlayerState {
+                    player_id: 1,
+                    ready: true,
+                    selected_map: None,
+                },
             ],
         });
         events.push(NetworkEvent::GameStarted {
@@ -65,8 +80,14 @@ fn test_game_started_same_batch_as_ready_lobby_update_is_not_dropped() {
     // The user-visible symptom is staying in the lobby: assert the state actually
     // transitions to Playing (NextState applied on the following frame).
     app.update();
-    let state = app.world().resource::<bevy::state::state::State<GameState>>();
-    assert_eq!(state.get(), &GameState::Playing, "lobby must transition to Playing");
+    let state = app
+        .world()
+        .resource::<bevy::state::state::State<GameState>>();
+    assert_eq!(
+        state.get(),
+        &GameState::Playing,
+        "lobby must transition to Playing"
+    );
 }
 
 #[test]
@@ -79,8 +100,16 @@ fn test_lobby_update_alone_transitions_to_ready_but_waits_for_game_started() {
         .push(NetworkEvent::LobbyUpdate {
             game_id: 1,
             players: vec![
-                LobbyPlayerState { player_id: 0, ready: true, selected_map: None },
-                LobbyPlayerState { player_id: 1, ready: true, selected_map: None },
+                LobbyPlayerState {
+                    player_id: 0,
+                    ready: true,
+                    selected_map: None,
+                },
+                LobbyPlayerState {
+                    player_id: 1,
+                    ready: true,
+                    selected_map: None,
+                },
             ],
         });
 

@@ -35,7 +35,11 @@ impl fmt::Display for VerifyError {
                 f,
                 "[{source}] Hash mismatch: expected {expected:#018x}, got {actual:#018x}"
             ),
-            VerifyError::EventMismatch { tick, detail, source } => {
+            VerifyError::EventMismatch {
+                tick,
+                detail,
+                source,
+            } => {
                 write!(f, "[{source}] Event mismatch at tick {tick}: {detail}")
             }
             VerifyError::InvariantViolation { detail, source } => {

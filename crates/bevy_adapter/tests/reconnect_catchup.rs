@@ -8,9 +8,11 @@
 
 use bevy::prelude::*;
 use bevy_adapter::driver::{
-    CommandSource, SchedulerState, SimulationDriver, TickClock, simulation_driver_system,
+    simulation_driver_system, CommandSource, SchedulerState, SimulationDriver, TickClock,
 };
-use bevy_adapter::network::{NetworkCommandSource, PAGE_TICKS, ReconnectPage, ReconnectResponse, TickCommands};
+use bevy_adapter::network::{
+    NetworkCommandSource, ReconnectPage, ReconnectResponse, TickCommands, PAGE_TICKS,
+};
 use bevy_adapter::replay::ReplayRecorder;
 use bevy_adapter::tick::{PendingEvents, SimulationWorld};
 use simulation::command::CommandBuffer;
@@ -53,7 +55,8 @@ fn build_page(first: u32, total: u32, page_index: u32) -> ReconnectPage {
 #[test]
 fn test_reconnect_catchup_advances_multiple_ticks() {
     let seed = 42u64;
-    let mut raw_world = simulation::init_simulation_world_multi(seed, PlayerSlots::multi_player(4, 0));
+    let mut raw_world =
+        simulation::init_simulation_world_multi(seed, PlayerSlots::multi_player(4, 0));
     simulation::map::generate_map(&mut raw_world, MapSize::Small);
     let sim_world = SimulationWorld::new(raw_world);
 

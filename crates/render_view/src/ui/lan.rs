@@ -31,7 +31,9 @@ pub fn update_lan_servers(
     listener: Option<Res<LanDiscoveryListener>>,
 ) {
     // Timeout expired entries
-    servers.servers.retain(|s| s.last_seen.elapsed() < LAN_TIMEOUT);
+    servers
+        .servers
+        .retain(|s| s.last_seen.elapsed() < LAN_TIMEOUT);
 
     // Drain new discoveries
     if let Some(listener) = listener {
@@ -39,7 +41,10 @@ pub fn update_lan_servers(
         for pkt in new_packets {
             // Deduplicate by relay_id
             let rid = pkt.advertisement.relay_id;
-            let pos = servers.servers.iter().position(|s| s.packet.advertisement.relay_id == rid);
+            let pos = servers
+                .servers
+                .iter()
+                .position(|s| s.packet.advertisement.relay_id == rid);
             if let Some(i) = pos {
                 servers.servers[i].packet = pkt;
                 servers.servers[i].last_seen = Instant::now();

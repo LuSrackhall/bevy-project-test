@@ -138,7 +138,8 @@ pub fn setup_replay_player(mut commands: Commands, asset_server: Res<AssetServer
             .observe(
                 |_ev: On<Activate>, mut driver: Option<ResMut<SimulationDriver>>| {
                     if let Some(ref mut d) = driver {
-                        let target = (d.clock.current_tick + SKIP_TICKS).min(d.replay_total_ticks());
+                        let target =
+                            (d.clock.current_tick + SKIP_TICKS).min(d.replay_total_ticks());
                         d.scheduler.seek_target = Some(target);
                         d.scheduler.async_seek = true;
                         d.scheduler.is_paused = false;
@@ -239,7 +240,9 @@ pub fn replay_seek_system(
 
     // If target is behind current position, reinitialize world
     if target < driver.clock.current_tick {
-        let CommandSource::Replay(ref rs) = driver.source else { return };
+        let CommandSource::Replay(ref rs) = driver.source else {
+            return;
+        };
         let seed = rs.replay.seed;
         let map_size = rs.replay.map_size;
         let mut world = simulation::init_simulation_world(seed);
@@ -253,7 +256,9 @@ pub fn replay_seek_system(
 
     // Fixed batch: process up to 500 ticks per frame
     let current = driver.clock.current_tick;
-    let CommandSource::Replay(ref mut rs) = driver.source else { return };
+    let CommandSource::Replay(ref mut rs) = driver.source else {
+        return;
+    };
     let end = (current + 500).min(target);
     let mut tick = current;
     while tick < end {
@@ -285,7 +290,9 @@ pub fn update_replay_player(
     mut progress_fill: Query<&mut Node, With<ReplayProgressFill>>,
 ) {
     let Some(ref driver) = driver else { return };
-    if !driver.is_replay() { return; }
+    if !driver.is_replay() {
+        return;
+    }
 
     let total = driver.replay_total_ticks().max(1);
     let current = driver.clock.current_tick;
@@ -302,7 +309,11 @@ pub fn update_replay_player(
         );
     }
 
-    let icon = if driver.scheduler.is_paused { ">" } else { "||" };
+    let icon = if driver.scheduler.is_paused {
+        ">"
+    } else {
+        "||"
+    };
     for mut text in pause_text.iter_mut() {
         **text = icon.to_string();
     }
@@ -322,5 +333,5 @@ pub fn cleanup_replay_player(mut commands: Commands, query: Query<Entity, With<R
 
 /// Condition: only show replay player when in Replay mode.
 pub fn in_replay_mode(driver: Option<Res<SimulationDriver>>) -> bool {
-    driver.map_or(false, |d| d.is_replay())
+    driver.is_some_and(|d| d.is_replay())
 }

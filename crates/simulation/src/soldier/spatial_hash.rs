@@ -108,14 +108,21 @@ mod tests {
         for dx in -1..=1 {
             for dy in -1..=1 {
                 hash.insert(SpatialEntry {
-                    pos: FixedVec2::new(Fixed::from_int(dx * 32 + 16), Fixed::from_int(dy * 32 + 16)),
+                    pos: FixedVec2::new(
+                        Fixed::from_int(dx * 32 + 16),
+                        Fixed::from_int(dy * 32 + 16),
+                    ),
                     radius: 0,
                     unit_id: UnitId((dx + 2) as u64 * 10 + (dy + 2) as u64),
                 });
             }
         }
         let result = hash.query_nearby(FixedVec2::new(Fixed::from_int(16), Fixed::from_int(16)));
-        assert_eq!(result.len(), 9, "query_nearby should return entries from 9 cells");
+        assert_eq!(
+            result.len(),
+            9,
+            "query_nearby should return entries from 9 cells"
+        );
     }
 
     #[test]
@@ -131,7 +138,11 @@ mod tests {
         // radius=30 with cell_size=32 → r=1, same as query_nearby (3x3=9 cells)
         let nearby = hash.query_nearby(FixedVec2::new(Fixed::from_int(16), Fixed::ZERO));
         let range = hash.query_range(FixedVec2::new(Fixed::from_int(16), Fixed::ZERO), 30);
-        assert_eq!(nearby.len(), range.len(), "Small radius query_range should match query_nearby");
+        assert_eq!(
+            nearby.len(),
+            range.len(),
+            "Small radius query_range should match query_nearby"
+        );
     }
 
     #[test]
@@ -146,7 +157,10 @@ mod tests {
             });
         }
         // radius=200 with cell_size=64 → r=ceil(200/64)=4 → 9x9=81 cells
-        let range = hash.query_range(FixedVec2::new(Fixed::from_int(32), Fixed::from_int(32)), 200);
+        let range = hash.query_range(
+            FixedVec2::new(Fixed::from_int(32), Fixed::from_int(32)),
+            200,
+        );
         let nearby = hash.query_nearby(FixedVec2::new(Fixed::from_int(32), Fixed::from_int(32)));
         assert!(
             range.len() >= nearby.len(),
@@ -169,7 +183,10 @@ mod tests {
         let r2 = hash.query_range(center, 100);
         assert_eq!(r1.len(), r2.len());
         for (a, b) in r1.iter().zip(r2.iter()) {
-            assert_eq!(a.unit_id, b.unit_id, "query_range iteration order must be deterministic");
+            assert_eq!(
+                a.unit_id, b.unit_id,
+                "query_range iteration order must be deterministic"
+            );
         }
     }
 }

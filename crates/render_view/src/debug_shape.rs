@@ -60,19 +60,28 @@ pub fn draw_debug_shapes_system(
     q_proj: Query<&Projection, With<crate::camera::MainCamera>>,
 ) {
     let world = sim_world.world_ref();
-    let lid = crate::local_player_id(&*sim_world);
+    let lid = crate::local_player_id(&sim_world);
 
     interp.advance(tick_clock.current_tick);
     let alpha = (tick_clock.accumulator / tick_clock.tick_duration).clamp(0.0, 1.0);
 
-
     // Compute viewport AABB for culling
-    let scale = q_proj.iter().next().and_then(|p| {
-        if let Projection::Orthographic(ref o) = p { Some(o.scale) } else { None }
-    }).unwrap_or(1.0);
-    let aabb = q_windows.single().ok().zip(q_camera.single().ok()).map(|(w, (_, t))| {
-        crate::camera::viewport_aabb(t, w, scale)
-    });
+    let scale = q_proj
+        .iter()
+        .next()
+        .and_then(|p| {
+            if let Projection::Orthographic(ref o) = p {
+                Some(o.scale)
+            } else {
+                None
+            }
+        })
+        .unwrap_or(1.0);
+    let aabb = q_windows
+        .single()
+        .ok()
+        .zip(q_camera.single().ok())
+        .map(|(w, (_, t))| crate::camera::viewport_aabb(t, w, scale));
 
     let in_view = |x: f32, y: f32| -> bool {
         if let Some((min_x, min_y, max_x, max_y)) = aabb {
@@ -99,8 +108,10 @@ pub fn draw_debug_shapes_system(
             );
             let px = p.x;
             let py = p.y;
-            if !in_view(px, py) { continue; }
-                        let color = if is_player_faction(faction.0, lid) {
+            if !in_view(px, py) {
+                continue;
+            }
+            let color = if is_player_faction(faction.0, lid) {
                 Color::srgb(0.2, 0.6, 1.0)
             } else if faction_is_active_enemy(faction.0, lid) {
                 Color::srgb(1.0, 0.2, 0.2)
@@ -129,8 +140,10 @@ pub fn draw_debug_shapes_system(
                 Vec2::new(pos.0.x.to_float(), pos.0.y.to_float()),
                 alpha,
             );
-            if !in_view(p.x, p.y) { continue; }
-                        let color = if is_player_faction(faction.0, lid) {
+            if !in_view(p.x, p.y) {
+                continue;
+            }
+            let color = if is_player_faction(faction.0, lid) {
                 Color::srgb(0.3, 0.5, 0.9)
             } else if faction_is_active_enemy(faction.0, lid) {
                 Color::srgb(0.9, 0.3, 0.3)
@@ -147,7 +160,7 @@ pub fn draw_debug_shapes_system(
                 let angle_rad = angle_deg * std::f32::consts::PI / 180.0;
                 let line_len = r * 1.5;
                 let dir = Vec2::new(angle_rad.cos(), angle_rad.sin());
-                                let line_color = if is_player_faction(faction.0, lid) {
+                let line_color = if is_player_faction(faction.0, lid) {
                     Color::srgb(0.5, 0.7, 1.0)
                 } else if faction_is_active_enemy(faction.0, lid) {
                     Color::srgb(1.0, 0.5, 0.5)
@@ -163,7 +176,7 @@ pub fn draw_debug_shapes_system(
                 if shield.hp > 0 {
                     let shield_offset = r + 3.0;
                     let shield_pos = p + Vec2::new(shield_offset, 0.0);
-                                        let shield_color = if is_player_faction(faction.0, lid) {
+                    let shield_color = if is_player_faction(faction.0, lid) {
                         Color::srgb(0.4, 0.6, 1.0)
                     } else if faction_is_active_enemy(faction.0, lid) {
                         Color::srgb(1.0, 0.4, 0.4)
@@ -313,7 +326,11 @@ mod tests {
         let e = Entity::from_raw_u32(1).unwrap();
         let mut interp = RenderInterpolation::default();
         let pos = interp.sample(e, Vec2::new(7.0, 9.0), 0.5);
-        assert_eq!(pos, Vec2::new(7.0, 9.0), "no prev record → render at current");
+        assert_eq!(
+            pos,
+            Vec2::new(7.0, 9.0),
+            "no prev record → render at current"
+        );
         assert_eq!(interp.cur.get(&e), Some(&Vec2::new(7.0, 9.0)));
     }
 
@@ -325,7 +342,10 @@ mod tests {
             ..Default::default()
         };
         // Right after a tick alpha≈0 → must stay at the previous interval's end.
-        assert_eq!(interp.sample(e, Vec2::new(20.0, 20.0), 0.0), Vec2::new(10.0, 10.0));
+        assert_eq!(
+            interp.sample(e, Vec2::new(20.0, 20.0), 0.0),
+            Vec2::new(10.0, 10.0)
+        );
     }
 
     #[test]
@@ -336,7 +356,10 @@ mod tests {
             ..Default::default()
         };
         // Just before the next tick alpha→1 → must reach the current position.
-        assert_eq!(interp.sample(e, Vec2::new(20.0, 20.0), 1.0), Vec2::new(20.0, 20.0));
+        assert_eq!(
+            interp.sample(e, Vec2::new(20.0, 20.0), 1.0),
+            Vec2::new(20.0, 20.0)
+        );
     }
 
     #[test]
@@ -355,11 +378,20 @@ mod tests {
         assert_eq!(interp.prev.get(&e), Some(&Vec2::new(0.0, 0.0)));
         assert!(interp.cur.is_empty());
         // Tick frame: alpha≈0 → renders previous interval's end (continuous, no jump).
-        assert_eq!(interp.sample(e, Vec2::new(100.0, 0.0), 0.0), Vec2::new(0.0, 0.0));
+        assert_eq!(
+            interp.sample(e, Vec2::new(100.0, 0.0), 0.0),
+            Vec2::new(0.0, 0.0)
+        );
         assert_eq!(interp.cur.get(&e), Some(&Vec2::new(100.0, 0.0)));
         // Frames 4-5: no tick, alpha ramps → glides from P0 toward P1.
-        assert_eq!(interp.sample(e, Vec2::new(100.0, 0.0), 0.5), Vec2::new(50.0, 0.0));
-        assert_eq!(interp.sample(e, Vec2::new(100.0, 0.0), 1.0), Vec2::new(100.0, 0.0));
+        assert_eq!(
+            interp.sample(e, Vec2::new(100.0, 0.0), 0.5),
+            Vec2::new(50.0, 0.0)
+        );
+        assert_eq!(
+            interp.sample(e, Vec2::new(100.0, 0.0), 1.0),
+            Vec2::new(100.0, 0.0)
+        );
         // prev must remain stable across the interval (not clobbered by samples).
         assert_eq!(interp.prev.get(&e), Some(&Vec2::new(0.0, 0.0)));
     }

@@ -13,6 +13,12 @@ pub struct InvariantVerifier {
     checks: Vec<InvariantCheck>,
 }
 
+impl Default for InvariantVerifier {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl InvariantVerifier {
     pub fn new() -> Self {
         Self { checks: vec![] }

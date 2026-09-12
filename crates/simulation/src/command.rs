@@ -248,7 +248,7 @@ mod tests {
 
     #[test]
     fn test_sort_tag_deterministic_ordering() {
-        let mut commands = vec![
+        let mut commands = [
             GameCommand {
                 tick: 1,
                 player_id: 1,
@@ -288,6 +288,4 @@ mod tests {
         // LocalPlayerId default is 0 — matches single-player expectation
         assert_eq!(crate::types::LocalPlayerId::default().0, 0);
     }
-
 }
-

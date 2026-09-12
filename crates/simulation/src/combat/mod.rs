@@ -83,6 +83,21 @@ pub(crate) fn drop_shield_on_death(world: &mut World, dying_entity: Entity, curr
 // ══════════ combat_engagement ══════════
 
 /// Complexity: O(s*k), Memory: O(s), Hot Path: Yes
+/// 单兵战斗快照元组；字段较多，抽出别名以满足 clippy::type_complexity。
+type SoldierCombatEntry = (
+    Entity,
+    FixedVec2,
+    FactionId,
+    SoldierType,
+    SoldierState,
+    bool,
+    Option<UnitId>,
+    Option<UnitId>,
+    u32,
+    bool,
+    u32,
+);
+
 pub fn combat_engagement_system(world: &mut World) {
     let _soldier_config = world.resource::<SoldierConfig>().clone();
 
@@ -90,14 +105,19 @@ pub fn combat_engagement_system(world: &mut World) {
     crate::soldier::TickCombatIndex::ensure_exists(world);
 
     // Build per-faction SpatialHash from shared pos_faction (eliminates faction_map)
-    let (all_units, faction_spatial) = {
+    let (_all_units, faction_spatial) = {
         let index = world.resource::<crate::soldier::TickCombatIndex>();
         let all_units = index.pos_faction.clone();
         let mut faction_spatial: BTreeMap<FactionId, SpatialHash> = BTreeMap::new();
         for (&uid, &(pos, fac)) in &all_units {
-            faction_spatial.entry(fac)
+            faction_spatial
+                .entry(fac)
                 .or_insert_with(|| SpatialHash::new(Fixed::from_int(64)))
-                .insert(SpatialEntry { pos, radius: 0, unit_id: uid });
+                .insert(SpatialEntry {
+                    pos,
+                    radius: 0,
+                    unit_id: uid,
+                });
         }
         (all_units, faction_spatial)
     }; // Ref dropped here
@@ -105,7 +125,7 @@ pub fn combat_engagement_system(world: &mut World) {
     // Pre-sort soldier UnitIds for deterministic iteration
     let mut sorted_soldier_uids: Vec<UnitId> = Vec::new();
     // Use HashMap for O(1) lookup instead of Vec::find O(S²)
-    let soldier_map: HashMap<UnitId, (Entity, FixedVec2, FactionId, SoldierType, SoldierState, bool, Option<UnitId>, Option<UnitId>, u32, bool, u32)> = {
+    let soldier_map: HashMap<UnitId, SoldierCombatEntry> = {
         let mut q = world.query::<(
             Entity,
             &UnitIdComponent,
@@ -120,15 +140,41 @@ pub fn combat_engagement_system(world: &mut World) {
             .map(|(e, id, pos, fac, st, sst, mov, seek)| {
                 let uid = id.0;
                 sorted_soldier_uids.push(uid);
-                (uid, (e, pos.0, fac.0, st.0, sst.0, mov.force_move, mov.command_target, mov.target, mov.speed, seek.is_some_and(|s| s.active), seek.map_or(0, |s| s.seek_range)))
+                (
+                    uid,
+                    (
+                        e,
+                        pos.0,
+                        fac.0,
+                        st.0,
+                        sst.0,
+                        mov.force_move,
+                        mov.command_target,
+                        mov.target,
+                        mov.speed,
+                        seek.is_some_and(|s| s.active),
+                        seek.map_or(0, |s| s.seek_range),
+                    ),
+                )
             })
             .collect()
     };
     sorted_soldier_uids.sort();
 
     for &suid in &sorted_soldier_uids {
-        let &(entity, pos, faction, stype, state, force_move, cmd_target, target, speed, seek_active, seek_range) =
-            soldier_map.get(&suid).unwrap();
+        let &(
+            entity,
+            pos,
+            faction,
+            stype,
+            state,
+            force_move,
+            cmd_target,
+            target,
+            speed,
+            seek_active,
+            seek_range,
+        ) = soldier_map.get(&suid).unwrap();
         let uid = suid;
 
         if force_move {
@@ -159,11 +205,15 @@ pub fn combat_engagement_system(world: &mut World) {
         let large_range = seek_range > 192; // >3 cells → query_range degenerates to full scan
 
         for (&ffac, enemy_spatial) in &faction_spatial {
-            if ffac == faction { continue; }
+            if ffac == faction {
+                continue;
+            }
             if large_range {
                 // Direct scan: iterate all entries in enemy SpatialHash (flat Vec per cell)
                 for entry in enemy_spatial.iter_all() {
-                    if entry.unit_id == uid { continue; }
+                    if entry.unit_id == uid {
+                        continue;
+                    }
                     let ds = (pos - entry.pos).length_squared();
                     if ds <= aggro_sq && best.as_ref().is_none_or(|(_, d)| ds.0 < *d) {
                         best = Some((entry.unit_id, ds.0));
@@ -172,7 +222,9 @@ pub fn combat_engagement_system(world: &mut World) {
             } else {
                 let neighbors = enemy_spatial.query_range(pos, aggro.0);
                 for entry in &neighbors {
-                    if entry.unit_id == uid { continue; }
+                    if entry.unit_id == uid {
+                        continue;
+                    }
                     let ds = (pos - entry.pos).length_squared();
                     if ds <= aggro_sq && best.as_ref().is_none_or(|(_, d)| ds.0 < *d) {
                         best = Some((entry.unit_id, ds.0));
@@ -185,7 +237,11 @@ pub fn combat_engagement_system(world: &mut World) {
         if let Some((enemy_id, _)) = best {
             let is_cav = stype == SoldierType::Cavalry;
             if !is_cav {
-                let ct = if cmd_target.is_none() { target } else { cmd_target };
+                let ct = if cmd_target.is_none() {
+                    target
+                } else {
+                    cmd_target
+                };
                 em.insert(Movement {
                     speed,
                     target: Some(enemy_id),
@@ -315,14 +371,21 @@ pub fn melee_attack_system(world: &mut World, current_tick: u32) {
         let soldiers = index.soldiers.clone();
         // Build per-faction SpatialHash (eliminates faction_map)
         let mut faction_spatial: BTreeMap<FactionId, SpatialHash> = BTreeMap::new();
-        for (&uid, ref s) in &soldiers {
-            faction_spatial.entry(s.faction)
+        for (&uid, s) in &soldiers {
+            faction_spatial
+                .entry(s.faction)
                 .or_insert_with(|| SpatialHash::new(Fixed::from_int(32)))
-                .insert(SpatialEntry { pos: s.pos, radius: 0, unit_id: uid });
+                .insert(SpatialEntry {
+                    pos: s.pos,
+                    radius: 0,
+                    unit_id: uid,
+                });
         }
         let mut attackers: Vec<(UnitId, crate::soldier::SoldierSnapshot)> = soldiers
             .iter()
-            .filter(|(_, s)| s.attack.cooldown_remaining == 0 && s.soldier_type != SoldierType::Archer)
+            .filter(|(_, s)| {
+                s.attack.cooldown_remaining == 0 && s.soldier_type != SoldierType::Archer
+            })
             .map(|(&uid, s)| (uid, *s))
             .collect();
         attackers.sort_by_key(|(uid, _)| *uid);
@@ -364,10 +427,14 @@ pub fn melee_attack_system(world: &mut World, current_tick: u32) {
         let mut best_target: Option<(UnitId, FixedVec2, i64)> = None;
         // Use per-faction SpatialHash (no faction check per neighbor)
         for (&ffac, enemy_spatial) in &faction_spatial {
-            if ffac == s.faction { continue; }
+            if ffac == s.faction {
+                continue;
+            }
             let neighbors = enemy_spatial.query_range(s.pos, range_f.0);
             for entry in &neighbors {
-                if entry.unit_id == uid { continue; }
+                if entry.unit_id == uid {
+                    continue;
+                }
                 let dist_sq = (s.pos - entry.pos).length_squared();
                 if dist_sq <= range_sq {
                     // Blocking: check frontal angle
@@ -481,7 +548,8 @@ pub fn melee_attack_system(world: &mut World, current_tick: u32) {
             s.attack.interval_ticks
         };
         // Apply facing attack speed factor (not for cavalry instant attacks)
-        let cooldown = if s.soldier_type == SoldierType::Cavalry && windup_config.cavalry_no_windup {
+        let cooldown = if s.soldier_type == SoldierType::Cavalry && windup_config.cavalry_no_windup
+        {
             base_cooldown
         } else {
             let target_angle = facing::compute_angle_between(s.pos, tpos);
@@ -816,9 +884,14 @@ pub fn archer_attack_system(world: &mut World) {
         let index = world.resource::<crate::soldier::TickCombatIndex>();
         let mut faction_spatial: BTreeMap<FactionId, SpatialHash> = BTreeMap::new();
         for (&uid, &(pos, fac)) in &index.pos_faction {
-            faction_spatial.entry(fac)
+            faction_spatial
+                .entry(fac)
                 .or_insert_with(|| SpatialHash::new(Fixed::from_int(200)))
-                .insert(SpatialEntry { pos, radius: 0, unit_id: uid });
+                .insert(SpatialEntry {
+                    pos,
+                    radius: 0,
+                    unit_id: uid,
+                });
         }
         faction_spatial
     }; // Ref dropped here
@@ -840,7 +913,11 @@ pub fn archer_attack_system(world: &mut World) {
         all_cities.iter().map(|(id, _, fac)| (*id, *fac)).collect();
     let mut city_spatial = SpatialHash::new(Fixed::from_int(200));
     for &(uid, pos, _) in &all_cities {
-        city_spatial.insert(SpatialEntry { pos, radius: 0, unit_id: uid });
+        city_spatial.insert(SpatialEntry {
+            pos,
+            radius: 0,
+            unit_id: uid,
+        });
     }
 
     // Collect archers ready to fire — sorted by UnitId for deterministic RNG (§0.1)
@@ -896,9 +973,13 @@ pub fn archer_attack_system(world: &mut World) {
         let mut nearest: Option<(UnitId, FixedVec2)> = None;
         let mut nearest_d = i64::MAX;
         for (&ffac, enemy_spatial) in &soldier_faction_spatial {
-            if ffac == ad.faction { continue; }
+            if ffac == ad.faction {
+                continue;
+            }
             for entry in &enemy_spatial.query_nearby(ad.pos) {
-                if entry.unit_id == ad.uid { continue; }
+                if entry.unit_id == ad.uid {
+                    continue;
+                }
                 let ds = (ad.pos - entry.pos).length_squared();
                 if ds <= range_sq {
                     enemy_soldiers_in_range.push((entry.unit_id, entry.pos));
@@ -916,7 +997,9 @@ pub fn archer_attack_system(world: &mut World) {
             let mut best_d = i64::MAX;
             for entry in &city_spatial.query_nearby(ad.pos) {
                 if let Some(&cfac) = city_faction_map.get(&entry.unit_id) {
-                    if cfac == ad.faction { continue; }
+                    if cfac == ad.faction {
+                        continue;
+                    }
                     let ds = (ad.pos - entry.pos).length_squared();
                     if ds <= range_sq && ds.0 < best_d {
                         best = Some((entry.unit_id, entry.pos));
@@ -1065,7 +1148,7 @@ pub fn arrow_movement_system(world: &mut World, current_tick: u32) {
     crate::soldier::TickCombatIndex::ensure_exists(world);
 
     // Extract data from shared tick index then drop Ref
-    let (soldier_faction_map, soldier_entity_map, soldier_pos_map, soldier_spatial) = {
+    let (soldier_faction_map, _soldier_entity_map, soldier_pos_map, soldier_spatial) = {
         let index = world.resource::<crate::soldier::TickCombatIndex>();
         let soldiers = &index.soldiers;
         let faction_map: HashMap<UnitId, FactionId> =
@@ -1076,7 +1159,11 @@ pub fn arrow_movement_system(world: &mut World, current_tick: u32) {
             soldiers.iter().map(|(&id, s)| (id, s.pos)).collect();
         let mut spatial = SpatialHash::new(Fixed::from_int(32));
         for (&uid, s) in soldiers {
-            spatial.insert(SpatialEntry { pos: s.pos, radius: 0, unit_id: uid });
+            spatial.insert(SpatialEntry {
+                pos: s.pos,
+                radius: 0,
+                unit_id: uid,
+            });
         }
         (faction_map, entity_map, pos_map, spatial)
     }; // Ref dropped here
@@ -1095,13 +1182,21 @@ pub fn arrow_movement_system(world: &mut World, current_tick: u32) {
             .map(|(e, id, pos, fac, _, r)| (id.0, pos.0, e, fac.0, r.0))
             .collect()
     };
-    let city_faction_map: HashMap<UnitId, FactionId> =
-        all_cities.iter().map(|(id, _, _, fac, _)| (*id, *fac)).collect();
-    let city_entity_map: HashMap<UnitId, (Entity, u32)> =
-        all_cities.iter().map(|(id, _, e, _, r)| (*id, (*e, *r))).collect();
+    let city_faction_map: HashMap<UnitId, FactionId> = all_cities
+        .iter()
+        .map(|(id, _, _, fac, _)| (*id, *fac))
+        .collect();
+    let city_entity_map: HashMap<UnitId, (Entity, u32)> = all_cities
+        .iter()
+        .map(|(id, _, e, _, r)| (*id, (*e, *r)))
+        .collect();
     let mut city_spatial = SpatialHash::new(Fixed::from_int(200));
     for &(uid, pos, _, _, _) in &all_cities {
-        city_spatial.insert(SpatialEntry { pos, radius: 0, unit_id: uid });
+        city_spatial.insert(SpatialEntry {
+            pos,
+            radius: 0,
+            unit_id: uid,
+        });
     }
 
     // arrow_building_damage_ratio is permyriad (e.g. 50 = 0.5%). Denom = 10000 / ratio.
@@ -1153,9 +1248,15 @@ pub fn arrow_movement_system(world: &mut World, current_tick: u32) {
                 let neighbors = soldier_spatial.query_nearby(arrow_pos.0);
                 for entry in &neighbors {
                     if let Some(&efac) = soldier_faction_map.get(&entry.unit_id) {
-                        if efac == arrow.from_faction { continue; }
-                    } else { continue; }
-                    if arrow.hit_units.contains(&entry.unit_id) { continue; }
+                        if efac == arrow.from_faction {
+                            continue;
+                        }
+                    } else {
+                        continue;
+                    }
+                    if arrow.hit_units.contains(&entry.unit_id) {
+                        continue;
+                    }
                     if (arrow_pos.0 - entry.pos).length_squared() <= threshold_sq {
                         arrow.hit_units.push(entry.unit_id);
                         let rolled = pierce_rolls[pierce_idx.min(pierce_rolls.len() - 1)];
@@ -1184,8 +1285,12 @@ pub fn arrow_movement_system(world: &mut World, current_tick: u32) {
                     let city_neighbors = city_spatial.query_nearby(arrow_pos.0);
                     for entry in &city_neighbors {
                         if let Some(&cfac) = city_faction_map.get(&entry.unit_id) {
-                            if cfac == arrow.from_faction { continue; }
-                        } else { continue; }
+                            if cfac == arrow.from_faction {
+                                continue;
+                            }
+                        } else {
+                            continue;
+                        }
                         if let Some(&(ce, cradius)) = city_entity_map.get(&entry.unit_id) {
                             let radius = Fixed::from_int(cradius as i32);
                             let radius_sq = radius * radius;
@@ -1232,7 +1337,9 @@ pub fn arrow_movement_system(world: &mut World, current_tick: u32) {
                     drop_shield_on_death(world, te, current_tick);
                     world.despawn(te);
                     // Update incremental index
-                    if let Some(mut index) = world.get_resource_mut::<crate::unit_index::UnitIdEntityIndex>() {
+                    if let Some(mut index) =
+                        world.get_resource_mut::<crate::unit_index::UnitIdEntityIndex>()
+                    {
                         index.remove(uid);
                     }
                     let mut events = world.resource_mut::<SimulationEvents>();
@@ -1271,16 +1378,23 @@ pub fn arrow_movement_system(world: &mut World, current_tick: u32) {
 
     // Despawn arrows with UnitDestroyed events
     for ae in to_despawn {
-        let uid = world.entity(ae).get::<UnitIdComponent>().map(|c| c.0).unwrap_or(UnitId(0));
+        let uid = world
+            .entity(ae)
+            .get::<UnitIdComponent>()
+            .map(|c| c.0)
+            .unwrap_or(UnitId(0));
         world.despawn(ae);
         // Update incremental index
         if let Some(mut index) = world.get_resource_mut::<crate::unit_index::UnitIdEntityIndex>() {
             index.remove(uid);
         }
-        world.resource_mut::<SimulationEvents>().destroyed.push(UnitDestroyed {
-            unit_id: uid,
-            killer_id: None,
-        });
+        world
+            .resource_mut::<SimulationEvents>()
+            .destroyed
+            .push(UnitDestroyed {
+                unit_id: uid,
+                killer_id: None,
+            });
     }
 }
 

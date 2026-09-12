@@ -4,10 +4,10 @@
 //! wire:     consume SessionArtifacts → setup Driver/World/Resources
 //! BootstrapPhase: 生命周期状态（Init → Wired → Active）
 
-use bevy::ecs::system::Commands;
 use crate::driver::{CommandSource, SimulationDriver};
-use crate::session::{SessionConfig, SessionMode};
 use crate::network::NetworkCommandSource;
+use crate::session::{SessionConfig, SessionMode};
+use bevy::ecs::system::Commands;
 use simulation::replay::ReplayFile;
 
 // ═══════════════════════════════════════════════════════════════
@@ -91,7 +91,8 @@ pub fn wire(ctx: &mut BootstrapCtx, artifacts: SessionArtifacts) {
             ctx.driver.source = CommandSource::Live(crate::driver::LiveCommandSource);
         }
         SessionArtifacts::Replay { replay } => {
-            ctx.driver.source = CommandSource::Replay(crate::driver::ReplayCommandSource { replay });
+            ctx.driver.source =
+                CommandSource::Replay(crate::driver::ReplayCommandSource { replay });
         }
         SessionArtifacts::Network(result) => {
             let ns = NetworkCommandSource::new(1, result.player_id, 3);

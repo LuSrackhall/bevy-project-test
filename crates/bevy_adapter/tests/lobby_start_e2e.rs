@@ -18,7 +18,7 @@ use std::time::Duration;
 use bevy_adapter::discovery::RelayId;
 use bevy_adapter::network::{NetworkEvent, NetworkEventReceiver, PlayerTickFrame};
 use bevy_adapter::transport::{
-    NetworkClientHandle, NetworkSender, spawn_network_client_nonblocking,
+    spawn_network_client_nonblocking, NetworkClientHandle, NetworkSender,
 };
 
 fn find_free_port() -> u16 {
@@ -90,10 +90,22 @@ fn connect_two(
 ) {
     let ev0 = NetworkEventReceiver::default();
     let ev1 = NetworkEventReceiver::default();
-    let (_r0, s0, h0, _st0) =
-        spawn_network_client_nonblocking(format!("127.0.0.1:{port}"), 1, 0, 1, ev0.clone(), RelayId(42));
-    let (_r1, s1, h1, _st1) =
-        spawn_network_client_nonblocking(format!("127.0.0.1:{port}"), 1, 0, 1, ev1.clone(), RelayId(42));
+    let (_r0, s0, h0, _st0) = spawn_network_client_nonblocking(
+        format!("127.0.0.1:{port}"),
+        1,
+        0,
+        1,
+        ev0.clone(),
+        RelayId(42),
+    );
+    let (_r1, s1, h1, _st1) = spawn_network_client_nonblocking(
+        format!("127.0.0.1:{port}"),
+        1,
+        0,
+        1,
+        ev1.clone(),
+        RelayId(42),
+    );
 
     let pid0 = wait_joined(&ev0, "client0");
     let pid1 = wait_joined(&ev1, "client1");

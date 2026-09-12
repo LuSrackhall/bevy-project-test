@@ -1,5 +1,5 @@
-use bevy::prelude::Resource;
 use crate::discovery::{RelayId, RoomMetadata};
+use bevy::prelude::Resource;
 
 use super::error::RelayError;
 use super::runtime::{RelayHandle, RelayRuntime};
@@ -124,7 +124,9 @@ mod tests {
 
     #[test]
     fn test_create_session() {
-        let mut ctrl = SessionController::new(Box::new(MockRelayRuntime { fail_on_start: false }));
+        let mut ctrl = SessionController::new(Box::new(MockRelayRuntime {
+            fail_on_start: false,
+        }));
         assert!(!ctrl.is_active());
         let result = ctrl.create_session(make_room());
         assert!(result.is_ok());
@@ -134,7 +136,9 @@ mod tests {
 
     #[test]
     fn test_destroy_session() {
-        let mut ctrl = SessionController::new(Box::new(MockRelayRuntime { fail_on_start: false }));
+        let mut ctrl = SessionController::new(Box::new(MockRelayRuntime {
+            fail_on_start: false,
+        }));
         ctrl.create_session(make_room()).unwrap();
         assert!(ctrl.is_active());
         ctrl.destroy_session().unwrap();
@@ -144,14 +148,18 @@ mod tests {
 
     #[test]
     fn test_destroy_when_no_session() {
-        let mut ctrl = SessionController::new(Box::new(MockRelayRuntime { fail_on_start: false }));
+        let mut ctrl = SessionController::new(Box::new(MockRelayRuntime {
+            fail_on_start: false,
+        }));
         let result = ctrl.destroy_session();
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_create_session_replaces_existing() {
-        let mut ctrl = SessionController::new(Box::new(MockRelayRuntime { fail_on_start: false }));
+        let mut ctrl = SessionController::new(Box::new(MockRelayRuntime {
+            fail_on_start: false,
+        }));
         ctrl.create_session(make_room()).unwrap();
         let _first_id = ctrl.current_session().unwrap().room.room_id;
 
@@ -165,7 +173,9 @@ mod tests {
 
     #[test]
     fn test_create_session_failure() {
-        let mut ctrl = SessionController::new(Box::new(MockRelayRuntime { fail_on_start: true }));
+        let mut ctrl = SessionController::new(Box::new(MockRelayRuntime {
+            fail_on_start: true,
+        }));
         let result = ctrl.create_session(make_room());
         assert!(result.is_err());
         assert!(!ctrl.is_active());
@@ -181,7 +191,9 @@ mod tests {
 
     #[test]
     fn test_current_relay_id() {
-        let mut ctrl = SessionController::new(Box::new(MockRelayRuntime { fail_on_start: false }));
+        let mut ctrl = SessionController::new(Box::new(MockRelayRuntime {
+            fail_on_start: false,
+        }));
         assert_eq!(ctrl.current_relay_id(), None);
 
         ctrl.create_session(make_room()).unwrap();

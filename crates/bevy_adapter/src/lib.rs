@@ -6,8 +6,8 @@ pub mod lan;
 pub mod lifecycle;
 pub mod mapper;
 pub mod network;
-pub mod reliable_udp;
 pub mod relay_core;
+pub mod reliable_udp;
 pub mod replay;
 pub mod session;
 pub mod session_host;
@@ -91,9 +91,7 @@ impl Plugin for BevyAdapterPlugin {
         {
             use tracing_subscriber::prelude::*;
             let tracy_layer = tracing_tracy::TracyLayer::default();
-            tracing_subscriber::registry()
-                .with(tracy_layer)
-                .init();
+            tracing_subscriber::registry().with(tracy_layer).init();
         }
 
         app.init_resource::<UnitIdMapper>()
@@ -110,11 +108,14 @@ impl Plugin for BevyAdapterPlugin {
             .init_resource::<crate::driver::TickClock>()
             .init_resource::<ReplayRecorder>()
             .init_resource::<ReplayStatus>()
-            .insert_resource(crate::session_host::SessionController::new(
-                Box::new(crate::session_host::ThreadRelayRuntime),
-            ))
+            .insert_resource(crate::session_host::SessionController::new(Box::new(
+                crate::session_host::ThreadRelayRuntime,
+            )))
             // Network transport systems: run during Lobby (NetworkActive) and Playing (GameActive)
-            .configure_sets(Update, SimulationTickSet.before(crate::lifecycle::SyncEntitiesSet))
+            .configure_sets(
+                Update,
+                SimulationTickSet.before(crate::lifecycle::SyncEntitiesSet),
+            )
             .add_systems(
                 Update,
                 (

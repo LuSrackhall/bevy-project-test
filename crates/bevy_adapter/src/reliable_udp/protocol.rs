@@ -39,7 +39,13 @@ pub struct Frame {
     pub payload: Vec<u8>,
 }
 
-pub fn encode(channel: u8, seq: u32, kind: u8, frag: Option<(u32, u16, u16)>, payload: &[u8]) -> Vec<u8> {
+pub fn encode(
+    channel: u8,
+    seq: u32,
+    kind: u8,
+    frag: Option<(u32, u16, u16)>,
+    payload: &[u8],
+) -> Vec<u8> {
     let mut out = Vec::with_capacity(HEADER_LEN + payload.len() + 8);
     out.extend_from_slice(&MAGIC.to_be_bytes());
     out.push(channel);
@@ -114,7 +120,13 @@ pub fn decode(buf: &[u8]) -> Option<Frame> {
 
 /// Build an ACK frame for a reliable channel with a cumulative acked seq.
 pub fn ack_frame(channel: u8, cumulative: u32) -> Vec<u8> {
-    encode(channel, cumulative, KIND_ACK, None, &cumulative.to_be_bytes())
+    encode(
+        channel,
+        cumulative,
+        KIND_ACK,
+        None,
+        &cumulative.to_be_bytes(),
+    )
 }
 
 #[cfg(test)]

@@ -38,10 +38,18 @@ fn room(room_id: u64) -> RoomMetadata {
 fn wait_for_packet(listener: &LanDiscoveryListener, rid: RelayId, secs: u64) -> LanDiscoveryPacket {
     let deadline = Instant::now() + Duration::from_secs(secs);
     loop {
-        if let Some(pkt) = listener.drain().into_iter().find(|p| p.advertisement.relay_id == rid) {
+        if let Some(pkt) = listener
+            .drain()
+            .into_iter()
+            .find(|p| p.advertisement.relay_id == rid)
+        {
             return pkt;
         }
-        assert!(Instant::now() < deadline, "beacon for relay {:?} never arrived", rid);
+        assert!(
+            Instant::now() < deadline,
+            "beacon for relay {:?} never arrived",
+            rid
+        );
         std::thread::sleep(Duration::from_millis(100));
     }
 }
@@ -126,7 +134,9 @@ fn test_beacon_source_port_is_not_9876() {
     // source port) captures the beacon. This only works once the beacon binds
     // an ephemeral port — before the fix it failed to bind at all.
     let probe = UdpSocket::bind("0.0.0.0:9876").expect("probe binds 9876");
-    probe.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+    probe
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
 
     let mut ctrl = SessionController::new(Box::new(ThreadRelayRuntime));
     ctrl.create_session(room(7)).expect("relay starts");
@@ -134,21 +144,21 @@ fn test_beacon_source_port_is_not_9876() {
     let mut buf = [0u8; 512];
     let deadline = Instant::now() + Duration::from_secs(6);
     loop {
-        match probe.recv_from(&mut buf) {
-            Ok((len, src)) => {
-                if let Some(pkt) = LanDiscoveryPacket::decode(&buf[..len]) {
-                    assert_eq!(pkt.advertisement.room.room_name, "test-7");
-                    assert_ne!(
-                        src.port(),
-                        9876,
-                        "beacon must broadcast from an ephemeral source port, not 9876"
-                    );
-                    break;
-                }
+        if let Ok((len, src)) = probe.recv_from(&mut buf) {
+            if let Some(pkt) = LanDiscoveryPacket::decode(&buf[..len]) {
+                assert_eq!(pkt.advertisement.room.room_name, "test-7");
+                assert_ne!(
+                    src.port(),
+                    9876,
+                    "beacon must broadcast from an ephemeral source port, not 9876"
+                );
+                break;
             }
-            Err(_) => {}
         }
-        assert!(Instant::now() < deadline, "beacon never reached the 9876 probe");
+        assert!(
+            Instant::now() < deadline,
+            "beacon never reached the 9876 probe"
+        );
     }
 
     ctrl.destroy_session().expect("relay stops");

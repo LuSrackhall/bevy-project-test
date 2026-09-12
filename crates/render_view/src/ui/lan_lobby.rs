@@ -68,27 +68,35 @@ pub fn setup_lan_lobby(mut commands: Commands, asset_server: Res<AssetServer>) {
             ));
 
             // Column headers
-            parent.spawn(Node {
-                flex_direction: FlexDirection::Row,
-                margin: UiRect::top(Val::Px(20.0)),
-                padding: UiRect::axes(Val::Px(8.0), Val::Px(4.0)),
-                ..default()
-            })
-            .with_children(|row| {
-                for (label, flex) in [
-                    ("房间名称", 3.0),
-                    ("地图", 2.0),
-                    ("人数", 1.0),
-                    ("状态", 1.0),
-                    ("操作", 1.0),
-                ] {
-                    row.spawn((
-                        Text::new(label),
-                        TextFont { font: font.clone().into(), font_size: FontSize::Px(14.0), ..default() },
-                        Node { flex_grow: flex, ..default() },
-                    ));
-                }
-            });
+            parent
+                .spawn(Node {
+                    flex_direction: FlexDirection::Row,
+                    margin: UiRect::top(Val::Px(20.0)),
+                    padding: UiRect::axes(Val::Px(8.0), Val::Px(4.0)),
+                    ..default()
+                })
+                .with_children(|row| {
+                    for (label, flex) in [
+                        ("房间名称", 3.0),
+                        ("地图", 2.0),
+                        ("人数", 1.0),
+                        ("状态", 1.0),
+                        ("操作", 1.0),
+                    ] {
+                        row.spawn((
+                            Text::new(label),
+                            TextFont {
+                                font: font.clone().into(),
+                                font_size: FontSize::Px(14.0),
+                                ..default()
+                            },
+                            Node {
+                                flex_grow: flex,
+                                ..default()
+                            },
+                        ));
+                    }
+                });
 
             // Room list container (dynamically updated)
             parent.spawn((
@@ -105,55 +113,98 @@ pub fn setup_lan_lobby(mut commands: Commands, asset_server: Res<AssetServer>) {
             // Empty state (toggled by update_room_list)
             parent.spawn((
                 Text::new("没有找到局域网房间"),
-                TextFont { font: font.clone().into(), font_size: FontSize::Px(18.0), ..default() },
-                Node { margin: UiRect::top(Val::Px(20.0)), display: Display::None, ..default() },
+                TextFont {
+                    font: font.clone().into(),
+                    font_size: FontSize::Px(18.0),
+                    ..default()
+                },
+                Node {
+                    margin: UiRect::top(Val::Px(20.0)),
+                    display: Display::None,
+                    ..default()
+                },
                 LanLobbyEmptyText,
             ));
 
             // Bottom bar: return + create buttons
-            parent.spawn(Node {
-                flex_direction: FlexDirection::Row,
-                justify_content: JustifyContent::SpaceBetween,
-                width: Val::Percent(100.0),
-                margin: UiRect::top(Val::Px(20.0)),
-                ..default()
-            })
-            .with_children(|row| {
-                // Return button
-                row.spawn((
-                    WidgetButton,
-                    Node { padding: UiRect::all(Val::Px(12.0)), border: UiRect::all(Val::Px(2.0)), ..default() },
-                    ButtonTheme::dark(),
-                    BorderColor::all(Color::srgba(0.5, 0.5, 0.6, 1.0)),
-                ))
-                .with_child((Text::new("返回"), TextFont { font: font.clone().into(), font_size: FontSize::Px(18.0), ..default() }))
-                .observe(|_ev: On<Activate>, mut next: ResMut<NextState<crate::GameState>>| {
-                    next.set(crate::GameState::MainMenu);
-                });
+            parent
+                .spawn(Node {
+                    flex_direction: FlexDirection::Row,
+                    justify_content: JustifyContent::SpaceBetween,
+                    width: Val::Percent(100.0),
+                    margin: UiRect::top(Val::Px(20.0)),
+                    ..default()
+                })
+                .with_children(|row| {
+                    // Return button
+                    row.spawn((
+                        WidgetButton,
+                        Node {
+                            padding: UiRect::all(Val::Px(12.0)),
+                            border: UiRect::all(Val::Px(2.0)),
+                            ..default()
+                        },
+                        ButtonTheme::dark(),
+                        BorderColor::all(Color::srgba(0.5, 0.5, 0.6, 1.0)),
+                    ))
+                    .with_child((
+                        Text::new("返回"),
+                        TextFont {
+                            font: font.clone().into(),
+                            font_size: FontSize::Px(18.0),
+                            ..default()
+                        },
+                    ))
+                    .observe(
+                        |_ev: On<Activate>, mut next: ResMut<NextState<crate::GameState>>| {
+                            next.set(crate::GameState::MainMenu);
+                        },
+                    );
 
-                // Create room button
-                row.spawn((
-                    WidgetButton,
-                    Node { padding: UiRect::all(Val::Px(12.0)), border: UiRect::all(Val::Px(2.0)), ..default() },
-                    LanLobbyCreateBtn,
-                    ButtonTheme::default(),
-                    BorderColor::all(Color::srgba(0.2, 0.6, 0.2, 1.0)),
-                ))
-                .with_child((Text::new("创建房间"), TextFont { font: font.clone().into(), font_size: FontSize::Px(18.0), ..default() }))
-                .observe(open_create_room_modal);
-            });
+                    // Create room button
+                    row.spawn((
+                        WidgetButton,
+                        Node {
+                            padding: UiRect::all(Val::Px(12.0)),
+                            border: UiRect::all(Val::Px(2.0)),
+                            ..default()
+                        },
+                        LanLobbyCreateBtn,
+                        ButtonTheme::default(),
+                        BorderColor::all(Color::srgba(0.2, 0.6, 0.2, 1.0)),
+                    ))
+                    .with_child((
+                        Text::new("创建房间"),
+                        TextFont {
+                            font: font.clone().into(),
+                            font_size: FontSize::Px(18.0),
+                            ..default()
+                        },
+                    ))
+                    .observe(open_create_room_modal);
+                });
         });
 }
+
+/// 既有房间行的查询别名（满足 clippy::type_complexity，并让签名自解释）。
+type ExistingRoomRows<'w, 's> = Query<
+    'w,
+    's,
+    (Entity, &'static LanLobbyRowData),
+    (With<LanLobbyRow>, Without<LanLobbyRoomList>),
+>;
 
 /// Dynamic room list: syncs LanServers → room rows each frame.
 /// Uses incremental update (not full rebuild) to keep button entities stable
 /// across frames, preserving WidgetButton's Pressed state for Activate events.
+// Bevy 系统的参数即依赖声明，数量由所协调的资源决定；收敛为 SystemParam 结构体留待专门重构。
+#[allow(clippy::too_many_arguments)]
 pub fn update_room_list(
     mut commands: Commands,
     servers: Res<crate::ui::lan::LanServers>,
     controller: Option<Res<bevy_adapter::session_host::SessionController>>,
     room_list: Query<Entity, With<LanLobbyRoomList>>,
-    existing_rows: Query<(Entity, &LanLobbyRowData), (With<LanLobbyRow>, Without<LanLobbyRoomList>)>,
+    existing_rows: ExistingRoomRows,
     mut empty_text: Query<&mut Node, With<LanLobbyEmptyText>>,
     asset_server: Res<AssetServer>,
     children_q: Query<&Children>,
@@ -170,10 +221,8 @@ pub fn update_room_list(
     sorted_servers.sort_by_key(|s| s.packet.advertisement.relay_id.0);
 
     // Build map of existing rows by relay_id
-    let existing_map: std::collections::HashMap<RelayId, Entity> = existing_rows
-        .iter()
-        .map(|(e, d)| (d.0, e))
-        .collect();
+    let existing_map: std::collections::HashMap<RelayId, Entity> =
+        existing_rows.iter().map(|(e, d)| (d.0, e)).collect();
 
     // Toggle empty state
     if sorted_servers.is_empty() {
@@ -192,7 +241,10 @@ pub fn update_room_list(
 
     // Remove stale rows (disappeared from discovery)
     for (&relay_id, &entity) in &existing_map {
-        if !sorted_servers.iter().any(|s| s.packet.advertisement.relay_id == relay_id) {
+        if !sorted_servers
+            .iter()
+            .any(|s| s.packet.advertisement.relay_id == relay_id)
+        {
             commands.entity(entity).despawn();
         }
     }
@@ -226,7 +278,9 @@ pub fn update_room_list(
                         3 => state_label,
                         _ => continue,
                     };
-                    commands.entity(child).insert(Text::new(new_text.to_string()));
+                    commands
+                        .entity(child)
+                        .insert(Text::new(new_text.to_string()));
                 }
             }
         } else {

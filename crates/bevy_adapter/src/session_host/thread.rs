@@ -198,7 +198,8 @@ impl RelayHandle for ThreadRelayHandle {
     fn shutdown(self: Box<Self>) -> Result<(), RelayError> {
         self.stop.store(true, Ordering::Relaxed);
         if let Some(h) = self.handle.lock().unwrap().take() {
-            h.join().map_err(|_| RelayError::ShutdownFailed("Thread join failed".into()))?;
+            h.join()
+                .map_err(|_| RelayError::ShutdownFailed("Thread join failed".into()))?;
         }
         Ok(())
     }

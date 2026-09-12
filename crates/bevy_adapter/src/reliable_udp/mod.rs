@@ -13,8 +13,6 @@ use std::io;
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use async_trait::async_trait;
-
 pub mod channel;
 pub mod channel_netem;
 pub mod channel_udp;
@@ -109,7 +107,11 @@ pub struct ReliableSocket {
 }
 
 impl ReliableSocket {
-    pub fn new(channel: Box<dyn DatagramChannel>, peer: SocketAddr, config: ReliableConfig) -> Self {
+    pub fn new(
+        channel: Box<dyn DatagramChannel>,
+        peer: SocketAddr,
+        config: ReliableConfig,
+    ) -> Self {
         Self {
             channel,
             peer,
@@ -150,11 +152,17 @@ impl ReliableSocket {
         if payload.len() <= MAX_DATA {
             self.queue_fragment(channel, msg_id, 0, 1, payload);
         } else {
-            let total = (payload.len() + MAX_DATA - 1) / MAX_DATA;
+            let total = payload.len().div_ceil(MAX_DATA);
             for idx in 0..total as u16 {
                 let start = idx as usize * MAX_DATA;
                 let end = (start + MAX_DATA).min(payload.len());
-                self.queue_fragment(channel, msg_id, idx, total as u16, payload[start..end].to_vec());
+                self.queue_fragment(
+                    channel,
+                    msg_id,
+                    idx,
+                    total as u16,
+                    payload[start..end].to_vec(),
+                );
             }
         }
     }
@@ -169,9 +177,15 @@ impl ReliableSocket {
         let sender = &mut self.senders[channel as usize];
         let seq = sender.next_seq;
         sender.next_seq = sender.next_seq.wrapping_add(1);
-        let frag = if total > 1 { Some((msg_id, idx, total)) } else { None };
+        let frag = if total > 1 {
+            Some((msg_id, idx, total))
+        } else {
+            None
+        };
         let frame = encode(channel, seq, KIND_FRAG, frag, &data);
-        sender.unacked.push_back((seq, frame, 0, self.now + self.config.rto_initial));
+        sender
+            .unacked
+            .push_back((seq, frame, 0, self.now + self.config.rto_initial));
     }
 
     /// Select frames that are within the window and due (fresh or RTO exceeded)
@@ -214,7 +228,8 @@ impl ReliableSocket {
         let mut buf = [0u8; 65535];
         for _ in 0..10 {
             let res =
-                tokio::time::timeout(Duration::from_millis(10), self.channel.recv_from(&mut buf)).await;
+                tokio::time::timeout(Duration::from_millis(10), self.channel.recv_from(&mut buf))
+                    .await;
             match res {
                 Ok(Ok((n, _from))) => {
                     if let Some(frame) = decode(&buf[..n]) {
@@ -234,7 +249,12 @@ impl ReliableSocket {
             KIND_ACK => {
                 let ch = frame.channel as usize;
                 if ch < 3 && frame.payload.len() == 4 {
-                    let acked = u32::from_be_bytes([frame.payload[0], frame.payload[1], frame.payload[2], frame.payload[3]]);
+                    let acked = u32::from_be_bytes([
+                        frame.payload[0],
+                        frame.payload[1],
+                        frame.payload[2],
+                        frame.payload[3],
+                    ]);
                     let sender = &mut self.senders[ch];
                     if acked.wrapping_sub(sender.last_acked) > 0 {
                         sender.last_acked = acked;
@@ -270,16 +290,19 @@ impl ReliableSocket {
                         return;
                     }
                 }
-                let assembler = self.assemblers.entry((frame.channel, msg_id)).or_insert(FragAssembler {
-                    total,
-                    parts: BTreeMap::new(),
-                });
+                let assembler =
+                    self.assemblers
+                        .entry((frame.channel, msg_id))
+                        .or_insert(FragAssembler {
+                            total,
+                            parts: BTreeMap::new(),
+                        });
                 assembler.parts.insert(idx, (frame.seq, frame.payload));
                 if assembler.parts.len() as u16 == assembler.total {
                     let mut data = Vec::new();
                     let mut min_seq = u32::MAX;
                     let mut max_seq = 0u32;
-                    for (_, (seq, part)) in &assembler.parts {
+                    for (seq, part) in assembler.parts.values() {
                         data.extend_from_slice(part);
                         min_seq = min_seq.min(*seq);
                         max_seq = max_seq.max(*seq);
@@ -380,7 +403,10 @@ mod tests {
         }
     }
 
-    fn mk_socket() -> (ReliableSocket, std::sync::Arc<std::sync::Mutex<NetemChannel>>) {
+    fn mk_socket() -> (
+        ReliableSocket,
+        std::sync::Arc<std::sync::Mutex<NetemChannel>>,
+    ) {
         let ch = std::sync::Arc::new(std::sync::Mutex::new(NetemChannel::new()));
         let sock = ReliableSocket::new(
             Box::new(SharedNetem(ch.clone())),
@@ -392,7 +418,11 @@ mod tests {
 
     /// Drive one poll round on a socket (flush outbound + process inbound).
     fn pump(sock: &mut ReliableSocket) {
-        let rt = tokio::runtime::Builder::new_current_thread().enable_io().enable_time().build().unwrap();
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_io()
+            .enable_time()
+            .build()
+            .unwrap();
         rt.block_on(async {
             sock.process();
             sock.poll().await.unwrap();
@@ -400,18 +430,28 @@ mod tests {
     }
 
     /// Move every datagram `a` sent into `b`'s inbound (full reliable delivery).
-    fn deliver_all(a_ch: &std::sync::Arc<std::sync::Mutex<NetemChannel>>, b_ch: &std::sync::Arc<std::sync::Mutex<NetemChannel>>) {
+    fn deliver_all(
+        a_ch: &std::sync::Arc<std::sync::Mutex<NetemChannel>>,
+        b_ch: &std::sync::Arc<std::sync::Mutex<NetemChannel>>,
+    ) {
         let sent: Vec<Vec<u8>> = a_ch.lock().unwrap().sent().to_vec();
         for d in sent {
-            b_ch.lock().unwrap().inject("127.0.0.1:9001".parse().unwrap(), d);
+            b_ch.lock()
+                .unwrap()
+                .inject("127.0.0.1:9001".parse().unwrap(), d);
         }
     }
 
     /// Move every datagram `b` sent (ACKs) back into `a`'s inbound.
-    fn deliver_b_to_a(b_ch: &std::sync::Arc<std::sync::Mutex<NetemChannel>>, a_ch: &std::sync::Arc<std::sync::Mutex<NetemChannel>>) {
+    fn deliver_b_to_a(
+        b_ch: &std::sync::Arc<std::sync::Mutex<NetemChannel>>,
+        a_ch: &std::sync::Arc<std::sync::Mutex<NetemChannel>>,
+    ) {
         let sent: Vec<Vec<u8>> = b_ch.lock().unwrap().sent().to_vec();
         for d in sent {
-            a_ch.lock().unwrap().inject("127.0.0.1:9000".parse().unwrap(), d);
+            a_ch.lock()
+                .unwrap()
+                .inject("127.0.0.1:9000".parse().unwrap(), d);
         }
     }
 
@@ -427,7 +467,11 @@ mod tests {
         pump(&mut b);
 
         let msgs = b.take_messages();
-        assert_eq!(msgs, vec![b"m1".to_vec(), b"m2".to_vec()], "ordered delivery");
+        assert_eq!(
+            msgs,
+            vec![b"m1".to_vec(), b"m2".to_vec()],
+            "ordered delivery"
+        );
     }
 
     #[test]
@@ -443,12 +487,18 @@ mod tests {
         assert_eq!(sent.len(), 3);
         // deliver in reverse order to force reordering
         for i in (0..3).rev() {
-            ch_b.lock().unwrap().inject("127.0.0.1:9001".parse().unwrap(), sent[i].clone());
+            ch_b.lock()
+                .unwrap()
+                .inject("127.0.0.1:9001".parse().unwrap(), sent[i].clone());
         }
         pump(&mut b);
 
         let msgs = b.take_messages();
-        assert_eq!(msgs, vec![b"m1".to_vec(), b"m2".to_vec(), b"m3".to_vec()], "reordered back to seq order");
+        assert_eq!(
+            msgs,
+            vec![b"m1".to_vec(), b"m2".to_vec(), b"m3".to_vec()],
+            "reordered back to seq order"
+        );
     }
 
     #[test]
@@ -461,8 +511,12 @@ mod tests {
         let sent = ch_a.lock().unwrap().sent().to_vec();
         assert_eq!(sent.len(), 1);
         // deliver twice (duplicate)
-        ch_b.lock().unwrap().inject("127.0.0.1:9001".parse().unwrap(), sent[0].clone());
-        ch_b.lock().unwrap().inject("127.0.0.1:9001".parse().unwrap(), sent[0].clone());
+        ch_b.lock()
+            .unwrap()
+            .inject("127.0.0.1:9001".parse().unwrap(), sent[0].clone());
+        ch_b.lock()
+            .unwrap()
+            .inject("127.0.0.1:9001".parse().unwrap(), sent[0].clone());
         pump(&mut b);
 
         let msgs = b.take_messages();
@@ -483,13 +537,21 @@ mod tests {
         a.set_now(Duration::from_millis(250));
         pump(&mut a);
         let sent_count2 = ch_a.lock().unwrap().sent_count();
-        assert!(sent_count2 >= 2, "RTO must trigger retransmission, got {}", sent_count2);
+        assert!(
+            sent_count2 >= 2,
+            "RTO must trigger retransmission, got {}",
+            sent_count2
+        );
 
         // deliver all A sent (including retransmit) to B
         deliver_all(&ch_a, &ch_b);
         pump(&mut b);
         let msgs = b.take_messages();
-        assert_eq!(msgs, vec![b"cmd".to_vec()], "retransmitted frame delivered once");
+        assert_eq!(
+            msgs,
+            vec![b"cmd".to_vec()],
+            "retransmitted frame delivered once"
+        );
     }
 
     #[test]
@@ -541,15 +603,24 @@ mod tests {
         assert_eq!(sent.len(), 3);
 
         // Deliver ONLY the third frame; m1/m2 frames are lost.
-        ch_b.lock().unwrap().inject("127.0.0.1:9001".parse().unwrap(), sent[2].clone());
+        ch_b.lock()
+            .unwrap()
+            .inject("127.0.0.1:9001".parse().unwrap(), sent[2].clone());
         pump(&mut b);
-        assert!(b.take_messages().is_empty(), "nothing contiguous delivered yet");
+        assert!(
+            b.take_messages().is_empty(),
+            "nothing contiguous delivered yet"
+        );
 
         // Advance virtual clock past RTO and reprocess → gap frames retransmitted.
         a.set_now(Duration::from_millis(250));
         pump(&mut a);
         let sent2 = ch_a.lock().unwrap().sent().to_vec();
-        assert!(sent2.len() >= 4, "gap frames must be retransmitted, got {}", sent2.len());
+        assert!(
+            sent2.len() >= 4,
+            "gap frames must be retransmitted, got {}",
+            sent2.len()
+        );
 
         // Deliver everything A sent (originals + retransmissions) to B.
         deliver_all(&ch_a, &ch_b);
@@ -567,7 +638,10 @@ mod tests {
             a.set_now(Duration::from_millis(200 * i + 1));
             pump(&mut a);
         }
-        assert!(a.is_dead(), "retransmit exhaustion must mark the socket dead");
+        assert!(
+            a.is_dead(),
+            "retransmit exhaustion must mark the socket dead"
+        );
     }
 
     #[test]
@@ -584,14 +658,27 @@ mod tests {
         a.send_reliable(CH_TICK, big2.clone());
         pump(&mut a);
         let sent = ch_a.lock().unwrap().sent().to_vec();
-        assert!(sent.len() >= 4, "both messages must fragment, got {}", sent.len());
+        assert!(
+            sent.len() >= 4,
+            "both messages must fragment, got {}",
+            sent.len()
+        );
 
         // Deliver M1 frag0 (seq1), M2 frag0+frag1 (seq3,4). M1 frag1 (seq2) is lost.
-        ch_b.lock().unwrap().inject("127.0.0.1:9001".parse().unwrap(), sent[0].clone());
-        ch_b.lock().unwrap().inject("127.0.0.1:9001".parse().unwrap(), sent[2].clone());
-        ch_b.lock().unwrap().inject("127.0.0.1:9001".parse().unwrap(), sent[3].clone());
+        ch_b.lock()
+            .unwrap()
+            .inject("127.0.0.1:9001".parse().unwrap(), sent[0].clone());
+        ch_b.lock()
+            .unwrap()
+            .inject("127.0.0.1:9001".parse().unwrap(), sent[2].clone());
+        ch_b.lock()
+            .unwrap()
+            .inject("127.0.0.1:9001".parse().unwrap(), sent[3].clone());
         pump(&mut b);
-        assert!(b.take_messages().is_empty(), "M2 must not deliver ahead of M1");
+        assert!(
+            b.take_messages().is_empty(),
+            "M2 must not deliver ahead of M1"
+        );
 
         // A must NOT have been told everything is acked (gap seq2 still in flight).
         assert!(a.in_flight() > 0, "gap frame must remain in-flight");
@@ -603,7 +690,9 @@ mod tests {
         pump(&mut a);
         let sent2 = ch_a.lock().unwrap().sent().to_vec();
         assert!(sent2.len() >= 6, "must retransmit, got {}", sent2.len());
-        ch_b.lock().unwrap().inject("127.0.0.1:9001".parse().unwrap(), sent2[5].clone());
+        ch_b.lock()
+            .unwrap()
+            .inject("127.0.0.1:9001".parse().unwrap(), sent2[5].clone());
         pump(&mut b);
 
         let msgs = b.take_messages();

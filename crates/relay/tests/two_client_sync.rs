@@ -5,11 +5,9 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use bevy_adapter::discovery::{RelayId, RoomId};
-use bevy_adapter::network::{
-    BroadcastFrame, PlayerTickFrame, RelayClientMessage, RelayServerMessage,
-};
+use bevy_adapter::network::{PlayerTickFrame, RelayClientMessage, RelayServerMessage};
 use bevy_adapter::reliable_udp::channel_udp::UdpChannel;
-use bevy_adapter::reliable_udp::protocol::{CH_CONTROL, CH_TICK};
+use bevy_adapter::reliable_udp::protocol::CH_CONTROL;
 use bevy_adapter::reliable_udp::{ReliableConfig, ReliableSocket};
 use relay::start_relay;
 
@@ -30,7 +28,10 @@ async fn udp_join(port: u16, relay_id: RelayId) -> (ReliableSocket, u8) {
     let sock = UdpChannel::bind("0.0.0.0:0").await.unwrap();
     let peer: SocketAddr = format!("127.0.0.1:{}", port).parse().unwrap();
     let mut rs = ReliableSocket::new(Box::new(sock), peer, ReliableConfig::default());
-    let join = RelayClientMessage::JoinGame { room_id: RoomId(0), relay_id };
+    let join = RelayClientMessage::JoinGame {
+        room_id: RoomId(0),
+        relay_id,
+    };
     let data = bincode::serde::encode_to_vec(&join, bincode::config::standard()).unwrap();
     rs.send_reliable(CH_CONTROL, data);
 
@@ -42,7 +43,10 @@ async fn udp_join(port: u16, relay_id: RelayId) -> (ReliableSocket, u8) {
         pump(&mut rs).await;
         for msg in rs.take_messages() {
             if let Ok((RelayServerMessage::GameJoined { player_id, .. }, _)) =
-                bincode::serde::decode_from_slice::<RelayServerMessage, _>(&msg, bincode::config::standard())
+                bincode::serde::decode_from_slice::<RelayServerMessage, _>(
+                    &msg,
+                    bincode::config::standard(),
+                )
             {
                 return (rs, player_id);
             }
@@ -73,9 +77,10 @@ async fn udp_recv_until(rs: &mut ReliableSocket, secs: u64, want: Want) -> Relay
         }
         pump(rs).await;
         let msgs = rs.take_messages_matching(|m| {
-            if let Ok((m2, _)) =
-                bincode::serde::decode_from_slice::<RelayServerMessage, _>(m, bincode::config::standard())
-            {
+            if let Ok((m2, _)) = bincode::serde::decode_from_slice::<RelayServerMessage, _>(
+                m,
+                bincode::config::standard(),
+            ) {
                 match want {
                     Want::LobbyUpdate => matches!(m2, RelayServerMessage::LobbyUpdate { .. }),
                     Want::GameStarted => matches!(m2, RelayServerMessage::GameStarted { .. }),
@@ -85,9 +90,10 @@ async fn udp_recv_until(rs: &mut ReliableSocket, secs: u64, want: Want) -> Relay
             }
         });
         if let Some(m) = msgs.into_iter().next() {
-            if let Ok((m2, _)) =
-                bincode::serde::decode_from_slice::<RelayServerMessage, _>(&m, bincode::config::standard())
-            {
+            if let Ok((m2, _)) = bincode::serde::decode_from_slice::<RelayServerMessage, _>(
+                &m,
+                bincode::config::standard(),
+            ) {
                 return m2;
             }
         }
@@ -103,9 +109,10 @@ async fn udp_recv(rs: &mut ReliableSocket, secs: u64) -> RelayServerMessage {
         }
         pump(rs).await;
         for msg in rs.take_messages() {
-            if let Ok((m, _)) =
-                bincode::serde::decode_from_slice::<RelayServerMessage, _>(&msg, bincode::config::standard())
-            {
+            if let Ok((m, _)) = bincode::serde::decode_from_slice::<RelayServerMessage, _>(
+                &msg,
+                bincode::config::standard(),
+            ) {
                 match m {
                     RelayServerMessage::GameStarted { .. } => continue,
                     other => return other,
@@ -118,19 +125,41 @@ async fn udp_recv(rs: &mut ReliableSocket, secs: u64) -> RelayServerMessage {
 #[tokio::test(flavor = "current_thread")]
 async fn test_two_clients_receive_identical_broadcasts() {
     let port = find_free_port().await;
-    tokio::spawn(async move { start_relay(port, 42, 2, Some(RelayId(42))).await.unwrap(); });
+    tokio::spawn(async move {
+        start_relay(port, 42, 2, Some(RelayId(42))).await.unwrap();
+    });
     tokio::time::sleep(Duration::from_millis(200)).await;
 
     let (mut c0, pid0) = udp_join(port, RelayId(42)).await;
     let (mut c1, pid1) = udp_join(port, RelayId(42)).await;
     assert_eq!((pid0, pid1), (0, 1));
 
-    udp_send(&mut c0, &RelayClientMessage::PlayerTick(PlayerTickFrame {
-        magic: 0xBEEF, game_id: 1, tick: 1, player_id: 0, commands: vec![], player_sid: 1, version: 1,
-    })).await;
-    udp_send(&mut c1, &RelayClientMessage::PlayerTick(PlayerTickFrame {
-        magic: 0xBEEF, game_id: 1, tick: 1, player_id: 1, commands: vec![], player_sid: 1, version: 1,
-    })).await;
+    udp_send(
+        &mut c0,
+        &RelayClientMessage::PlayerTick(PlayerTickFrame {
+            magic: 0xBEEF,
+            game_id: 1,
+            tick: 1,
+            player_id: 0,
+            commands: vec![],
+            player_sid: 1,
+            version: 1,
+        }),
+    )
+    .await;
+    udp_send(
+        &mut c1,
+        &RelayClientMessage::PlayerTick(PlayerTickFrame {
+            magic: 0xBEEF,
+            game_id: 1,
+            tick: 1,
+            player_id: 1,
+            commands: vec![],
+            player_sid: 1,
+            version: 1,
+        }),
+    )
+    .await;
 
     let b0 = udp_recv(&mut c0, 5).await;
     let b1 = udp_recv(&mut c1, 5).await;
@@ -153,16 +182,25 @@ async fn test_two_clients_receive_identical_broadcasts() {
 #[tokio::test(flavor = "current_thread")]
 async fn test_two_clients_lobby_ready_then_game_started() {
     let port = find_free_port().await;
-    tokio::spawn(async move { start_relay(port, 42, 2, Some(RelayId(42))).await.unwrap(); });
+    tokio::spawn(async move {
+        start_relay(port, 42, 2, Some(RelayId(42))).await.unwrap();
+    });
     tokio::time::sleep(Duration::from_millis(200)).await;
 
     let (mut c0, _) = udp_join(port, RelayId(42)).await;
     let (mut c1, _) = udp_join(port, RelayId(42)).await;
 
     // c0 sends LobbyReady → relay broadcasts LobbyUpdate
-    udp_send(&mut c0, &RelayClientMessage::LobbyReady {
-        game_id: 1, player_id: 0, ready: true, map_size: None,
-    }).await;
+    udp_send(
+        &mut c0,
+        &RelayClientMessage::LobbyReady {
+            game_id: 1,
+            player_id: 0,
+            ready: true,
+            map_size: None,
+        },
+    )
+    .await;
 
     match udp_recv_until(&mut c0, 5, Want::LobbyUpdate).await {
         RelayServerMessage::LobbyUpdate { .. } => {}
@@ -172,16 +210,27 @@ async fn test_two_clients_lobby_ready_then_game_started() {
     match udp_recv_until(&mut c1, 5, Want::LobbyUpdate).await {
         RelayServerMessage::LobbyUpdate { players, .. } => {
             assert_eq!(players.len(), 2, "Expected 2 players");
-            let c0_rdy = players.iter().find(|p| p.player_id == 0).map(|p| p.ready).unwrap_or(false);
+            let c0_rdy = players
+                .iter()
+                .find(|p| p.player_id == 0)
+                .map(|p| p.ready)
+                .unwrap_or(false);
             assert!(c0_rdy, "c0 should be ready after sending LobbyReady");
         }
         other => panic!("c1 expected LobbyUpdate, got {:?}", other),
     }
 
     // c1 sends LobbyReady → all ready → LobbyUpdate + GameStarted
-    udp_send(&mut c1, &RelayClientMessage::LobbyReady {
-        game_id: 1, player_id: 1, ready: true, map_size: None,
-    }).await;
+    udp_send(
+        &mut c1,
+        &RelayClientMessage::LobbyReady {
+            game_id: 1,
+            player_id: 1,
+            ready: true,
+            map_size: None,
+        },
+    )
+    .await;
 
     match udp_recv_until(&mut c1, 5, Want::LobbyUpdate).await {
         RelayServerMessage::LobbyUpdate { .. } => {}
@@ -211,7 +260,9 @@ async fn test_two_clients_lobby_ready_then_game_started() {
 #[tokio::test(flavor = "current_thread")]
 async fn test_heartbeat_timeout_releases_seat() {
     let port = find_free_port().await;
-    tokio::spawn(async move { start_relay(port, 42, 2, Some(RelayId(42))).await.unwrap(); });
+    tokio::spawn(async move {
+        start_relay(port, 42, 2, Some(RelayId(42))).await.unwrap();
+    });
     tokio::time::sleep(Duration::from_millis(200)).await;
 
     // c0 joins as player 0.

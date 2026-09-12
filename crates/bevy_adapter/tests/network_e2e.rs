@@ -19,14 +19,12 @@ use std::time::Duration;
 use bevy::prelude::*;
 use bevy_adapter::discovery::RelayId;
 use bevy_adapter::driver::{
-    CommandSource, SimulationDriver, SchedulerState, TickClock, simulation_driver_system,
+    simulation_driver_system, CommandSource, SchedulerState, SimulationDriver, TickClock,
 };
-use bevy_adapter::network::{NetworkCommandSource, NetworkEventReceiver};
+use bevy_adapter::network::NetworkCommandSource;
 use bevy_adapter::replay::ReplayRecorder;
 use bevy_adapter::tick::{PendingEvents, SimulationWorld};
-use bevy_adapter::transport::{
-    network_flush_system, network_poll_system, spawn_network_client,
-};
+use bevy_adapter::transport::{network_flush_system, network_poll_system, spawn_network_client};
 use simulation::command::{CommandBuffer, GameCommand};
 use simulation::golden_test;
 use simulation::map::MapSize;
@@ -95,11 +93,7 @@ fn test_network_pipeline_e2e() {
 
     // Read-only query before wrapping (needs direct access to the inner World)
     let player_unit = {
-        let mut q = raw_world.query::<(
-            &UnitIdComponent,
-            &FactionComponent,
-            &SoldierMarker,
-        )>();
+        let mut q = raw_world.query::<(&UnitIdComponent, &FactionComponent, &SoldierMarker)>();
         q.iter(&raw_world)
             .find(|(_, f, _)| f.0 == FactionId(0))
             .map(|(id, _, _)| id.0)
@@ -218,8 +212,7 @@ fn test_network_pipeline_e2e() {
     let total_ticks = driver.clock.current_tick;
     let replay = recorder.finish(total_ticks);
     let ron = replay.to_ron();
-    let loaded: ReplayFile =
-        ReplayFile::from_ron(&ron).expect("ReplayFile RON round-trip");
+    let loaded: ReplayFile = ReplayFile::from_ron(&ron).expect("ReplayFile RON round-trip");
 
     // ── Phase 9: Replay in a fresh simulation World ────────
     let mut replay_world = simulation::init_simulation_world(loaded.seed);
@@ -228,18 +221,15 @@ fn test_network_pipeline_e2e() {
     for tick in 1..=loaded.total_ticks {
         let cmds = loaded.commands_for_tick(tick).to_vec();
         for cmd in cmds {
-            replay_world
-                .resource_mut::<CommandBuffer>()
-                .0
-                .push(cmd);
+            replay_world.resource_mut::<CommandBuffer>().0.push(cmd);
         }
         simulation::run_tick_default(&mut replay_world, tick);
 
         // Verify determinism: hash at each DESYNC_CHECK_INTERVAL
         if tick % ReplayFile::DESYNC_CHECK_INTERVAL == 0 {
-            let expected = loaded.hash_for_tick(tick).unwrap_or_else(|| {
-                panic!("missing recorded hash at tick {tick}")
-            });
+            let expected = loaded
+                .hash_for_tick(tick)
+                .unwrap_or_else(|| panic!("missing recorded hash at tick {tick}"));
             let actual = golden_test::hash_world_state(&mut replay_world);
             assert_eq!(
                 expected, actual,

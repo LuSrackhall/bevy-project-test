@@ -24,7 +24,10 @@ pub async fn start_relay(
 
     // Dual-stack UDP socket — accepts IPv4/IPv6 clients
     let socket = UdpSocket::bind(format!("[::]:{}", port)).await?;
-    println!("Relay on port {} (players={}, seed={})", port, player_count, seed);
+    println!(
+        "Relay on port {} (players={}, seed={})",
+        port, player_count, seed
+    );
 
     let config = RelayConfig {
         relay_id,

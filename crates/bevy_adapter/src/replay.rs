@@ -3,10 +3,10 @@
 //! Recording: captures external player commands per tick in simulation_driver_system.
 //! Playback: handled by CommandSource::Replay in driver.rs.
 
+use bevy::prelude::*;
 use simulation::command::GameCommand;
 use simulation::map::MapSize;
 use simulation::replay::ReplayFile;
-use bevy::prelude::*;
 
 /// Recording buffer — collects external player commands per tick.
 #[derive(Resource, Default)]

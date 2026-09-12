@@ -205,7 +205,8 @@ pub(crate) fn unit_info_bar_system(
     let mut units: Vec<UnitBarInfo> = Vec::new();
 
     {
-        let mut q = sim_world.query::<(Entity, &UnitIdComponent, &LogicalPosition, &Health, &Level)>();
+        let mut q =
+            sim_world.query::<(Entity, &UnitIdComponent, &LogicalPosition, &Health, &Level)>();
         for (entity, id, pos, hp, lvl) in q.iter(world) {
             let (shield_hp, shield_max) =
                 if let Some(shield) = world.get::<simulation::types::ShieldItem>(entity) {
@@ -294,19 +295,32 @@ pub(crate) fn unit_info_bar_system(
     }
 
     // ── Viewport culling ──
-    let scale = q_proj.iter().next().and_then(|p| {
-        if let Projection::Orthographic(ref o) = p { Some(o.scale) } else { None }
-    }).unwrap_or(1.0);
-    let aabb = q_windows.single().ok().zip(q_camera.single().ok()).map(|(w, (_, t))| {
-        crate::camera::viewport_aabb(t, w, scale)
-    });
+    let scale = q_proj
+        .iter()
+        .next()
+        .and_then(|p| {
+            if let Projection::Orthographic(ref o) = p {
+                Some(o.scale)
+            } else {
+                None
+            }
+        })
+        .unwrap_or(1.0);
+    let aabb = q_windows
+        .single()
+        .ok()
+        .zip(q_camera.single().ok())
+        .map(|(w, (_, t))| crate::camera::viewport_aabb(t, w, scale));
 
     // ── Process each unit ──
     for info in &units {
         // Skip off-screen units
         if let Some((min_x, min_y, max_x, max_y)) = aabb {
-            if info.world_pos.x < min_x || info.world_pos.x > max_x ||
-               info.world_pos.y < min_y || info.world_pos.y > max_y {
+            if info.world_pos.x < min_x
+                || info.world_pos.x > max_x
+                || info.world_pos.y < min_y
+                || info.world_pos.y > max_y
+            {
                 continue;
             }
         }
@@ -336,7 +350,7 @@ pub(crate) fn unit_info_bar_system(
             } else {
                 // Dirty check: only update text+fills when values changed
                 let cached = bar_cache.get(&info.unit_id);
-                let is_dirty = cached.map_or(true, |c| *c != CachedBarState::from_info(info));
+                let is_dirty = cached.is_none_or(|c| *c != CachedBarState::from_info(info));
 
                 update_bar(
                     parts,

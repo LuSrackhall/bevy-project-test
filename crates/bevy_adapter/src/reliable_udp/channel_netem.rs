@@ -23,6 +23,12 @@ pub struct NetemChannel {
     now: Duration,
 }
 
+impl Default for NetemChannel {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl NetemChannel {
     pub fn new() -> Self {
         Self {
@@ -68,7 +74,10 @@ impl NetemChannel {
             buf[..n].copy_from_slice(&data[..n]);
             Ok((n, from))
         } else {
-            Err(io::Error::new(io::ErrorKind::WouldBlock, "netem inbound empty"))
+            Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "netem inbound empty",
+            ))
         }
     }
 }

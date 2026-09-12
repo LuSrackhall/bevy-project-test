@@ -65,7 +65,11 @@ impl LanDiscoveryListener {
             }
         });
 
-        Self { stop, handle: Some(handle), discovered }
+        Self {
+            stop,
+            handle: Some(handle),
+            discovered,
+        }
     }
 
     /// Drain all received packets since last call.

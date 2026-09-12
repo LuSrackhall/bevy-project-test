@@ -30,7 +30,10 @@ async fn udp_join(port: u16, relay_id: RelayId) -> (ReliableSocket, u8) {
     let sock = UdpChannel::bind("0.0.0.0:0").await.unwrap();
     let peer: SocketAddr = format!("127.0.0.1:{}", port).parse().unwrap();
     let mut rs = ReliableSocket::new(Box::new(sock), peer, ReliableConfig::default());
-    let join = RelayClientMessage::JoinGame { room_id: RoomId(0), relay_id };
+    let join = RelayClientMessage::JoinGame {
+        room_id: RoomId(0),
+        relay_id,
+    };
     let data = bincode::serde::encode_to_vec(&join, bincode::config::standard()).unwrap();
     rs.send_reliable(CH_CONTROL, data);
 
@@ -44,7 +47,10 @@ async fn udp_join(port: u16, relay_id: RelayId) -> (ReliableSocket, u8) {
         rs.poll().await.unwrap();
         for msg in rs.take_messages() {
             if let Ok((RelayServerMessage::GameJoined { player_id, .. }, _)) =
-                bincode::serde::decode_from_slice::<RelayServerMessage, _>(&msg, bincode::config::standard())
+                bincode::serde::decode_from_slice::<RelayServerMessage, _>(
+                    &msg,
+                    bincode::config::standard(),
+                )
             {
                 return (rs, player_id);
             }
@@ -79,9 +85,10 @@ async fn udp_recv_message(rs: &mut ReliableSocket, secs: u64) -> RelayServerMess
         }
         pump(rs).await;
         for msg in rs.take_messages() {
-            if let Ok((m, _)) =
-                bincode::serde::decode_from_slice::<RelayServerMessage, _>(&msg, bincode::config::standard())
-            {
+            if let Ok((m, _)) = bincode::serde::decode_from_slice::<RelayServerMessage, _>(
+                &msg,
+                bincode::config::standard(),
+            ) {
                 match m {
                     RelayServerMessage::GameStarted { .. } => continue,
                     other => return other,
@@ -119,13 +126,19 @@ async fn udp_recv_reconnect_meta(rs: &mut ReliableSocket, secs: u64) -> Reconnec
         pump(rs).await;
         let msgs = rs.take_messages_matching(|m| {
             matches!(
-                bincode::serde::decode_from_slice::<RelayServerMessage, _>(m, bincode::config::standard()),
+                bincode::serde::decode_from_slice::<RelayServerMessage, _>(
+                    m,
+                    bincode::config::standard()
+                ),
                 Ok((RelayServerMessage::ReconnectResponse(_), _))
             )
         });
         if let Some(m) = msgs.into_iter().next() {
             if let Ok((RelayServerMessage::ReconnectResponse(r), _)) =
-                bincode::serde::decode_from_slice::<RelayServerMessage, _>(&m, bincode::config::standard())
+                bincode::serde::decode_from_slice::<RelayServerMessage, _>(
+                    &m,
+                    bincode::config::standard(),
+                )
             {
                 return r;
             }
@@ -138,7 +151,11 @@ async fn udp_recv_reconnect_meta(rs: &mut ReliableSocket, secs: u64) -> Reconnec
 /// kill the session while the reliable window drains (mirrors the production
 /// client). Matches a SPECIFIC page so earlier pages stay buffered for their
 /// own calls.
-async fn udp_recv_reconnect_page(rs: &mut ReliableSocket, page_index: u32, secs: u64) -> ReconnectPage {
+async fn udp_recv_reconnect_page(
+    rs: &mut ReliableSocket,
+    page_index: u32,
+    secs: u64,
+) -> ReconnectPage {
     let start = std::time::Instant::now();
     let mut last_hb = std::time::Instant::now();
     loop {
@@ -158,7 +175,10 @@ async fn udp_recv_reconnect_page(rs: &mut ReliableSocket, page_index: u32, secs:
         });
         if let Some(m) = msgs.into_iter().next() {
             if let Ok((RelayServerMessage::ReconnectPage(p), _)) =
-                bincode::serde::decode_from_slice::<RelayServerMessage, _>(&m, bincode::config::standard())
+                bincode::serde::decode_from_slice::<RelayServerMessage, _>(
+                    &m,
+                    bincode::config::standard(),
+                )
             {
                 return p;
             }
@@ -178,13 +198,19 @@ async fn udp_recv_broadcast_tick(rs: &mut ReliableSocket, want_tick: u32, secs: 
         pump(rs).await;
         let msgs = rs.take_messages_matching(|m| {
             matches!(
-                bincode::serde::decode_from_slice::<RelayServerMessage, _>(m, bincode::config::standard()),
+                bincode::serde::decode_from_slice::<RelayServerMessage, _>(
+                    m,
+                    bincode::config::standard()
+                ),
                 Ok((RelayServerMessage::Broadcast(_), _))
             )
         });
         for m in msgs {
             if let Ok((RelayServerMessage::Broadcast(BroadcastFrame { payload, .. }), _)) =
-                bincode::serde::decode_from_slice::<RelayServerMessage, _>(&m, bincode::config::standard())
+                bincode::serde::decode_from_slice::<RelayServerMessage, _>(
+                    &m,
+                    bincode::config::standard(),
+                )
             {
                 if payload.tick == want_tick {
                     return;
@@ -227,7 +253,10 @@ async fn test_relay_resends_game_started_to_reconnect() {
     let sock = UdpChannel::bind("0.0.0.0:0").await.unwrap();
     let peer: SocketAddr = format!("127.0.0.1:{}", port).parse().unwrap();
     let mut rs = ReliableSocket::new(Box::new(sock), peer, ReliableConfig::default());
-    let join = RelayClientMessage::JoinGame { room_id: RoomId(0), relay_id: RelayId(42) };
+    let join = RelayClientMessage::JoinGame {
+        room_id: RoomId(0),
+        relay_id: RelayId(42),
+    };
     let data = bincode::serde::encode_to_vec(&join, bincode::config::standard()).unwrap();
     rs.send_reliable(CH_CONTROL, data);
 
@@ -237,9 +266,10 @@ async fn test_relay_resends_game_started_to_reconnect() {
     while !(got_joined && got_started) && start.elapsed() < Duration::from_secs(5) {
         pump(&mut rs).await;
         for msg in rs.take_messages() {
-            if let Ok((m, _)) =
-                bincode::serde::decode_from_slice::<RelayServerMessage, _>(&msg, bincode::config::standard())
-            {
+            if let Ok((m, _)) = bincode::serde::decode_from_slice::<RelayServerMessage, _>(
+                &msg,
+                bincode::config::standard(),
+            ) {
                 match m {
                     RelayServerMessage::GameJoined { player_id, .. } => {
                         got_joined = true;
@@ -256,7 +286,10 @@ async fn test_relay_resends_game_started_to_reconnect() {
         }
     }
     assert!(got_joined, "reconnecting player must get GameJoined");
-    assert!(got_started, "reconnecting player must get re-sent GameStarted (Scene B transition)");
+    assert!(
+        got_started,
+        "reconnecting player must get re-sent GameStarted (Scene B transition)"
+    );
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -281,7 +314,10 @@ async fn test_relay_reconnect_multipage() {
     }
 
     // c0 重连:last_tick_consumed=0 → 元数据 + 2 页
-    let req = RelayClientMessage::Reconnect(ReconnectRequest { game_id: 1, last_tick_consumed: 0 });
+    let req = RelayClientMessage::Reconnect(ReconnectRequest {
+        game_id: 1,
+        last_tick_consumed: 0,
+    });
     let data = bincode::serde::encode_to_vec(&req, bincode::config::standard()).unwrap();
     c0.send_reliable(CH_CONTROL, data);
     pump(&mut c0).await;
@@ -294,7 +330,10 @@ async fn test_relay_reconnect_multipage() {
     let mut seen: Vec<u32> = Vec::new();
     for i in 0..2 {
         let page = udp_recv_reconnect_page(&mut c0, i, 5).await;
-        assert_eq!(page.page_index, i, "pages must arrive in Control-channel order");
+        assert_eq!(
+            page.page_index, i,
+            "pages must arrive in Control-channel order"
+        );
         assert_eq!(page.page_count, 2);
         for b in page.ticks {
             seen.push(b.tick);
@@ -302,7 +341,11 @@ async fn test_relay_reconnect_multipage() {
     }
     assert_eq!(seen.len(), 33, "2 pages must cover all 33 ticks");
     seen.sort_unstable();
-    assert_eq!(seen, (1..=33).collect::<Vec<u32>>(), "pages cover ticks 1..=33 exactly once");
+    assert_eq!(
+        seen,
+        (1..=33).collect::<Vec<u32>>(),
+        "pages cover ticks 1..=33 exactly once"
+    );
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -333,7 +376,10 @@ async fn test_relay_two_clients_full_cycle() {
             assert_eq!(p0.commands.len(), 0, "empty commands");
             assert_eq!(p1.commands.len(), 0, "empty commands");
         }
-        _ => panic!("Both clients should receive Broadcast, got: {:?} {:?}", b0, b1),
+        _ => panic!(
+            "Both clients should receive Broadcast, got: {:?} {:?}",
+            b0, b1
+        ),
     }
 }
 
@@ -392,7 +438,10 @@ async fn test_relay_three_ticks_sequential() {
                 assert_eq!(p0.tick, tick, "c0 tick {}", tick);
                 assert_eq!(p1.tick, tick, "c1 tick {}", tick);
             }
-            _ => panic!("Expected Broadcast for tick {}, got {:?} {:?}", tick, msg0, msg1),
+            _ => panic!(
+                "Expected Broadcast for tick {}, got {:?} {:?}",
+                tick, msg0, msg1
+            ),
         }
     }
 }

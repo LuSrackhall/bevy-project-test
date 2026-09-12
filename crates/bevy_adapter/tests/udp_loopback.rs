@@ -10,7 +10,10 @@ async fn test_udp_loopback_v6relay_v4client() {
     let client = UdpSocket::bind("0.0.0.0:0").await.unwrap();
 
     // Client (v4) sends to relay (v6 dual-stack).
-    client.send_to(b"hi", format!("127.0.0.1:{}", relay_port)).await.unwrap();
+    client
+        .send_to(b"hi", format!("127.0.0.1:{}", relay_port))
+        .await
+        .unwrap();
 
     // Relay receives (source appears v4-mapped on a dual-stack socket).
     let mut buf = [0u8; 64];

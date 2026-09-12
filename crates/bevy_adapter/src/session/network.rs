@@ -21,15 +21,23 @@ pub struct NetworkBootstrapResult {
 /// 注册传输资源后返回，以便上层进入 Lobby 状态等待 GameStarted。
 pub fn initialize(config: &SessionConfig) -> Result<NetworkBootstrapResult, String> {
     let (relay_addr, _player_count, player_id) = match &config.mode {
-        crate::session::SessionMode::Network { relay_addr, player_count, player_id } => {
-            (relay_addr.clone(), *player_count, *player_id)
-        }
+        crate::session::SessionMode::Network {
+            relay_addr,
+            player_count,
+            player_id,
+        } => (relay_addr.clone(), *player_count, *player_id),
         _ => return Err("Not a Network session".into()),
     };
 
     let event_receiver = NetworkEventReceiver::default();
-    let (receiver, sender, handle) =
-        crate::transport::spawn_network_client(relay_addr, 1, player_id, 1, event_receiver.clone(), RelayId(0))?;
+    let (receiver, sender, handle) = crate::transport::spawn_network_client(
+        relay_addr,
+        1,
+        player_id,
+        1,
+        event_receiver.clone(),
+        RelayId(0),
+    )?;
 
     Ok(NetworkBootstrapResult {
         player_id,

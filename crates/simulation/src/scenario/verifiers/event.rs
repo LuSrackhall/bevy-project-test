@@ -2,7 +2,9 @@ use std::collections::HashMap;
 
 use bevy_ecs::world::World;
 
-use crate::events::{SimulationEvents, UnitSpawned, CityCaptured, DamageDealt, SoldierLeveledUp, UnitDestroyed};
+use crate::events::{
+    CityCaptured, DamageDealt, SimulationEvents, SoldierLeveledUp, UnitDestroyed, UnitSpawned,
+};
 
 use super::super::verifier::{Verifier, VerifyError};
 
@@ -11,6 +13,12 @@ type EventCheck = Box<dyn Fn(&SimulationEvents) -> Option<String>>;
 /// Verifies events at specific ticks using builder-pattern checks.
 pub struct EventVerifier {
     checks: Vec<(u32, EventCheck)>,
+}
+
+impl Default for EventVerifier {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl EventVerifier {
@@ -141,9 +149,9 @@ impl Verifier for EventVerifier {
     ) -> Result<(), VerifyError> {
         let mut errors = vec![];
         for (tick, check) in &self.checks {
-            let evs = events.get(tick).unwrap_or_else(|| {
-                panic!("EventVerifier: no events collected for tick {tick}")
-            });
+            let evs = events
+                .get(tick)
+                .unwrap_or_else(|| panic!("EventVerifier: no events collected for tick {tick}"));
             if let Some(detail) = check(evs) {
                 errors.push(VerifyError::EventMismatch {
                     tick: *tick,

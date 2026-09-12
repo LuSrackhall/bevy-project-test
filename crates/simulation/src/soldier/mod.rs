@@ -7,12 +7,12 @@ use crate::command::*;
 use crate::events::*;
 use crate::facing;
 use crate::soldier::config::SoldierConfig;
-use crate::soldier::spatial_hash::{SpatialHash, SpatialEntry};
+use crate::soldier::spatial_hash::{SpatialEntry, SpatialHash};
 use crate::types::*;
 use bevy_ecs::component::Component;
 use bevy_ecs::entity::Entity;
 use bevy_ecs::world::World;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 // BTreeMap removed; using HashMap for positions
 
 // ══════════ Components ══════════
@@ -132,8 +132,6 @@ pub(crate) struct SoldierSnapshot {
     pub pos: FixedVec2,
     pub faction: FactionId,
     pub soldier_type: SoldierType,
-    pub state: SoldierState,
-    pub health: Health,
     pub attack: Attack,
     pub level: u32,
     pub force_move: bool,
@@ -148,10 +146,6 @@ pub(crate) struct SoldierSnapshot {
 #[derive(bevy_ecs::prelude::Resource)]
 pub(crate) struct TickCombatIndex {
     pub soldiers: HashMap<UnitId, SoldierSnapshot>,
-    /// SpatialHash for all soldiers (cell_size=32, fine-grained)
-    pub all_spatial: spatial_hash::SpatialHash,
-    /// Per-faction SpatialHash for O(k/2) queries
-    pub faction_spatial: BTreeMap<FactionId, spatial_hash::SpatialHash>,
     /// Soldier position+faction only (lighter weight for some systems)
     pub pos_faction: HashMap<UnitId, (FixedVec2, FactionId)>,
 }
@@ -169,37 +163,14 @@ impl TickCombatIndex {
     pub fn build(world: &mut World) -> Self {
         let soldiers = build_soldier_index(world);
 
-        // Build all-soldier SpatialHash (cell_size=32)
-        let mut all_spatial = spatial_hash::SpatialHash::new(Fixed::from_int(32));
-        for (&uid, s) in &soldiers {
-            all_spatial.insert(spatial_hash::SpatialEntry {
-                pos: s.pos,
-                radius: 0,
-                unit_id: uid,
-            });
-        }
-
-        // Build per-faction SpatialHash
-        let mut faction_spatial: BTreeMap<FactionId, spatial_hash::SpatialHash> = BTreeMap::new();
-        for (&uid, s) in &soldiers {
-            faction_spatial
-                .entry(s.faction)
-                .or_insert_with(|| spatial_hash::SpatialHash::new(Fixed::from_int(32)))
-                .insert(spatial_hash::SpatialEntry {
-                    pos: s.pos,
-                    radius: 0,
-                    unit_id: uid,
-                });
-        }
-
         // Lightweight pos+faction map
-        let pos_faction: HashMap<UnitId, (FixedVec2, FactionId)> =
-            soldiers.iter().map(|(&id, s)| (id, (s.pos, s.faction))).collect();
+        let pos_faction: HashMap<UnitId, (FixedVec2, FactionId)> = soldiers
+            .iter()
+            .map(|(&id, s)| (id, (s.pos, s.faction)))
+            .collect();
 
         Self {
             soldiers,
-            all_spatial,
-            faction_spatial,
             pos_faction,
         }
     }
@@ -214,8 +185,6 @@ pub(crate) fn build_soldier_index(world: &mut World) -> HashMap<UnitId, SoldierS
         &LogicalPosition,
         &FactionComponent,
         &SoldierTypeComponent,
-        &SoldierStateComponent,
-        &Health,
         &Attack,
         &Level,
         &Movement,
@@ -223,7 +192,7 @@ pub(crate) fn build_soldier_index(world: &mut World) -> HashMap<UnitId, SoldierS
         Option<&FacingDirection>,
     )>();
     q.iter(world)
-        .map(|(e, id, pos, fac, st, sst, hp, atk, lvl, mov, fb, facing)| {
+        .map(|(e, id, pos, fac, st, atk, lvl, mov, fb, facing)| {
             (
                 id.0,
                 SoldierSnapshot {
@@ -231,8 +200,6 @@ pub(crate) fn build_soldier_index(world: &mut World) -> HashMap<UnitId, SoldierS
                     pos: pos.0,
                     faction: fac.0,
                     soldier_type: st.0,
-                    state: sst.0,
-                    health: *hp,
                     attack: *atk,
                     level: lvl.level,
                     force_move: mov.force_move,
@@ -241,22 +208,6 @@ pub(crate) fn build_soldier_index(world: &mut World) -> HashMap<UnitId, SoldierS
                 },
             )
         })
-        .collect()
-}
-
-/// Build a HashMap<UnitId, (FixedVec2, FactionId)> from all soldier entities.
-/// Lighter-weight version for systems that only need position + faction.
-pub(crate) fn build_soldier_pos_faction_map(
-    world: &mut World,
-) -> HashMap<UnitId, (FixedVec2, FactionId)> {
-    let mut q = world.query::<(
-        &UnitIdComponent,
-        &LogicalPosition,
-        &FactionComponent,
-        &SoldierMarker,
-    )>();
-    q.iter(world)
-        .map(|(id, pos, fac, _)| (id.0, (pos.0, fac.0)))
         .collect()
 }
 
@@ -787,7 +738,9 @@ pub fn city_spawn_system(world: &mut World) {
                 ))
                 .id();
             // Update incremental index
-            if let Some(mut index) = world.get_resource_mut::<crate::unit_index::UnitIdEntityIndex>() {
+            if let Some(mut index) =
+                world.get_resource_mut::<crate::unit_index::UnitIdEntityIndex>()
+            {
                 index.insert(new_id, soldier_entity);
             }
             // Only Infantry spawns with a shield
@@ -1055,7 +1008,11 @@ pub fn city_interaction_system(world: &mut World) {
         }
         seen.insert(*se);
         // Get UnitId before despawn (fix: was hardcoded UnitId(0))
-        let uid = world.entity(*se).get::<UnitIdComponent>().map(|c| c.0).unwrap_or(UnitId(0));
+        let uid = world
+            .entity(*se)
+            .get::<UnitIdComponent>()
+            .map(|c| c.0)
+            .unwrap_or(UnitId(0));
         world.despawn(*se);
         // Update incremental index
         if let Some(mut index) = world.get_resource_mut::<crate::unit_index::UnitIdEntityIndex>() {
@@ -1197,7 +1154,11 @@ pub fn shield_pickup_system(world: &mut World) {
         world.entity_mut(soldier_e).insert(ShieldComponent {
             state: ShieldState::Normal,
         });
-        let dropped_uid = world.entity(dropped_e).get::<UnitIdComponent>().map(|c| c.0).unwrap_or(UnitId(0));
+        let dropped_uid = world
+            .entity(dropped_e)
+            .get::<UnitIdComponent>()
+            .map(|c| c.0)
+            .unwrap_or(UnitId(0));
         world.despawn(dropped_e);
         if let Some(mut index) = world.get_resource_mut::<crate::unit_index::UnitIdEntityIndex>() {
             index.remove(dropped_uid);
@@ -1546,7 +1507,10 @@ mod seek_stance_tests {
             },
         });
 
-        { let cmds = world.resource_mut::<CommandBuffer>().take_for_tick(1); consume_commands_system(&mut world, cmds); }
+        {
+            let cmds = world.resource_mut::<CommandBuffer>().take_for_tick(1);
+            consume_commands_system(&mut world, cmds);
+        }
 
         // Verify GlobalSeekDirective updated
         let gd = world.resource::<GlobalSeekDirective>();
@@ -1598,7 +1562,10 @@ mod seek_stance_tests {
             },
         });
 
-        { let cmds = world.resource_mut::<CommandBuffer>().take_for_tick(1); consume_commands_system(&mut world, cmds); }
+        {
+            let cmds = world.resource_mut::<CommandBuffer>().take_for_tick(1);
+            consume_commands_system(&mut world, cmds);
+        }
 
         // Infantry gets updated
         let e_inf = find_entity_by_unit_id(&mut world, p_inf).unwrap();
@@ -1646,7 +1613,10 @@ mod seek_stance_tests {
             },
         });
 
-        { let cmds = world.resource_mut::<CommandBuffer>().take_for_tick(1); consume_commands_system(&mut world, cmds); }
+        {
+            let cmds = world.resource_mut::<CommandBuffer>().take_for_tick(1);
+            consume_commands_system(&mut world, cmds);
+        }
 
         // p1 gets updated
         let e1 = find_entity_by_unit_id(&mut world, p1).unwrap();
@@ -1695,7 +1665,10 @@ mod seek_stance_tests {
                 unit_ids: vec![],
             },
         });
-        { let cmds = world.resource_mut::<CommandBuffer>().take_for_tick(1); consume_commands_system(&mut world, cmds); }
+        {
+            let cmds = world.resource_mut::<CommandBuffer>().take_for_tick(1);
+            consume_commands_system(&mut world, cmds);
+        }
 
         // Then disable with range=0
         world.resource_mut::<CommandBuffer>().push(GameCommand {
@@ -1707,7 +1680,10 @@ mod seek_stance_tests {
                 unit_ids: vec![],
             },
         });
-        { let cmds = world.resource_mut::<CommandBuffer>().take_for_tick(2); consume_commands_system(&mut world, cmds); }
+        {
+            let cmds = world.resource_mut::<CommandBuffer>().take_for_tick(2);
+            consume_commands_system(&mut world, cmds);
+        }
 
         let e1 = find_entity_by_unit_id(&mut world, p1).unwrap();
         let s1 = world.entity(e1).get::<SeekStance>().unwrap();

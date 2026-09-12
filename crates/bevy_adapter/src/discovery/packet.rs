@@ -51,7 +51,8 @@ impl LanDiscoveryPacket {
         if buf[0..2] != DISCOVERY_MAGIC {
             return None;
         }
-        let (pkt, _): (Self, _) = bincode::serde::decode_from_slice(buf, bincode::config::standard()).ok()?;
+        let (pkt, _): (Self, _) =
+            bincode::serde::decode_from_slice(buf, bincode::config::standard()).ok()?;
         Some(pkt)
     }
 }

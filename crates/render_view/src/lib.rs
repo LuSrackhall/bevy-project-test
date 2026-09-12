@@ -1,5 +1,4 @@
 use bevy::prelude::*;
-use std::path::PathBuf;
 
 pub mod camera;
 pub mod debug_shape;
@@ -8,8 +7,6 @@ pub mod ui;
 pub mod unit_info_bar;
 #[cfg(target_arch = "wasm32")]
 pub mod wasm_keyboard;
-
-use bevy::prelude::*;
 
 /// Game state enum — shared across the render view.
 /// Paused is a boolean resource, not a state variant.
@@ -34,7 +31,6 @@ pub(crate) fn local_player_id(sim: &bevy_adapter::tick::SimulationWorld) -> u8 {
         .unwrap_or(0)
 }
 
-
 /// Controls what happens when entering Playing state.
 #[derive(Resource, Default)]
 pub enum NeedsGameReset {
@@ -43,7 +39,12 @@ pub enum NeedsGameReset {
     SameSize,
     NewGame(simulation::map::MapSize),
     Replay(simulation::replay::ReplayFile),
-    Network { relay_addr: String, player_count: u8, player_id: Option<u8>, relay_id: bevy_adapter::discovery::RelayId },
+    Network {
+        relay_addr: String,
+        player_count: u8,
+        player_id: Option<u8>,
+        relay_id: bevy_adapter::discovery::RelayId,
+    },
 }
 
 /// Whether the local client created the room (is the host).
@@ -55,16 +56,13 @@ pub struct IsHost(pub bool);
 pub struct LobbyPlayerList(pub Vec<bevy_adapter::network::LobbyPlayerState>);
 
 /// Lobby 连接阶段
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub enum LobbyPhase {
+    #[default]
     Connecting,
     Connected,
     Ready,
     Failed(String),
-}
-
-impl Default for LobbyPhase {
-    fn default() -> Self { Self::Connecting }
 }
 
 /// Lobby 连接状态（由 lobby_update_system 驱动）
@@ -78,7 +76,9 @@ pub struct LobbyConnectionState {
 pub struct ConnectionPollRx(pub std::sync::Arc<std::sync::Mutex<Option<Result<(), String>>>>);
 
 impl Default for ConnectionPollRx {
-    fn default() -> Self { Self(std::sync::Arc::new(std::sync::Mutex::new(None))) }
+    fn default() -> Self {
+        Self(std::sync::Arc::new(std::sync::Mutex::new(None)))
+    }
 }
 
 /// Whether to auto-record replays. Defaults to true.
@@ -178,7 +178,9 @@ impl Plugin for RenderViewPlugin {
                         in_state(GameState::Playing)
                             .and_then(not(resource_exists_and_equals(bevy_adapter::Paused(true))))
                             .and_then(not(replay_seeking))
-                            .and_then(not(resource_exists_and_equals(bevy_adapter::GameMode::Replay))),
+                            .and_then(not(resource_exists_and_equals(
+                                bevy_adapter::GameMode::Replay,
+                            ))),
                     )
                     .before(bevy_adapter::SimulationTickSet)
                     // Commands must be created BEFORE network_flush_system drains cmd_buf,
@@ -201,7 +203,8 @@ impl Plugin for RenderViewPlugin {
                 Update,
                 handle_create_room.run_if(in_state(GameState::LanLobby)),
             )
-            .add_systems(Update,
+            .add_systems(
+                Update,
                 handle_join_room.run_if(in_state(GameState::LanLobby)),
             );
 
@@ -234,7 +237,7 @@ fn check_victory_system(
     sim_world: bevy::ecs::system::NonSend<bevy_adapter::tick::SimulationWorld>,
     mut next_state: ResMut<NextState<GameState>>,
 ) {
-    let lid = crate::local_player_id(&*sim_world);
+    let lid = crate::local_player_id(&sim_world);
     let world = sim_world.world_ref();
 
     // Collect active player factions from PlayerSlots (ignoring neutrals like FactionId(2))
@@ -265,20 +268,22 @@ fn check_victory_system(
     }
 }
 
-
 /// 进入 Lobby 状态：发起非阻塞 TCP 连接，插入传输资源。
 fn setup_lobby_system(
     mut commands: Commands,
     mut _driver: ResMut<bevy_adapter::driver::SimulationDriver>,
-    mut recorder: ResMut<bevy_adapter::replay::ReplayRecorder>,
-    mut cmd_buf: ResMut<simulation::command::CommandBuffer>,
+    _recorder: ResMut<bevy_adapter::replay::ReplayRecorder>,
+    _cmd_buf: ResMut<simulation::command::CommandBuffer>,
     mut network_start: ResMut<NetworkGameStart>,
     needs_reset: Res<NeedsGameReset>,
 ) {
     let network_config = match &*needs_reset {
-        NeedsGameReset::Network { relay_addr, player_count, player_id, relay_id } => {
-            Some((relay_addr.clone(), *player_count, *player_id, *relay_id))
-        }
+        NeedsGameReset::Network {
+            relay_addr,
+            player_count,
+            player_id,
+            relay_id,
+        } => Some((relay_addr.clone(), *player_count, *player_id, *relay_id)),
         _ => None,
     };
     let Some((relay_addr, player_count, player_id, relay_id)) = network_config else {
@@ -287,19 +292,32 @@ fn setup_lobby_system(
         return;
     };
 
-    eprintln!("[SETUP_LOBBY] relay_addr={}, player={:?}, count={}", relay_addr, player_id, player_count);
+    eprintln!(
+        "[SETUP_LOBBY] relay_addr={}, player={:?}, count={}",
+        relay_addr, player_id, player_count
+    );
 
     network_start.player_id = player_id.unwrap_or(0);
     network_start.player_count = player_count;
 
     let effective_id = player_id.unwrap_or(0);
-    bevy::log::info!("[LOBBY] Initializing network (relay={}, player={}/{})", relay_addr, effective_id, player_count);
+    bevy::log::info!(
+        "[LOBBY] Initializing network (relay={}, player={}/{})",
+        relay_addr,
+        effective_id,
+        player_count
+    );
 
     use bevy_adapter::network::NetworkEventReceiver;
     use bevy_adapter::transport::spawn_network_client_nonblocking;
     let event_receiver = NetworkEventReceiver::default();
     let (receiver, sender, handle, status) = spawn_network_client_nonblocking(
-        relay_addr.clone(), 1, effective_id, 1, event_receiver.clone(), relay_id,
+        relay_addr.clone(),
+        1,
+        effective_id,
+        1,
+        event_receiver.clone(),
+        relay_id,
     );
 
     // Insert transport resources immediately (tokio thread runs in background)
@@ -308,7 +326,9 @@ fn setup_lobby_system(
     commands.insert_resource(sender);
     commands.insert_resource(handle);
     commands.insert_resource(ConnectionPollRx(status.inner_arc()));
-    commands.insert_resource(LobbyConnectionState { phase: LobbyPhase::Connecting });
+    commands.insert_resource(LobbyConnectionState {
+        phase: LobbyPhase::Connecting,
+    });
 
     // Reset bootstrap phase to Init so wire() works after TCP connects
     _driver.bootstrap_phase = bevy_adapter::session::bootstrap::BootstrapPhase::Init;
@@ -317,12 +337,14 @@ fn setup_lobby_system(
 }
 
 /// 轮询 TCP 连接状态 + 完成 bootstrap + 等待 GameStarted
+// Bevy 系统的参数即依赖声明，数量由所协调的资源决定；收敛为 SystemParam 结构体留待专门重构。
+#[allow(clippy::too_many_arguments)]
 pub fn lobby_update_system(
     mut commands: Commands,
     mut next_state: ResMut<NextState<GameState>>,
     mut network_start: ResMut<NetworkGameStart>,
     poll_rx: Option<Res<ConnectionPollRx>>,
-    mut lobby_state: Option<ResMut<LobbyConnectionState>>,
+    lobby_state: Option<ResMut<LobbyConnectionState>>,
     event_receiver: Option<Res<bevy_adapter::network::NetworkEventReceiver>>,
     mut _driver: Option<ResMut<bevy_adapter::driver::SimulationDriver>>,
     mut network_active: Option<ResMut<bevy_adapter::NetworkActive>>,
@@ -342,9 +364,11 @@ pub fn lobby_update_system(
                         use bevy_adapter::network::NetworkCommandSource;
                         use bevy_adapter::session::bootstrap::BootstrapPhase;
                         if let Some(ref mut d) = _driver {
-                            d.source = CommandSource::Network(
-                                NetworkCommandSource::new(1, network_start.player_id, 3),
-                            );
+                            d.source = CommandSource::Network(NetworkCommandSource::new(
+                                1,
+                                network_start.player_id,
+                                3,
+                            ));
                             d.bootstrap_phase = BootstrapPhase::Wired;
                         }
                         // Enable network systems (poll, flush)
@@ -362,13 +386,23 @@ pub fn lobby_update_system(
             }
         }
         LobbyPhase::Connected => {
-            use bevy_adapter::network::NetworkEvent;
             use bevy_adapter::driver::CommandSource;
-            let Some(receiver) = event_receiver else { return };
+            use bevy_adapter::network::NetworkEvent;
+            let Some(receiver) = event_receiver else {
+                return;
+            };
             let events = receiver.drain_all();
             for event in &events {
-                if let NetworkEvent::GameJoined { player_id, player_count } = event {
-                    bevy::log::info!("[LOBBY] Identity assigned: player={}/{}", player_id, player_count);
+                if let NetworkEvent::GameJoined {
+                    player_id,
+                    player_count,
+                } = event
+                {
+                    bevy::log::info!(
+                        "[LOBBY] Identity assigned: player={}/{}",
+                        player_id,
+                        player_count
+                    );
                     // Update NetworkCommandSource with relay-assigned player_id
                     if let Some(ref mut d) = _driver {
                         if let CommandSource::Network(ref mut ns) = d.source {
@@ -376,17 +410,24 @@ pub fn lobby_update_system(
                         }
                     }
                     // Update LocalPlayerIdentity
-                    let mut identity = crate::LocalPlayerIdentity::default();
-                    identity.player_id = *player_id;
-                    identity.player_count = *player_count;
-                    identity.assigned = true;
+                    let identity = crate::LocalPlayerIdentity {
+                        player_id: *player_id,
+                        player_count: *player_count,
+                        assigned: true,
+                    };
                     commands.insert_resource(identity);
                     // Also update NetworkGameStart so reset_game_system uses the
                     // relay-assigned player_id (not the temporary 0 from setup_lobby_system)
                     network_start.player_id = *player_id;
                     network_start.player_count = *player_count;
                 }
-                if let NetworkEvent::GameStarted { game_id: _, seed, map_size, .. } = event {
+                if let NetworkEvent::GameStarted {
+                    game_id: _,
+                    seed,
+                    map_size,
+                    ..
+                } = event
+                {
                     bevy::log::info!("[LOBBY] GameStarted received! seed={}", seed);
                     network_start.seed = *seed;
                     network_start.map_size = Some(*map_size);
@@ -398,9 +439,9 @@ pub fn lobby_update_system(
                     // Store player list for UI rendering (C2)
                     commands.insert_resource(LobbyPlayerList(players.clone()));
                     // Only set Ready if the local player is ready
-                    let local_ready = players.iter().any(|p| {
-                        p.player_id == network_start.player_id && p.ready
-                    });
+                    let local_ready = players
+                        .iter()
+                        .any(|p| p.player_id == network_start.player_id && p.ready);
                     if local_ready {
                         state.phase = LobbyPhase::Ready;
                         // Do NOT return here: the relay broadcasts LobbyUpdate then
@@ -413,10 +454,18 @@ pub fn lobby_update_system(
         }
         LobbyPhase::Ready => {
             use bevy_adapter::network::NetworkEvent;
-            let Some(receiver) = event_receiver else { return };
+            let Some(receiver) = event_receiver else {
+                return;
+            };
             let events = receiver.drain_all();
             for event in &events {
-                if let NetworkEvent::GameStarted { game_id: _, seed, map_size, .. } = event {
+                if let NetworkEvent::GameStarted {
+                    game_id: _,
+                    seed,
+                    map_size,
+                    ..
+                } = event
+                {
                     bevy::log::info!("[LOBBY] GameStarted received (from Ready)! seed={}", seed);
                     network_start.seed = *seed;
                     network_start.map_size = Some(*map_size);
@@ -449,7 +498,7 @@ fn reset_game_system(
     mut mapper: ResMut<bevy_adapter::mapper::UnitIdMapper>,
     mut tick_clock: ResMut<bevy_adapter::tick::TickClock>,
     mut cmd_buf: ResMut<simulation::command::CommandBuffer>,
-    mut pending: ResMut<bevy_adapter::tick::PendingEvents>,
+    _pending: ResMut<bevy_adapter::tick::PendingEvents>,
     mut needs_reset: ResMut<NeedsGameReset>,
     mut paused: ResMut<bevy_adapter::Paused>,
     mut game_active: ResMut<bevy_adapter::GameActive>,
@@ -469,15 +518,24 @@ fn reset_game_system(
     game_active.0 = true;
     network_active.0 = false; // Network mode already active, disable lobby
 
-    let (map_size, replay_file, network_config) = match std::mem::replace(&mut *needs_reset, NeedsGameReset::None) {
-        NeedsGameReset::None => (None, None, None),
-        NeedsGameReset::SameSize => (Some(current_map_size.0), None, None),
-        NeedsGameReset::NewGame(size) => (Some(size), None, None),
-        NeedsGameReset::Replay(replay) => (Some(replay.map_size), Some(replay), None),
-        // 网络对局:地图取自 GameStarted(携带 map_size),场景 B 重建也一致;
-        // 兜底 Medium(旧对局无 map_size 信息)。
-        NeedsGameReset::Network { .. } => (Some(network_start.map_size.unwrap_or(simulation::map::MapSize::Medium)), None, Some(()))
-    };
+    let (map_size, replay_file, network_config) =
+        match std::mem::replace(&mut *needs_reset, NeedsGameReset::None) {
+            NeedsGameReset::None => (None, None, None),
+            NeedsGameReset::SameSize => (Some(current_map_size.0), None, None),
+            NeedsGameReset::NewGame(size) => (Some(size), None, None),
+            NeedsGameReset::Replay(replay) => (Some(replay.map_size), Some(replay), None),
+            // 网络对局:地图取自 GameStarted(携带 map_size),场景 B 重建也一致;
+            // 兜底 Medium(旧对局无 map_size 信息)。
+            NeedsGameReset::Network { .. } => (
+                Some(
+                    network_start
+                        .map_size
+                        .unwrap_or(simulation::map::MapSize::Medium),
+                ),
+                None,
+                Some(()),
+            ),
+        };
 
     if let Some(map_size) = map_size {
         // Despawn all stale game entities
@@ -507,7 +565,9 @@ fn reset_game_system(
         let mut world = if network_start.received {
             // R5: 世界重建封装在 bevy_adapter 会话层(render_view 不直触仿真)
             bevy_adapter::session::reconnect::rebuild_world(
-                seed, network_start.player_count, network_start.player_id
+                seed,
+                network_start.player_count,
+                network_start.player_id,
             )
         } else {
             simulation::init_simulation_world(seed)
@@ -716,7 +776,10 @@ fn handle_create_room(
     let room = RoomMetadata {
         room_id: RoomId(0),
         room_name: if request.room_name.is_empty() {
-            format!("房间_{}", chrono_timestamp().chars().take(6).collect::<String>())
+            format!(
+                "房间_{}",
+                chrono_timestamp().chars().take(6).collect::<String>()
+            )
         } else {
             request.room_name.clone()
         },
@@ -763,7 +826,10 @@ fn handle_join_room(
         return;
     }
     request.requested = false;
-    eprintln!("[HANDLE_JOIN] called — endpoint={}, relay_id={:?}", request.endpoint, request.relay_id);
+    eprintln!(
+        "[HANDLE_JOIN] called — endpoint={}, relay_id={:?}",
+        request.endpoint, request.relay_id
+    );
 
     let max_players = request.max_players;
     *needs_reset = NeedsGameReset::Network {
@@ -792,7 +858,10 @@ mod tests {
         app.init_resource::<JoinRoomRequest>();
         app.init_resource::<NeedsGameReset>();
         app.init_resource::<IsHost>();
-        app.add_systems(Update, handle_join_room.run_if(in_state(GameState::LanLobby)));
+        app.add_systems(
+            Update,
+            handle_join_room.run_if(in_state(GameState::LanLobby)),
+        );
         app.insert_state(GameState::LanLobby);
         app
     }
@@ -801,7 +870,10 @@ mod tests {
     fn test_handle_join_room_ignores_if_not_requested() {
         let mut app = make_join_app();
         app.update();
-        assert!(matches!(*app.world().resource::<NeedsGameReset>(), NeedsGameReset::None));
+        assert!(matches!(
+            *app.world().resource::<NeedsGameReset>(),
+            NeedsGameReset::None
+        ));
     }
 
     #[test]
@@ -814,8 +886,13 @@ mod tests {
             req.relay_id = bevy_adapter::discovery::RelayId(42);
         }
         app.update();
-        match &*app.world().resource::<NeedsGameReset>() {
-            NeedsGameReset::Network { relay_addr, player_count, player_id, relay_id } => {
+        match app.world().resource::<NeedsGameReset>() {
+            NeedsGameReset::Network {
+                relay_addr,
+                player_count,
+                player_id,
+                relay_id,
+            } => {
                 assert_eq!(relay_addr, "192.168.1.157:55347");
                 assert_eq!(*player_count, 2);
                 assert!(player_id.is_none());

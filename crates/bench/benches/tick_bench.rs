@@ -1,10 +1,9 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use bevy_ecs::entity::Entity;
-use bevy_ecs::world::World;
-use simulation::types::*;
-use simulation::soldier::*;
-use simulation::soldier::config::SoldierConfig;
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use simulation::combat::config::CombatGlobalConfig;
+use simulation::soldier::config::SoldierConfig;
+use simulation::soldier::*;
+use simulation::types::*;
 
 fn create_world_with_soldiers(count: usize, seed: u64) -> bevy_ecs::world::World {
     let mut world = simulation::init_simulation_world(seed);
@@ -15,38 +14,60 @@ fn create_world_with_soldiers(count: usize, seed: u64) -> bevy_ecs::world::World
         let uid = world.resource_mut::<IdGenerator>().next_id();
         let x = (i as i32 % 50) * 20;
         let y = (i as i32 / 50) * 20;
-        let faction = if i % 2 == 0 { FactionId(0) } else { FactionId(1) };
+        let faction = if i % 2 == 0 {
+            FactionId(0)
+        } else {
+            FactionId(1)
+        };
         let cfg = soldier_config.get(SoldierType::Infantry);
         let shield_hp = combat_config.shield.initial_hp;
-        let e = world.spawn((
-            UnitIdComponent(uid),
-            SoldierMarker,
-            LogicalPosition(FixedVec2::new(Fixed::from_int(x), Fixed::from_int(y))),
-            Movement {
-                speed: cfg.speed,
-                target: None,
-                command_target: None,
-                waypoint: None,
-                force_move: false,
-            },
-            SeekStance { active: true, seek_range: 60 },
-            Health { current: cfg.health, max: cfg.health },
-            Attack {
-                damage: cfg.attack,
-                range: cfg.attack_range,
-                interval_ticks: cfg.attack_interval_ticks,
-                cooldown_remaining: 0,
-            },
-            FactionComponent(faction),
-            SoldierTypeComponent(SoldierType::Infantry),
-            Level { level: 1, exp: 0 },
-            ShieldComponent { state: ShieldState::Normal },
-            ShieldItem { hp: shield_hp, max_hp: shield_hp },
-            CityOrigin(UnitId(0)),
-            SoldierStateComponent(SoldierState::Moving),
-        )).id();
-        world.entity_mut(e).insert(FacingDirection { angle: Fixed::ZERO });
-        world.entity_mut(e).insert(AttackWindup { remaining_ticks: 0, target: None });
+        let e = world
+            .spawn((
+                UnitIdComponent(uid),
+                SoldierMarker,
+                LogicalPosition(FixedVec2::new(Fixed::from_int(x), Fixed::from_int(y))),
+                Movement {
+                    speed: cfg.speed,
+                    target: None,
+                    command_target: None,
+                    waypoint: None,
+                    force_move: false,
+                },
+                SeekStance {
+                    active: true,
+                    seek_range: 60,
+                },
+                Health {
+                    current: cfg.health,
+                    max: cfg.health,
+                },
+                Attack {
+                    damage: cfg.attack,
+                    range: cfg.attack_range,
+                    interval_ticks: cfg.attack_interval_ticks,
+                    cooldown_remaining: 0,
+                },
+                FactionComponent(faction),
+                SoldierTypeComponent(SoldierType::Infantry),
+                Level { level: 1, exp: 0 },
+                ShieldComponent {
+                    state: ShieldState::Normal,
+                },
+                ShieldItem {
+                    hp: shield_hp,
+                    max_hp: shield_hp,
+                },
+                CityOrigin(UnitId(0)),
+                SoldierStateComponent(SoldierState::Moving),
+            ))
+            .id();
+        world
+            .entity_mut(e)
+            .insert(FacingDirection { angle: Fixed::ZERO });
+        world.entity_mut(e).insert(AttackWindup {
+            remaining_ticks: 0,
+            target: None,
+        });
     }
     world
 }
@@ -93,14 +114,13 @@ fn bench_tick_1000_combat(c: &mut Criterion) {
         // Position soldiers close together to trigger combat
         {
             let mut q = world.query::<(Entity, &UnitIdComponent, &mut LogicalPosition)>();
-            let mut i = 0;
-            for (_, _, mut pos) in q.iter_mut(&mut world) {
+            for (i, (_, _, mut pos)) in q.iter_mut(&mut world).enumerate() {
+                let i = i as i32; // enumerate 给 usize，本处算术保持原 i32 语义
                 let faction_offset = if i % 2 == 0 { 0 } else { 30 };
                 pos.0 = FixedVec2::new(
                     Fixed::from_int(faction_offset + (i % 20) * 5),
                     Fixed::from_int((i / 20) * 5),
                 );
-                i += 1;
             }
         }
         let config = simulation::run_config::RunConfig { enable_ai: false };
@@ -129,14 +149,13 @@ fn bench_tick_1500_combat(c: &mut Criterion) {
         let mut world = create_world_with_soldiers(1500, 42);
         {
             let mut q = world.query::<(Entity, &UnitIdComponent, &mut LogicalPosition)>();
-            let mut i = 0;
-            for (_, _, mut pos) in q.iter_mut(&mut world) {
+            for (i, (_, _, mut pos)) in q.iter_mut(&mut world).enumerate() {
+                let i = i as i32; // enumerate 给 usize，本处算术保持原 i32 语义
                 let faction_offset = if i % 2 == 0 { 0 } else { 30 };
                 pos.0 = FixedVec2::new(
                     Fixed::from_int(faction_offset + (i % 20) * 5),
                     Fixed::from_int((i / 20) * 5),
                 );
-                i += 1;
             }
         }
         let config = simulation::run_config::RunConfig { enable_ai: false };
@@ -153,14 +172,13 @@ fn bench_tick_3000_combat(c: &mut Criterion) {
         let mut world = create_world_with_soldiers(3000, 42);
         {
             let mut q = world.query::<(Entity, &UnitIdComponent, &mut LogicalPosition)>();
-            let mut i = 0;
-            for (_, _, mut pos) in q.iter_mut(&mut world) {
+            for (i, (_, _, mut pos)) in q.iter_mut(&mut world).enumerate() {
+                let i = i as i32; // enumerate 给 usize，本处算术保持原 i32 语义
                 let faction_offset = if i % 2 == 0 { 0 } else { 30 };
                 pos.0 = FixedVec2::new(
                     Fixed::from_int(faction_offset + (i % 20) * 5),
                     Fixed::from_int((i / 20) * 5),
                 );
-                i += 1;
             }
         }
         let config = simulation::run_config::RunConfig { enable_ai: false };

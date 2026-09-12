@@ -65,7 +65,10 @@ impl DatagramChannel for RelayChannel {
                 buf[..n].copy_from_slice(&d[..n]);
                 Ok((n, SocketAddr::from(([0, 0, 0, 0], 0))))
             }
-            None => Err(io::Error::new(io::ErrorKind::WouldBlock, "session inbound empty")),
+            None => Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "session inbound empty",
+            )),
         }
     }
 }
@@ -151,36 +154,33 @@ pub async fn run_relay(socket: UdpSocket, config: RelayConfig, stop: &AtomicBool
     loop {
         tokio::select! {
             r = shared.recv_from(&mut buf) => {
-                match r {
-                    Ok((n, from)) => {
-                        let data = buf[..n].to_vec();
-                        if let Some(session) = sessions.get(&from) {
-                            let mut s = session.lock().await;
-                            let mut inbound = s.inbound.lock().unwrap();
-                            if inbound.len() < 1024 {
-                                inbound.push_back(data);
-                            }
-                            drop(inbound);
-                            s.last_seen_ms.store(now_ms_ts(), Ordering::Relaxed);
-                        } else {
-                            // Unknown source: start a session; identity assigned on JoinGame.
-                            let inbound = Arc::new(Mutex::new(VecDeque::new()));
-                            inbound.lock().unwrap().push_back(data);
-                            let last_seen = Arc::new(AtomicU64::new(now_ms_ts()));
-                            let channel = Box::new(RelayChannel { shared: shared.clone(), inbound: inbound.clone() });
-                            let socket = ReliableSocket::new(channel, from, ReliableConfig::default());
-                            let session = Arc::new(AsyncMutex::new(RelaySession {
-                                socket,
-                                inbound: inbound.clone(),
-                                player_id: None,
-                                last_seen_ms: last_seen.clone(),
-                            }));
-                            sessions.insert(from, session.clone());
-                            let ctx2 = ctx.clone();
-                            tokio::spawn(session_task(ctx2, session.clone()));
+                if let Ok((n, from)) = r {
+                    let data = buf[..n].to_vec();
+                    if let Some(session) = sessions.get(&from) {
+                        let s = session.lock().await;
+                        let mut inbound = s.inbound.lock().unwrap();
+                        if inbound.len() < 1024 {
+                            inbound.push_back(data);
                         }
+                        drop(inbound);
+                        s.last_seen_ms.store(now_ms_ts(), Ordering::Relaxed);
+                    } else {
+                        // Unknown source: start a session; identity assigned on JoinGame.
+                        let inbound = Arc::new(Mutex::new(VecDeque::new()));
+                        inbound.lock().unwrap().push_back(data);
+                        let last_seen = Arc::new(AtomicU64::new(now_ms_ts()));
+                        let channel = Box::new(RelayChannel { shared: shared.clone(), inbound: inbound.clone() });
+                        let socket = ReliableSocket::new(channel, from, ReliableConfig::default());
+                        let session = Arc::new(AsyncMutex::new(RelaySession {
+                            socket,
+                            inbound: inbound.clone(),
+                            player_id: None,
+                            last_seen_ms: last_seen.clone(),
+                        }));
+                        sessions.insert(from, session.clone());
+                        let ctx2 = ctx.clone();
+                        tokio::spawn(session_task(ctx2, session.clone()));
                     }
-                    Err(_) => {}
                 }
             }
             _ = tokio::time::sleep(Duration::from_millis(100)) => {
@@ -199,7 +199,7 @@ pub async fn run_relay(socket: UdpSocket, config: RelayConfig, stop: &AtomicBool
                         if let Some(pid) = pid {
                             // Only disconnect if this is still the current session for pid
                             // (a reconnected client may have replaced it).
-                            let is_current = ctx.clients.lock().unwrap().get(&pid).map_or(false, |c| Arc::ptr_eq(c, &session));
+                            let is_current = ctx.clients.lock().unwrap().get(&pid).is_some_and(|c| Arc::ptr_eq(c, &session));
                             if is_current {
                                 ctx.current_clients.fetch_sub(1, Ordering::Relaxed);
                                 let mut server = ctx.server.lock().unwrap();
@@ -241,14 +241,22 @@ async fn session_task(ctx: Arc<RelayCtx>, session: Arc<AsyncMutex<RelaySession>>
 }
 
 /// Handle a single decoded client message for a session.
-async fn handle_message(ctx: &Arc<RelayCtx>, session: &Arc<AsyncMutex<RelaySession>>, bytes: &[u8]) {
+async fn handle_message(
+    ctx: &Arc<RelayCtx>,
+    session: &Arc<AsyncMutex<RelaySession>>,
+    bytes: &[u8],
+) {
     let Ok((request, _)) = bincode::serde::decode_from_slice::<RelayClientMessage, _>(
-        bytes, bincode::config::standard(),
+        bytes,
+        bincode::config::standard(),
     ) else {
         return;
     };
     match request {
-        RelayClientMessage::JoinGame { room_id: _, relay_id } => {
+        RelayClientMessage::JoinGame {
+            room_id: _,
+            relay_id,
+        } => {
             let result = { ctx.server.lock().unwrap().on_join_game(relay_id) };
             match result {
                 Ok((pid, reused)) => {
@@ -261,7 +269,9 @@ async fn handle_message(ctx: &Arc<RelayCtx>, session: &Arc<AsyncMutex<RelaySessi
                         player_id: pid,
                         player_count: ctx.player_count,
                     };
-                    if let Ok(data) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+                    if let Ok(data) =
+                        bincode::serde::encode_to_vec(&msg, bincode::config::standard())
+                    {
                         s.socket.send_reliable(1, data);
                     }
                     // Scene B: a player reusing a dropped seat in a started game is a
@@ -279,7 +289,9 @@ async fn handle_message(ctx: &Arc<RelayCtx>, session: &Arc<AsyncMutex<RelaySessi
                                 map_size,
                                 player_count: ctx.player_count,
                             };
-                            if let Ok(data) = bincode::serde::encode_to_vec(&started, bincode::config::standard()) {
+                            if let Ok(data) =
+                                bincode::serde::encode_to_vec(&started, bincode::config::standard())
+                            {
                                 s.socket.send_reliable(1, data);
                             }
                             eprintln!("[RELAY] re-sent GameStarted to reconnecting player {}", pid);
@@ -288,7 +300,9 @@ async fn handle_message(ctx: &Arc<RelayCtx>, session: &Arc<AsyncMutex<RelaySessi
                 }
                 Err(reason) => {
                     let reject = RelayServerMessage::JoinRejected { reason };
-                    if let Ok(data) = bincode::serde::encode_to_vec(&reject, bincode::config::standard()) {
+                    if let Ok(data) =
+                        bincode::serde::encode_to_vec(&reject, bincode::config::standard())
+                    {
                         session.lock().await.socket.send_reliable(1, data);
                     }
                 }
@@ -312,7 +326,10 @@ async fn handle_message(ctx: &Arc<RelayCtx>, session: &Arc<AsyncMutex<RelaySessi
                     map_size,
                     player_count: ctx.player_count,
                 };
-                eprintln!("[RELAY] Broadcasting GameStarted (seed={}, players={})", seed, ctx.player_count);
+                eprintln!(
+                    "[RELAY] Broadcasting GameStarted (seed={}, players={})",
+                    seed, ctx.player_count
+                );
                 broadcast(ctx, &started).await;
             }
 
@@ -333,7 +350,7 @@ async fn handle_message(ctx: &Arc<RelayCtx>, session: &Arc<AsyncMutex<RelaySessi
                     // Metadata first, then page_count pages on the reliable
                     // Control channel (ReliableOrdered preserves page order).
                     if let Ok(data) = bincode::serde::encode_to_vec(
-                        &RelayServerMessage::ReconnectResponse(meta.clone()),
+                        RelayServerMessage::ReconnectResponse(meta.clone()),
                         bincode::config::standard(),
                     ) {
                         session.lock().await.socket.send_reliable(1, data);
@@ -342,7 +359,7 @@ async fn handle_message(ctx: &Arc<RelayCtx>, session: &Arc<AsyncMutex<RelaySessi
                         let page = { ctx.server.lock().unwrap().reconnect_page(&meta, page_index) };
                         if let Some(page) = page {
                             if let Ok(data) = bincode::serde::encode_to_vec(
-                                &RelayServerMessage::ReconnectPage(page),
+                                RelayServerMessage::ReconnectPage(page),
                                 bincode::config::standard(),
                             ) {
                                 session.lock().await.socket.send_reliable(1, data);
@@ -351,14 +368,24 @@ async fn handle_message(ctx: &Arc<RelayCtx>, session: &Arc<AsyncMutex<RelaySessi
                     }
                 }
                 Err(e) => {
-                    let msg = RelayServerMessage::Error { code: 1, message: e };
-                    if let Ok(data) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+                    let msg = RelayServerMessage::Error {
+                        code: 1,
+                        message: e,
+                    };
+                    if let Ok(data) =
+                        bincode::serde::encode_to_vec(&msg, bincode::config::standard())
+                    {
                         session.lock().await.socket.send_reliable(1, data);
                     }
                 }
             }
         }
-        RelayClientMessage::LobbyReady { game_id, player_id, ready, map_size: _ } => {
+        RelayClientMessage::LobbyReady {
+            game_id,
+            player_id,
+            ready,
+            map_size: _,
+        } => {
             let all_ready = {
                 let mut server = ctx.server.lock().unwrap();
                 if server.is_game_started() {
@@ -373,16 +400,23 @@ async fn handle_message(ctx: &Arc<RelayCtx>, session: &Arc<AsyncMutex<RelaySessi
 
             let lobby_players = {
                 let server = ctx.server.lock().unwrap();
-                let players: Vec<LobbyPlayerState> = ctx.clients.lock().unwrap().keys().map(|pid| {
-                    LobbyPlayerState {
+                let players: Vec<LobbyPlayerState> = ctx
+                    .clients
+                    .lock()
+                    .unwrap()
+                    .keys()
+                    .map(|pid| LobbyPlayerState {
                         player_id: *pid,
                         ready: server.is_player_ready(*pid),
                         selected_map: None,
-                    }
-                }).collect();
+                    })
+                    .collect();
                 players
             };
-            let update = RelayServerMessage::LobbyUpdate { game_id, players: lobby_players };
+            let update = RelayServerMessage::LobbyUpdate {
+                game_id,
+                players: lobby_players,
+            };
             broadcast(ctx, &update).await;
 
             if all_ready {

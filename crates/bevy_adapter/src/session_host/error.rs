@@ -1,5 +1,5 @@
-use std::fmt;
 use std::error::Error;
+use std::fmt;
 
 /// Errors that can occur during relay lifecycle management.
 #[derive(Debug)]

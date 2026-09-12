@@ -14,7 +14,7 @@ use crate::network::{
 use crate::reliable_udp::channel_udp::UdpChannel;
 use crate::reliable_udp::protocol::{CH_CONTROL, CH_TICK};
 use crate::reliable_udp::{ReliableConfig, ReliableSocket};
-use simulation::command::{CommandBuffer, GameCommand};
+use simulation::command::CommandBuffer;
 use std::collections::VecDeque;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
@@ -91,7 +91,10 @@ impl NetworkSender {
 
     pub fn send_lobby_ready(&self, player_id: u8, ready: bool) {
         *self.lobby_ready.lock().unwrap() = Some(RelayClientMessage::LobbyReady {
-            game_id: 1, player_id, ready, map_size: None,
+            game_id: 1,
+            player_id,
+            ready,
+            map_size: None,
         });
     }
 
@@ -171,7 +174,9 @@ pub fn reconnect_recovery_system(
     event_receiver: Option<Res<NetworkEventReceiver>>,
     mut driver: ResMut<crate::driver::SimulationDriver>,
 ) {
-    let Some(receiver) = event_receiver else { return };
+    let Some(receiver) = event_receiver else {
+        return;
+    };
     let events = receiver.drain_all();
     for event in events {
         match event {
@@ -207,9 +212,17 @@ pub fn reconnect_recovery_system(
                 // Scene B: a fresh process (world just rebuilt, driver at tick 0)
                 // with a log to replay → fast catch-up. Scene A resumes via the
                 // accumulator path.
-                if applied && crate::network::is_scene_b_reconnect(driver.clock.current_tick, resp.total_ticks) {
+                if applied
+                    && crate::network::is_scene_b_reconnect(
+                        driver.clock.current_tick,
+                        resp.total_ticks,
+                    )
+                {
                     driver.catch_up = true;
-                    eprintln!("[NET] Scene B catch-up: replaying {} ticks", resp.total_ticks);
+                    eprintln!(
+                        "[NET] Scene B catch-up: replaying {} ticks",
+                        resp.total_ticks
+                    );
                 }
             }
             NetworkEvent::ReconnectPage(page) => {
@@ -241,10 +254,12 @@ pub fn reconnect_recovery_system(
 /// after this many attempts (backoff 1s..30s), while a fast-restart window
 /// (relay 1.5s seat cleanup) is bridged by retries.
 const MAX_CONNECT_RETRIES: u32 = 10;
+// 会话上下文参数天然较多；收敛为结构体留待专门重构，此处显式豁免。
+#[allow(clippy::too_many_arguments)]
 async fn udp_session(
     relay_addr: String,
     game_id: u64,
-    player_id: u8,
+    _player_id: u8,
     _ruleset_version: u32,
     receiver: &NetworkReceiver,
     sender: &NetworkSender,
@@ -266,7 +281,10 @@ async fn udp_session(
     let start = std::time::Instant::now();
 
     // JoinGame on the Control channel (reliable).
-    let join = RelayClientMessage::JoinGame { room_id: RoomId(0), relay_id };
+    let join = RelayClientMessage::JoinGame {
+        room_id: RoomId(0),
+        relay_id,
+    };
     if let Ok(data) = bincode::serde::encode_to_vec(&join, bincode::config::standard()) {
         rs.send_reliable(CH_CONTROL, data);
     }
@@ -309,14 +327,37 @@ async fn udp_session(
                 last_activity = std::time::Instant::now();
                 match server_msg {
                     RelayServerMessage::Broadcast(frame) => receiver.push(frame),
-                    RelayServerMessage::GameStarted { game_id: g, seed, player_count, map_size } => {
-                        eprintln!("[NET] GameStarted: game_id={}, seed={}, players={}, map={:?}", g, seed, player_count, map_size);
+                    RelayServerMessage::GameStarted {
+                        game_id: g,
+                        seed,
+                        player_count,
+                        map_size,
+                    } => {
+                        eprintln!(
+                            "[NET] GameStarted: game_id={}, seed={}, players={}, map={:?}",
+                            g, seed, player_count, map_size
+                        );
                         game_started = true;
-                        event_receiver.push(NetworkEvent::GameStarted { game_id: g, seed, player_count, map_size });
+                        event_receiver.push(NetworkEvent::GameStarted {
+                            game_id: g,
+                            seed,
+                            player_count,
+                            map_size,
+                        });
                     }
-                    RelayServerMessage::GameJoined { game_id: g, player_id: p, player_count } => {
-                        eprintln!("[NET] Joined game {} as player {} (of {})", g, p, player_count);
-                        event_receiver.push(NetworkEvent::GameJoined { player_id: p, player_count });
+                    RelayServerMessage::GameJoined {
+                        game_id: g,
+                        player_id: p,
+                        player_count,
+                    } => {
+                        eprintln!(
+                            "[NET] Joined game {} as player {} (of {})",
+                            g, p, player_count
+                        );
+                        event_receiver.push(NetworkEvent::GameJoined {
+                            player_id: p,
+                            player_count,
+                        });
                         if let Some(tx) = on_joined {
                             let _ = tx.send(());
                         }
@@ -325,7 +366,10 @@ async fn udp_session(
                         }
                     }
                     RelayServerMessage::ReconnectResponse(resp) => {
-                        eprintln!("[NET] Reconnect metadata ({} ticks, {} pages)", resp.total_ticks, resp.page_count);
+                        eprintln!(
+                            "[NET] Reconnect metadata ({} ticks, {} pages)",
+                            resp.total_ticks, resp.page_count
+                        );
                         event_receiver.push(NetworkEvent::Reconnect(resp));
                     }
                     RelayServerMessage::ReconnectPage(page) => {
@@ -355,7 +399,8 @@ async fn udp_session(
 
         // Uplink: lobby-ready + PlayerTick commands.
         if let Some(lobby_msg) = sender.take_lobby_ready() {
-            if let Ok(data) = bincode::serde::encode_to_vec(&lobby_msg, bincode::config::standard()) {
+            if let Ok(data) = bincode::serde::encode_to_vec(&lobby_msg, bincode::config::standard())
+            {
                 rs.send_reliable(CH_CONTROL, data);
             }
         }
@@ -444,7 +489,11 @@ pub fn spawn_network_client(
                     break;
                 }
                 let delay = Duration::from_secs((1u64 << retry_count.min(5)).min(30));
-                eprintln!("[NET] reconnecting in {}s (attempt {})", delay.as_secs(), retry_count);
+                eprintln!(
+                    "[NET] reconnecting in {}s (attempt {})",
+                    delay.as_secs(),
+                    retry_count
+                );
                 tokio::time::sleep(delay).await;
             }
         });
@@ -472,7 +521,12 @@ pub fn spawn_network_client_nonblocking(
     _ruleset_version: u32,
     event_receiver: NetworkEventReceiver,
     relay_id: RelayId,
-) -> (NetworkReceiver, NetworkSender, NetworkClientHandle, LobbyConnectionStatus) {
+) -> (
+    NetworkReceiver,
+    NetworkSender,
+    NetworkClientHandle,
+    LobbyConnectionStatus,
+) {
     let receiver = NetworkReceiver::default();
     let sender = NetworkSender::default();
     let stop_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -522,13 +576,20 @@ pub fn spawn_network_client_nonblocking(
                     break;
                 }
                 let delay = Duration::from_secs((1u64 << retry_count.min(5)).min(30));
-                eprintln!("[NET] reconnecting in {}s (attempt {})", delay.as_secs(), retry_count);
+                eprintln!(
+                    "[NET] reconnecting in {}s (attempt {})",
+                    delay.as_secs(),
+                    retry_count
+                );
                 tokio::time::sleep(delay).await;
             }
         });
     });
 
-    let handle = NetworkClientHandle { thread: Some(thread), stop: stop_flag };
+    let handle = NetworkClientHandle {
+        thread: Some(thread),
+        stop: stop_flag,
+    };
     (receiver, sender, handle, status)
 }
 

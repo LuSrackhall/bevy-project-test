@@ -86,7 +86,10 @@ mod tests {
     fn test_empty_world_returns_empty_counts() {
         let mut world = World::new();
         let counts = count_factions(&mut world);
-        assert!(counts.factions.is_empty(), "Empty world should have zero factions");
+        assert!(
+            counts.factions.is_empty(),
+            "Empty world should have zero factions"
+        );
         assert_eq!(counts.total_soldiers(), 0);
         assert_eq!(counts.total_cities(), 0);
         assert_eq!(counts.soldiers(FactionId(0)), 0);
@@ -151,11 +154,11 @@ mod tests {
 
         // Only Player and Enemy should have units after map generation
         // (Neutral may appear depending on map generation)
-        for (faction, _) in &counts.factions {
+        for faction in counts.factions.keys() {
             match faction {
                 FactionId(0) | FactionId(1) => {} // expected
-                FactionId(2) => {} // also possible
-                FactionId(_) => {} // other factions
+                FactionId(2) => {}                // also possible
+                FactionId(_) => {}                // other factions
             }
         }
     }

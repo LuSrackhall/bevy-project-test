@@ -3,7 +3,7 @@ use bevy::picking::hover::HoverMap;
 use bevy::picking::pointer::PointerId;
 use bevy::prelude::*;
 use bevy_adapter::input::ForceMoveNext;
-use bevy_adapter::tick::{CommandSink, SimulationWorld};
+use bevy_adapter::tick::SimulationWorld;
 use simulation::command::*;
 use simulation::soldier::*;
 use simulation::types::*;
@@ -87,7 +87,7 @@ pub fn selection_click_system(
     sim_world: bevy::ecs::system::NonSend<SimulationWorld>,
     mut selection: ResMut<SelectionState>,
 ) {
-    let lid = crate::local_player_id(&*sim_world);
+    let lid = crate::local_player_id(&sim_world);
     if !mouse.just_pressed(MouseButton::Left) {
         return;
     }
@@ -109,7 +109,7 @@ pub fn selection_click_system(
     };
 
     let world = sim_world.world_ref();
-    let index = world.get_resource::<simulation::unit_index::UnitIdEntityIndex>();
+    let _index = world.get_resource::<simulation::unit_index::UnitIdEntityIndex>();
 
     // Priority 1: click a friendly city
     let mut hit_city: Option<UnitId> = None;
@@ -193,7 +193,7 @@ pub fn drag_select_system(
     sim_world: bevy::ecs::system::NonSend<SimulationWorld>,
     mut selection: ResMut<SelectionState>,
 ) {
-    let lid = crate::local_player_id(&*sim_world);
+    let lid = crate::local_player_id(&sim_world);
     let Ok(window) = q_windows.single() else {
         return;
     };
@@ -282,7 +282,7 @@ pub fn selection_shortcut_system(
     sim_world: bevy::ecs::system::NonSend<SimulationWorld>,
     mut selection: ResMut<SelectionState>,
 ) {
-    let lid = crate::local_player_id(&*sim_world);
+    let lid = crate::local_player_id(&sim_world);
     if keyboard.just_pressed(KeyCode::KeyA)
         && (keyboard.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight])
             || keyboard.any_pressed([KeyCode::SuperLeft, KeyCode::SuperRight]))
@@ -307,7 +307,7 @@ pub fn selection_visual_system(
     selection: Res<SelectionState>,
     sim_world: bevy::ecs::system::NonSend<SimulationWorld>,
 ) {
-    let lid = crate::local_player_id(&*sim_world);
+    let _lid = crate::local_player_id(&sim_world);
     let world = sim_world.world_ref();
 
     // O(1) per lookup using UnitIdEntityIndex (rebuilt each tick in run_tick)
@@ -366,14 +366,14 @@ pub fn command_issue_system(
     camera_query: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
     hover_map: Res<HoverMap>,
     nodes: Query<&Node>,
-    mut sim_world: bevy::ecs::system::NonSendMut<SimulationWorld>,
+    sim_world: bevy::ecs::system::NonSendMut<SimulationWorld>,
     mut cmd_buf: ResMut<CommandBuffer>,
     selection: ResMut<SelectionState>,
     tick_clock: Res<bevy_adapter::tick::TickClock>,
     driver: Res<bevy_adapter::driver::SimulationDriver>,
     force_next: Option<ResMut<ForceMoveNext>>,
 ) {
-    let lid = crate::local_player_id(&*sim_world);
+    let lid = crate::local_player_id(&sim_world);
     if !mouse.just_pressed(MouseButton::Right) {
         return;
     }
@@ -547,7 +547,7 @@ pub fn seek_stance_shortcut_system(
     driver: Res<bevy_adapter::driver::SimulationDriver>,
     sim_world: bevy::ecs::system::NonSend<SimulationWorld>,
 ) {
-    let lid = crate::local_player_id(&*sim_world);
+    let lid = crate::local_player_id(&sim_world);
     if !keyboard.just_pressed(KeyCode::KeyS) {
         return;
     }

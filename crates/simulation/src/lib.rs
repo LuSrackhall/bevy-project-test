@@ -21,7 +21,7 @@ use crate::command::*;
 pub use crate::events::SimulationEvents;
 use crate::replay::ReplayFile;
 use crate::soldier::config::SoldierConfig;
-use crate::soldier::{FactionComponent, UnitIdComponent};
+use crate::soldier::FactionComponent;
 use crate::types::*;
 pub use bevy_ecs::world::World;
 
@@ -115,7 +115,11 @@ fn collect_command_players(world: &mut World) -> Vec<u8> {
 /// resource) uses `FactionId(player_id)` as fallback.
 ///
 /// See: openspec/changes/fix-multiplayer-identity/brainstorm-spec.md AD2
-fn validate_commands(world: &mut World, commands: Vec<GameCommand>, _known_players: &[u8]) -> Vec<GameCommand> {
+fn validate_commands(
+    world: &mut World,
+    commands: Vec<GameCommand>,
+    _known_players: &[u8],
+) -> Vec<GameCommand> {
     // Pre-collect PlayerSlots → FactionId mapping into owned data
     let slot_factions: std::collections::HashMap<u8, types::FactionId> = world
         .get_resource::<types::PlayerSlots>()
@@ -152,7 +156,9 @@ fn validate_commands(world: &mut World, commands: Vec<GameCommand>, _known_playe
                 }
                 Action::NoOp => return true,
             };
-            let Some(target) = target_unit else { return true };
+            let Some(target) = target_unit else {
+                return true;
+            };
             let Some(entity) = crate::soldier::find_entity_by_unit_id(world, target) else {
                 return false;
             };
@@ -174,7 +180,9 @@ fn validate_commands(world: &mut World, commands: Vec<GameCommand>, _known_playe
 ///   6. State output
 pub fn run_tick(world: &mut World, tick_number: u32, config: &RunConfig) -> SimulationEvents {
     // ── Step 1: Command collection ──
-    let mut commands = world.resource_mut::<CommandBuffer>().take_for_tick(tick_number);
+    let mut commands = world
+        .resource_mut::<CommandBuffer>()
+        .take_for_tick(tick_number);
 
     // ── Step 2: No-Op injection for missing players ──
     let known_players = collect_command_players(world);
@@ -212,7 +220,9 @@ pub fn run_tick(world: &mut World, tick_number: u32, config: &RunConfig) -> Simu
     }
 
     // Clear previous events
-    { *world.resource_mut::<SimulationEvents>() = SimulationEvents::new(); }
+    {
+        *world.resource_mut::<SimulationEvents>() = SimulationEvents::new();
+    }
 
     // Build shared TickCombatIndex once (replaces 14 redundant scans per tick)
     let tick_index = soldier::TickCombatIndex::build(world);
@@ -311,7 +321,7 @@ mod integration_tests {
         map::generate_map(&mut world, map::MapSize::Small);
         // Verify cities were created
         let mut query = world.query::<(&soldier::CityComponent,)>();
-        let count = query.iter(&mut world).count();
+        let count = query.iter(&world).count();
         assert!(count >= 6, "Expected at least 6 cities, got {}", count);
     }
 
@@ -351,7 +361,9 @@ mod integration_tests {
         }
         let hash_rebuild = golden_test::hash_world_state(&mut world_rebuild);
 
-        assert_eq!(hash_live, hash_rebuild,
-            "重建路径必须与连续网络路径 bitwise 一致(R1)");
+        assert_eq!(
+            hash_live, hash_rebuild,
+            "重建路径必须与连续网络路径 bitwise 一致(R1)"
+        );
     }
 }

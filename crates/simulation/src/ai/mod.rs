@@ -23,7 +23,9 @@ pub fn ai_decide(world: &mut World, current_tick: u32) {
 
     let slots = world.get_resource::<PlayerSlots>();
     let ai_slots: Vec<FactionId> = match slots {
-        Some(s) => s.slots.iter()
+        Some(s) => s
+            .slots
+            .iter()
             .filter(|s| matches!(s.controller, Controller::AI(_)))
             .map(|s| s.faction)
             .collect(),
@@ -39,7 +41,6 @@ pub fn ai_decide(world: &mut World, current_tick: u32) {
 
 /// AI 为单个 faction 生成命令（从原 ai_decide 提取）。
 fn ai_decide_for_faction(world: &mut World, current_tick: u32, ai_faction: FactionId) {
-
     // Collect AI (Enemy) cities — sorted for determinism (§0.1)
     let mut ai_cities: Vec<(UnitId, FixedVec2, u32, u32)> = {
         let mut query = world.query::<(
@@ -118,7 +119,7 @@ fn ai_decide_for_faction(world: &mut World, current_tick: u32, ai_faction: Facti
             let mut by_dist: Vec<(usize, i64)> = neutral_cities
                 .iter()
                 .enumerate()
-                .map(|(i, (uid, npos, _, _))| (i, (ai_pos - *npos).length_squared().0))
+                .map(|(i, (_uid, npos, _, _))| (i, (ai_pos - *npos).length_squared().0))
                 .collect();
             by_dist.sort_by_key(|(i, d)| (*d, neutral_cities[*i].0));
 
@@ -157,7 +158,7 @@ fn ai_decide_for_faction(world: &mut World, current_tick: u32, ai_faction: Facti
             let mut by_dist: Vec<(usize, i64)> = player_cities
                 .iter()
                 .enumerate()
-                .map(|(i, (uid, ppos, _))| (i, (ai_pos - *ppos).length_squared().0))
+                .map(|(i, (_uid, ppos, _))| (i, (ai_pos - *ppos).length_squared().0))
                 .collect();
             by_dist.sort_by_key(|(i, d)| (*d, player_cities[*i].0));
 
@@ -168,8 +169,7 @@ fn ai_decide_for_faction(world: &mut World, current_tick: u32, ai_faction: Facti
                     let ai_nearby = soldiers
                         .iter()
                         .filter(|(_, pos, fac, _, _)| {
-                            *fac == ai_faction
-                                && (*pos - target_pos).length_squared() <= radius_sq
+                            *fac == ai_faction && (*pos - target_pos).length_squared() <= radius_sq
                         })
                         .count();
                     let player_nearby = soldiers
