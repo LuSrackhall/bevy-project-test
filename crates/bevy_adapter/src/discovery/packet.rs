@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use super::model::RoomAdvertisement;
 
 /// Protocol magic constant for validating incoming UDP beacons.
-pub const DISCOVERY_MAGIC: [u8; 2] = [b'R', b'T'];
+pub const DISCOVERY_MAGIC: [u8; 2] = *b"RT";
 /// Current discovery protocol version.
 pub const DISCOVERY_VERSION: u16 = 1;
 
