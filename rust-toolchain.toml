@@ -1,0 +1,14 @@
+# Rust 工具链固定（CI 门禁可复现）
+#
+# 为什么必须钉住：本仓库的 CI 以 `cargo fmt --check` 与 `cargo clippy -- -D warnings`
+# 作为门禁（宪法 §22），而**新版本 Rust 会引入新 lint**，使门禁在无关改动上突然变红
+# ——2026-09 就发生过：main 上的 CI 因 fmt 漂移与 clippy 新 lint 连续失败，
+# §22 承诺的自动化守护因此从未真正生效。
+#
+# 钉住之后，本地与 CI 使用同一工具链，agent 在本地跑绿即等于 CI 跑绿。
+# 升级是有意动作：改本文件 + 同步 `.github/workflows/{ci,release}.yml` 的 toolchain，
+# 并在同一个提交里跑一遍完整门禁。
+[toolchain]
+channel = "1.95.0"
+components = ["clippy", "rustfmt"]
+profile = "minimal"
