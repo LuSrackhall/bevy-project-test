@@ -34,9 +34,40 @@ use crate::tick::SimulationWorld;
 /// 自定义方法名。`<domain>/<method>` 与官方内置方法的命名风格一致。
 pub const BRP_PROBE_METHOD: &str = "city_conquest/probe";
 
-/// 构造用于挂载 BRP 的插件（含仿真探针方法）。
+/// 自定义方法名：请求一张主窗口截图并落盘（agent 据此"看见"UI）。
+pub const BRP_SCREENSHOT_METHOD: &str = "city_conquest/screenshot";
+
+/// 构造用于挂载 BRP 的插件（含仿真探针与截图方法）。
 pub fn plugin() -> RemotePlugin {
-    RemotePlugin::default().with_method_main(BRP_PROBE_METHOD, probe)
+    RemotePlugin::default()
+        .with_method_main(BRP_PROBE_METHOD, probe)
+        .with_method_main(BRP_SCREENSHOT_METHOD, screenshot)
+}
+
+/// 请求主窗口截图落盘。
+///
+/// 参数：`{"path": "/tmp/shot.png"}`（可选，默认 `/tmp/city-conquest-shot.png`）。
+/// 返回：`{"requested": true, "path": ...}`。
+///
+/// 截图在窗口完成渲染后写出（通常 1–3 帧），因此调用方应轮询文件出现，
+/// 而不是把返回值当成"已完成"。这是 Bevy 侧唯一有官方支持的 UI 可视化路径，
+/// 让 agent 能对"UI 长什么样"做机器可读的断言（读取 PNG 后比对/审阅）。
+fn screenshot(In(params): In<Option<Value>>, world: &mut World) -> BrpResult {
+    use bevy::render::view::screenshot::{save_to_disk, Screenshot};
+
+    let path = params
+        .as_ref()
+        .and_then(|p| p.get("path"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("/tmp/city-conquest-shot.png")
+        .to_string();
+
+    // 官方用法：spawn 一个 Screenshot 实体，并挂上 save_to_disk 观察者。
+    world
+        .spawn(Screenshot::primary_window())
+        .observe(save_to_disk(path.clone()));
+
+    Ok(json!({ "requested": true, "path": path }))
 }
 
 /// 仿真运行时快照。
