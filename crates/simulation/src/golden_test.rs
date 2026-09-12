@@ -82,7 +82,7 @@ pub fn hash_world_state(world: &mut World) -> u64 {
         }
         // FactionId
         if let Some(f) = em.get::<FactionComponent>() {
-            (f.0.0 as u8).hash(&mut hasher);
+            f.0 .0.hash(&mut hasher);
         }
         // SoldierType
         if let Some(st) = em.get::<SoldierTypeComponent>() {
@@ -110,7 +110,7 @@ pub fn hash_world_state(world: &mut World) -> u64 {
             spawn_tag.hash(&mut hasher);
             c.spawn_cooldown.hash(&mut hasher);
             c.level_exp.hash(&mut hasher);
-            c.last_attacker_faction.map(|f| f.0 as u8).hash(&mut hasher);
+            c.last_attacker_faction.map(|f| f.0).hash(&mut hasher);
             c.arrow_damage_acc.hash(&mut hasher);
         }
         // ShieldItem
@@ -154,7 +154,7 @@ pub fn hash_world_state(world: &mut World) -> u64 {
             a.direction.x.0.hash(&mut hasher);
             a.direction.y.0.hash(&mut hasher);
             a.damage.hash(&mut hasher);
-            (a.from_faction.0 as u8).hash(&mut hasher);
+            a.from_faction.0.hash(&mut hasher);
             a.shooter.map(|s| s.0).hash(&mut hasher);
             a.flight_remaining.hash(&mut hasher);
             a.decay_remaining.hash(&mut hasher);
@@ -174,7 +174,7 @@ pub fn hash_world_state(world: &mut World) -> u64 {
             ds.position.x.0.hash(&mut hasher);
             ds.position.y.0.hash(&mut hasher);
             ds.drop_tick.hash(&mut hasher);
-            ds.owner_faction.map(|f| f.0 as u8).hash(&mut hasher);
+            ds.owner_faction.map(|f| f.0).hash(&mut hasher);
         }
         // CityOrigin
         if let Some(co) = em.get::<CityOrigin>() {
@@ -187,6 +187,20 @@ pub fn hash_world_state(world: &mut World) -> u64 {
                 SoldierState::Fighting => 1,
             };
             state_tag.hash(&mut hasher);
+        }
+        // CityRadius —— 城池半径：运行时会随易主/升级重算，影响占领判定与光环范围
+        if let Some(cr) = em.get::<CityRadius>() {
+            cr.0.hash(&mut hasher);
+        }
+        // AuraHealComponent —— 光环治疗参数，参与每 Tick 治疗结算
+        if let Some(ah) = em.get::<AuraHealComponent>() {
+            ah.base_heal.hash(&mut hasher);
+            ah.per_level_heal.hash(&mut hasher);
+        }
+        // SpawnDirection —— 产兵方向，决定新生单位的初始走向
+        if let Some(sd) = em.get::<SpawnDirection>() {
+            sd.0.x.0.hash(&mut hasher);
+            sd.0.y.0.hash(&mut hasher);
         }
     }
 
@@ -251,9 +265,7 @@ mod tests {
         for tick in 1..=500 {
             if tick == 10 {
                 let mut q = world1.query::<(&UnitIdComponent, &FactionComponent, &SoldierMarker)>();
-                if let Some((id, _fac, _)) =
-                    q.iter(&world1).find(|(_, f, _)| f.0 == FactionId(0))
-                {
+                if let Some((id, _fac, _)) = q.iter(&world1).find(|(_, f, _)| f.0 == FactionId(0)) {
                     let uid = id.0;
                     let target = FixedVec2::new(Fixed::from_int(200), Fixed::from_int(200));
                     world1.resource_mut::<CommandBuffer>().push(GameCommand {

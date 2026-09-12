@@ -1,0 +1,14 @@
+[package]
+name = "sim-cli"
+version = "0.1.0"
+edition = "2021"
+
+# 宪法 §21：独立二进制（benchmark 同类），不进入 simulation 依赖图。
+# 关键约束：**不得**依赖 bevy 渲染栈，保证 agent 迭代循环的编译成本与渲染解耦。
+[dependencies]
+simulation = { path = "../simulation" }
+serde_json = "1"
+
+[[bin]]
+name = "sim-cli"
+path = "src/main.rs"

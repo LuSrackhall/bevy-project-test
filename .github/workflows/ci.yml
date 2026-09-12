@@ -77,8 +77,13 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           echo "Checking simulation crate for non-whitelisted f32/f64 usage..."
-          # Allow: from_float, to_float (config bridge), tick_duration (ADR), gen_probability_permyriad (returns u32)
+          # 白名单机制（两重，缺一不可）：
+          #   1) 宪法 §2.3 例外条款允许的浮点桥接**函数体**必须显式标注
+          #      `CONSTITUTION-ALLOW`（见 types.rs 的 from_float/to_float）；
+          #   2) 这些桥接函数自身的**签名行**按函数名豁免。
+          # 其余豁免：tick_duration（ADR 声明的调度层）、gen_probability（返回 u32）、注释与文档。
           HITS=$(grep -rn '\bf32\b\|\bf64\b' crates/simulation/src/ --include="*.rs" \
+            | grep -v "CONSTITUTION-ALLOW" \
             | grep -v "from_float\|to_float\|tick_duration\|gen_probability\|//.*f32\|//.*f64\|///\|deprecated\|doc" \
             || true)
           if [ -n "$HITS" ]; then
@@ -87,6 +92,13 @@ jobs:
             exit 1
           fi
           echo "PASS: no float infiltration"
+
+      - name: Machine acceptance — headless scenario (determinism + replay round-trip)
+        if: runner.os == 'Linux'
+        run: |
+          echo "Running agent-facing verification CLI (constitution §10.1/§10.2)..."
+          cargo run -p sim-cli -- scenario --seed 42 --map small --ticks 500 \
+            --repeat 2 --record /tmp/golden-scenario.ron --json
 
       - name: Constitution — dependency topology
         if: runner.os == 'Linux'
@@ -100,5 +112,6 @@ jobs:
           fi
           echo "PASS: dependency topology correct"
 
-      # TODO: hash_world_state 覆盖率检查（宪法 §22.1）
-      # 需要比对仿真组件列表与 hash 函数覆盖列表，复杂度较高，后续单独实现。
+      - name: Constitution — hash_world_state coverage
+        if: runner.os == 'Linux'
+        run: python3 scripts/check-hash-coverage.py

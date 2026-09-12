@@ -37,13 +37,13 @@ impl Fixed {
     /// Create a Fixed from a float (only for config/initialization).
     #[inline]
     pub fn from_float(f: f32) -> Self {
-        Fixed((f * FIXED_ONE as f32) as i64)
+        Fixed((f * FIXED_ONE as f32) as i64) // CONSTITUTION-ALLOW: float bridge (§2.3 exception)
     }
 
     /// Convert to float (only for presentation layer).
     #[inline]
     pub fn to_float(self) -> f32 {
-        self.0 as f32 / FIXED_ONE as f32
+        self.0 as f32 / FIXED_ONE as f32 // CONSTITUTION-ALLOW: float bridge (§2.3 exception)
     }
 
     /// Absolute value.
@@ -355,32 +355,27 @@ impl PlayerSlots {
 
     /// Create N-player FFA slot configuration. N bounded only by the `u8` type limit (255).
     pub fn multi_player(count: u8, local_player_id: u8) -> Self {
-        let slots = (0..count).map(|i| PlayerSlot {
-            slot_id: SlotId(i),
-            controller: if i == local_player_id {
-                Controller::HumanLocal
-            } else {
-                Controller::HumanRemote(SlotId(i))
-            },
-            faction: FactionId(i),
-            team: TeamId(0),
-        }).collect();
+        let slots = (0..count)
+            .map(|i| PlayerSlot {
+                slot_id: SlotId(i),
+                controller: if i == local_player_id {
+                    Controller::HumanLocal
+                } else {
+                    Controller::HumanRemote(SlotId(i))
+                },
+                faction: FactionId(i),
+                team: TeamId(0),
+            })
+            .collect();
         Self { slots }
     }
-
 }
 
 /// Bevy ECS Resource stored in the simulation world indicating which player_id
 /// is the local human player. Defaults to 0 (Player faction) for single-player.
 /// Set during game init for network mode.
-#[derive(Clone, Copy, Debug, Resource)]
+#[derive(Clone, Copy, Debug, Resource, Default)]
 pub struct LocalPlayerId(pub u8);
-
-impl Default for LocalPlayerId {
-    fn default() -> Self {
-        Self(0)
-    }
-}
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, Serialize, Deserialize)]
 pub enum SoldierType {
@@ -604,8 +599,14 @@ mod tests {
         assert_eq!(slots.slots.len(), 3);
         assert_eq!(slots.slots[0].faction, FactionId(0));
         assert!(matches!(slots.slots[0].controller, Controller::HumanLocal));
-        assert!(matches!(slots.slots[1].controller, Controller::HumanRemote(_)));
-        assert!(matches!(slots.slots[2].controller, Controller::HumanRemote(_)));
+        assert!(matches!(
+            slots.slots[1].controller,
+            Controller::HumanRemote(_)
+        ));
+        assert!(matches!(
+            slots.slots[2].controller,
+            Controller::HumanRemote(_)
+        ));
     }
 
     #[test]
@@ -639,5 +640,4 @@ mod tests {
         assert!(matches!(slots.slots[5].controller, Controller::HumanLocal));
         assert_eq!(slots.slots[15].faction, FactionId(15));
     }
-
 }
