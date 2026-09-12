@@ -2,7 +2,9 @@
 # 所有 worktree 共享同一 target 目录,避免每个工作树重复编译/重复占用磁盘。
 # 注意:Cargo 1.95 不对该路径做 $HOME/$CARGO_HOME 展开,只能写绝对路径。
 # 换机器/其他开发者需自行覆盖 CARGO_TARGET_DIR(见 CI workflow env)。
-target-dir = "/Users/srackhalllu/.cache/bevy-test-target"
+# 2026-09-11 迁移:项目已由系统盘 ~/Desktop/资源管理器/safe/bevy-test 迁至 SSD980,
+# 原 ~/.cache/bevy-test-target(29G)已删除,缓存改在 SSD 上重建。
+target-dir = "/Volumes/SSD980/dsh-safe/bevy-test/target"
 
 [target.wasm32-unknown-unknown]
 rustflags = ['--cfg', 'getrandom_backend="wasm_js"', '-Ctarget-feature=+atomics']
