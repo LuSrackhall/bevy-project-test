@@ -11,7 +11,7 @@ debug_render = []
 simulation = { path = "../simulation" }
 bevy_adapter = { path = "../bevy_adapter" }
 presentation = { path = "../presentation" }
-bevy = { version = "0.19", features = ["bevy_ui_widgets", "bevy_input_focus", "debug"] }
+bevy = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 js-sys = "0.3"

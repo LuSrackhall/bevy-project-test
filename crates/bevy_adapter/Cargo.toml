@@ -12,7 +12,7 @@ remote = ["bevy/bevy_remote", "dep:serde_json"]
 
 [dependencies]
 simulation = { path = "../simulation" }
-bevy = "0.19"
+bevy = { workspace = true }
 serde = { version = "1", features = ["derive"] }
 tokio = { version = "1.52.3", features = ["net", "rt", "sync", "macros", "io-util", "time"] }
 bincode = { version = "2", features = ["serde"] }

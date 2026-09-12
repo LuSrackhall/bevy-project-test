@@ -7,6 +7,19 @@ name = "city-conquest"
 version = "0.3.3"
 edition = "2021"
 
+[workspace.dependencies]
+# ── bevy feature 收窄（宪法 §21：feature 必须按层与用途最小化）──
+# 本作是纯 2D 圆圈 RTS：不需要 3D 管线（bevy_pbr）、glTF 加载（bevy_gltf）与音频。
+# 原实现使用 bevy **默认 feature**，等于为 2D 游戏编译整个 3D 栈。
+#
+# `2d` 集合 = default_app（bevy_asset/log/state/async_executor/reflect_auto_register）
+#             + default_platform（bevy_winit/multi_threaded/webgl2/x11/wayland/default_font）
+#             + 2d_bevy_render（bevy_render/core_pipeline/sprite_render/gizmos_render）
+# `ui` 集合 = bevy_ui + bevy_ui_render + bevy_ui_widgets + bevy_input_focus
+# `debug`   = bevy_dev_tools（render_view 既有依赖）
+# `png`     = 为后续接入图片资源预留（当前仅用 TTF 字体）
+bevy = { version = "0.19", default-features = false, features = ["2d", "ui", "debug", "png"] }
+
 [features]
 default = []
 # 运行时可观测：Bevy Remote Protocol（BRP），供 agent 用 JSON-RPC 查询运行中的客户端。
@@ -16,7 +29,7 @@ default = []
 remote = ["bevy/bevy_remote", "bevy_adapter/remote"]
 
 [dependencies]
-bevy = "0.19"
+bevy = { workspace = true }
 icu_provider = { version = "2", features = ["logging"] }
 rand = "0.8"
 simulation = { path = "crates/simulation" }
