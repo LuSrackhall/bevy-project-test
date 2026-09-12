@@ -92,6 +92,8 @@ pub struct SelfPlayArgs {
     /// 所有槽位都由 AI 控制（真·对称自对弈）；否则 faction 0 被动、其余为 AI。
     pub symmetric: bool,
     pub require_decided: bool,
+    /// 要求对局必须在此时刻（tick）之前决出；给出即隐含 `require_decided`。
+    pub decide_by: Option<u32>,
     pub json: bool,
     pub quiet: bool,
 }
@@ -270,6 +272,13 @@ fn parse_selfplay(rest: &[String]) -> Result<SelfPlayArgs, CliError> {
         players,
         symmetric: bool_of(&flags, "symmetric", false)?,
         require_decided: bool_of(&flags, "require-decided", false)?,
+        decide_by: match flags.get("decide-by") {
+            None => None,
+            Some(v) => Some(
+                v.parse()
+                    .map_err(|_| CliError::Usage(format!("--decide-by 的值 `{v}` 不是 u32")))?,
+            ),
+        },
         json: bool_of(&flags, "json", false)?,
         quiet: bool_of(&flags, "quiet", false)?,
     })
@@ -359,6 +368,8 @@ struct RunResult {
     counts: FactionCounts,
     events: EventTotals,
     replay: Option<ReplayFile>,
+    /// 首次采样到"只剩一个非中立阵营持有城池"的 tick（分辨率 = DESYNC_CHECK_INTERVAL）。
+    decided_at: Option<u32>,
 }
 
 /// 执行一次确定性仿真：seed + map + ticks（+ 可选回放录制）。
@@ -381,14 +392,20 @@ fn execute(
 
     let config = RunConfig { enable_ai };
     let mut events = EventTotals::default();
+    let mut decided_at: Option<u32> = None;
     for tick in 1..=ticks {
         let ev = run_tick(&mut world, tick, &config);
         events.absorb(&ev);
-        if tick % ReplayFile::DESYNC_CHECK_INTERVAL == 0 && world.contains_resource::<ReplayFile>()
-        {
-            let hash = golden_test::hash_world_state(&mut world);
-            if let Some(mut recorder) = world.get_resource_mut::<ReplayFile>() {
-                recorder.record_tick_hash(tick, hash);
+        if tick % ReplayFile::DESYNC_CHECK_INTERVAL == 0 {
+            // 采样"是否已决出"：给对局时长一个可量化指标（分辨率 20 tick）
+            if decided_at.is_none() && decided_winner(&count_factions(&mut world)).is_some() {
+                decided_at = Some(tick);
+            }
+            if world.contains_resource::<ReplayFile>() {
+                let hash = golden_test::hash_world_state(&mut world);
+                if let Some(mut recorder) = world.get_resource_mut::<ReplayFile>() {
+                    recorder.record_tick_hash(tick, hash);
+                }
             }
         }
     }
@@ -400,6 +417,7 @@ fn execute(
         counts,
         events,
         replay: world.remove_resource::<ReplayFile>(),
+        decided_at,
     }
 }
 
@@ -745,7 +763,21 @@ fn run_selfplay(args: &SelfPlayArgs) -> Result<Outcome, CliError> {
     let winner = decided_winner(&result.counts);
 
     let mut failures: Vec<String> = Vec::new();
-    if args.require_decided && winner.is_none() {
+    // --decide-by 隐含 require_decided，并额外要求"够快"
+    if let Some(limit) = args.decide_by {
+        match result.decided_at {
+            None => failures.push(format!(
+                "{} tick 内未决出胜负（各阵营城池：{}）",
+                args.ticks,
+                factions_text(&result.counts)
+            )),
+            Some(t) if t > limit => failures.push(format!(
+                "对局直到 tick {t} 才决出，超过 --decide-by {limit}（各阵营城池：{}）",
+                factions_text(&result.counts)
+            )),
+            Some(_) => {}
+        }
+    } else if args.require_decided && winner.is_none() {
         failures.push(format!(
             "{} tick 内未决出胜负（各阵营城池：{}）",
             args.ticks,
@@ -771,6 +803,8 @@ fn run_selfplay(args: &SelfPlayArgs) -> Result<Outcome, CliError> {
         "ai_factions": ai_factions,
         "passive_factions": passive_factions,
         "decided_winner": winner,
+        "decided_at": result.decided_at,
+        "decide_by": args.decide_by,
         "final_hash": result.final_hash,
         "factions": factions_json(&result.counts),
         "events": result.events.json(),
@@ -793,7 +827,10 @@ fn run_selfplay(args: &SelfPlayArgs) -> Result<Outcome, CliError> {
             "  decided      = {}",
             winner.map_or(
                 "未决出（可能 tick 上限不足或 AI 未能推进）".to_string(),
-                |w| format!("faction {w}")
+                |w| match result.decided_at {
+                    Some(t) => format!("faction {w} @ tick {t}"),
+                    None => format!("faction {w}"),
+                }
             )
         );
         if !args.symmetric {
@@ -831,7 +868,8 @@ sim-cli —— simulation 的无头验证入口（agent 原生闭环）
   sim-cli replay <file.ron> [--no-ai] [--expect-final-hash H] [--json]
 
   sim-cli selfplay [--seed N] [--map SIZE] [--ticks N] [--players N]
-                   [--symmetric] [--require-decided] [--json] [--quiet]
+                   [--symmetric] [--require-decided] [--decide-by TICKS]
+                   [--json] [--quiet]
 
 说明：
   scenario  跑 seed+map+ticks 的确定性仿真。默认 repeat=2（内置确定性门），
@@ -840,7 +878,9 @@ sim-cli —— simulation 的无头验证入口（agent 原生闭环）
   replay    重放回放文件，逐 20 tick（DESYNC_CHECK_INTERVAL）比对已记录哈希。
             格式版本不兼容时快速失败（宪法 §20.2）。
   selfplay  AI 对被动方（--symmetric 时为 AI 对 AI 的对称自对弈）跑到 tick 上限，
-            报告胜负、阵营统计与终态哈希。
+            报告胜负、阵营统计、决出时刻与终态哈希。
+            --require-decided 要求必须决出胜负；--decide-by TICKS 额外要求够快
+            （隐含 --require-decided；决出时刻按每 20 tick 采样，分辨率 20 tick）。
 
 退出码：0 通过 / 1 验证失败 / 2 用法、IO 或格式错误。
 ";
@@ -967,6 +1007,42 @@ mod tests {
             parse(&argv("sim-cli selfplay --players 1")),
             Err(CliError::Usage(_))
         ));
+    }
+
+    #[test]
+    fn selfplay_parses_decide_by() {
+        let Command::SelfPlay(a) = parse(&argv("sim-cli selfplay --decide-by 3000")).unwrap()
+        else {
+            panic!("期望 selfplay");
+        };
+        assert_eq!(a.decide_by, Some(3000));
+        assert!(matches!(
+            parse(&argv("sim-cli selfplay --decide-by abc")),
+            Err(CliError::Usage(_))
+        ));
+    }
+
+    /// `--decide-by` 是有牙齿的门：预算太小必须 FAIL（用于防止 AI 退化回"不进攻"）。
+    #[test]
+    fn decide_by_gate_fails_when_budget_too_small() {
+        let args = SelfPlayArgs {
+            seed: 42,
+            map: MapSize::Small,
+            ticks: 200, // 远小于决出所需
+            players: 2,
+            symmetric: true,
+            require_decided: false,
+            decide_by: Some(200),
+            json: true,
+            quiet: false,
+        };
+        let outcome = run_selfplay(&args).unwrap();
+        assert!(
+            !outcome.ok,
+            "200 tick 内不可能决出，门必须失败：{:?}",
+            outcome.json
+        );
+        assert_eq!(outcome.json["decided_at"], serde_json::Value::Null);
     }
 
     #[test]

@@ -107,8 +107,10 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           echo "Requiring the AI to actually prosecute an offensive (symmetric self-play)..."
+          # seed 42 实测在 tick 2120 决出；门禁取 4000（约 2x 余量），
+          # 既能抓住"AI 不再进攻"（永不决出），也能抓住"对局拖得越来越久"。
           cargo run -p sim-cli -- selfplay --seed 42 --map small --ticks 4000 \
-            --symmetric --require-decided
+            --symmetric --decide-by 4000
 
       - name: Constitution — dependency topology
         if: runner.os == 'Linux'
