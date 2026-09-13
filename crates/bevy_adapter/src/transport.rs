@@ -435,11 +435,12 @@ async fn udp_session(
         for frame in sender.drain_all() {
             let msg = RelayClientMessage::PlayerTick(frame);
             if let Ok(data) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
-                // 上行同样不可靠 + 冗余：relay 按 (tick, player, sid) 去重，丢帧只会让
-                // 该 tick 缺一份输入（补 NoOp），不会像可靠有序通道那样拖住整条输入流。
-                for _ in 0..crate::reliable_udp::protocol::TICK_REDUNDANCY {
-                    rs.send_unreliable_on(CH_TICK, data.clone());
-                }
+                // 上行一律**可靠**：relay 需要每一份输入才能定稿（少一份就少一帧输入），
+                // 而上行低速率（20 帧/秒）下队头阻塞的代价远小于"定稿节奏塌陷"。
+                // 实测（LAN 式 20±10ms + 2% 丢包）：上行不可靠 3.9Hz → 上行可靠 6.2Hz；
+                // 仅丢包场景两者都是 20.1Hz。真正需要不可靠化的是**下行 tick 广播**
+                // （见 relay_core::broadcast，一个丢包会队头阻塞整条 tick 流）。
+                rs.send_reliable(CH_TICK, data);
             }
         }
 
