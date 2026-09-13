@@ -25,35 +25,16 @@ use crate::soldier::FactionComponent;
 use crate::types::*;
 pub use bevy_ecs::world::World;
 
-/// Initialize a new simulation world with all configs and resources.
+/// Initialize a new single-player simulation world (1 human slot + 1 AI slot).
+///
+/// Forwards to `init_simulation_world_multi` so the installed resource set is
+/// defined in exactly ONE place. This function used to duplicate the whole
+/// insertion list, which drifts silently: a resource added to only one of the
+/// two entry points gives single-player state that network games lack (or vice
+/// versa), and the symptom is a missing-resource panic or a quiet behavioural
+/// difference rather than a compile error.
 pub fn init_simulation_world(seed: u64) -> World {
-    let mut world = World::new();
-
-    // Components are auto-registered by bevy_ecs when used in queries
-
-    // Load configs
-    let soldier_config = SoldierConfig::from_ron(include_str!("../../../content/units.ron"))
-        .expect("Failed to parse units.ron");
-    world.insert_resource(soldier_config);
-
-    let city_config = CityGlobalConfig::from_ron(include_str!("../../../content/cities.ron"))
-        .expect("Failed to parse cities.ron");
-    world.insert_resource(city_config);
-
-    let combat_config = CombatGlobalConfig::from_ron(include_str!("../../../content/combat.ron"))
-        .expect("Failed to parse combat.ron");
-    world.insert_resource(combat_config);
-
-    // Core resources
-    world.insert_resource(DeterministicRng::new(seed));
-    world.insert_resource(IdGenerator::new());
-    world.insert_resource(CommandBuffer::default());
-    world.insert_resource(GlobalSeekDirective::default());
-    world.insert_resource(SimulationEvents::new());
-    world.insert_resource(SimulationSeed(seed));
-    world.insert_resource(PlayerSlots::single_player());
-
-    world
+    init_simulation_world_multi(seed, PlayerSlots::single_player())
 }
 
 /// Initialize simulation world with custom PlayerSlots (multiplayer).
@@ -300,6 +281,7 @@ pub fn run_tick_default(world: &mut World, tick_number: u32) -> SimulationEvents
 #[cfg(test)]
 mod integration_tests {
     use super::*;
+    use std::any::TypeId;
 
     #[test]
     fn test_init_simulation_world_parses_all_configs() {
@@ -335,35 +317,40 @@ mod integration_tests {
         assert_eq!(militia.speed, 80);
     }
 
+    /// Guards against re-splitting the world construction.
+    ///
+    /// This test used to be named `test_reconnect_rebuild_matches_live_network_path`
+    /// and claimed to protect the single-player / network split, but both of its
+    /// sides called `init_simulation_world_multi(seed, multi_player(4, 0))` with
+    /// the same config and no commands — an assertion that could not fail, while
+    /// the name implied a guarantee it never checked.
+    ///
+    /// What actually needs guarding is that the single-player and multiplayer
+    /// entry points install the SAME resource set. `PlayerSlots` contents are
+    /// expected to differ (1 human + 1 AI vs N humans); everything else is not.
+    /// If construction is ever split again, one side will gain a resource the
+    /// other lacks and this fails.
     #[test]
-    fn test_reconnect_rebuild_matches_live_network_path() {
-        // specs/network-reconnect:重建路径(init_simulation_world_multi +
-        // run_tick(enable_ai:false))与连续网络路径 bitwise 一致。
-        // 若误用单机 init_simulation_world(2槽)+ run_tick_default(AI开) 会 desync → R1 防线。
-        let seed = 42u64;
-        let map_size = map::MapSize::Small;
-        let total_ticks = 500u32;
-        let network_cfg = RunConfig { enable_ai: false };
+    fn single_and_multi_init_install_the_same_resource_set() {
+        let single = init_simulation_world(42);
+        let multi = init_simulation_world_multi(42, PlayerSlots::multi_player(4, 0));
 
-        // 连续网络路径
-        let mut world_live = init_simulation_world_multi(seed, PlayerSlots::multi_player(4, 0));
-        map::generate_map(&mut world_live, map_size);
-        for tick in 1..=total_ticks {
-            run_tick(&mut world_live, tick, &network_cfg);
-        }
-        let hash_live = golden_test::hash_world_state(&mut world_live);
-
-        // 重建路径:相同初始化 + 重放相同命令序列
-        let mut world_rebuild = init_simulation_world_multi(seed, PlayerSlots::multi_player(4, 0));
-        map::generate_map(&mut world_rebuild, map_size);
-        for tick in 1..=total_ticks {
-            run_tick(&mut world_rebuild, tick, &network_cfg);
-        }
-        let hash_rebuild = golden_test::hash_world_state(&mut world_rebuild);
+        let single_types = resource_type_names(&single);
+        let multi_types = resource_type_names(&multi);
 
         assert_eq!(
-            hash_live, hash_rebuild,
-            "重建路径必须与连续网络路径 bitwise 一致(R1)"
+            single_types, multi_types,
+            "single-player and multiplayer init must install the same resource set"
         );
+    }
+
+    /// Sorted `(TypeId, type name)` pairs for every resource in `world`.
+    fn resource_type_names(world: &World) -> Vec<(TypeId, String)> {
+        let mut names: Vec<(TypeId, String)> = world
+            .iter_resources()
+            .filter_map(|(info, _)| info.type_id().map(|id| (id, info.name().to_string())))
+            .collect();
+        names.sort_by_key(|(_, name)| name.clone());
+        names
     }
 }
