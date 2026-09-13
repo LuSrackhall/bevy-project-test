@@ -103,12 +103,34 @@ pub fn probe(_: In<Option<Value>>, world: &mut World) -> BrpResult {
         })
         .collect();
 
+    // 推进节奏指标（联机卡顿的量化面）：网络模式下"等待→爆发"会体现为
+    // frames_blocked / frames_burst / max_ticks_in_frame 与 accumulator_peak。
+    let pacing = world
+        .get_resource::<crate::pacing::PacingMetrics>()
+        .map(|m| {
+            json!({
+                "frames": m.frames,
+                "ticks_total": m.ticks_total,
+                "ticks_per_frame_avg": m.ticks_per_frame_avg(),
+                "max_ticks_in_frame": m.max_ticks_frame,
+                "frames_zero": m.frames_zero,
+                "frames_burst": m.frames_burst,
+                "frames_blocked": m.frames_blocked,
+                "blocked_ratio": m.blocked_ratio(),
+                "burst_ratio": m.burst_ratio(),
+                "accumulator_peak_ms": m.accumulator_peak * 1000.0,
+                "histogram_ticks_per_frame": m.histogram,
+            })
+        })
+        .unwrap_or(Value::Null);
+
     Ok(json!({
         "tick": tick,
         "world_hash": hash,
         "total_soldiers": counts.total_soldiers(),
         "total_cities": counts.total_cities(),
         "factions": factions,
+        "pacing": pacing,
     }))
 }
 

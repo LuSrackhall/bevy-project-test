@@ -161,6 +161,11 @@ pub struct SimulationDriver {
     /// silently flip it. `session::bootstrap::wire()` sets it from the
     /// `SessionMode`, so the value always traces back to how the session started.
     pub run_config: RunConfig,
+    /// 本帧实际推进的 tick 数（由 `simulation_driver_system` 每帧写入）。
+    /// 供 `crate::pacing::pacing_metrics_system` 采集，用于量化"等待→爆发"型卡顿。
+    pub last_frame_ticks: u32,
+    /// 本帧是否因等待远端定稿帧而中断推进（网络模式特有）。
+    pub last_frame_blocked: bool,
 }
 
 impl SimulationDriver {
@@ -173,6 +178,8 @@ impl SimulationDriver {
             bootstrap_phase: BootstrapPhase::Active,
             catch_up: false,
             run_config: RunConfig::ai_enabled(),
+            last_frame_ticks: 0,
+            last_frame_blocked: false,
         }
     }
 
@@ -185,6 +192,8 @@ impl SimulationDriver {
             bootstrap_phase: BootstrapPhase::Active,
             catch_up: false,
             run_config: RunConfig::ai_enabled(),
+            last_frame_ticks: 0,
+            last_frame_blocked: false,
         }
     }
 
@@ -197,6 +206,8 @@ impl SimulationDriver {
             bootstrap_phase: BootstrapPhase::Init,
             catch_up: false,
             run_config: RunConfig::ai_disabled(),
+            last_frame_ticks: 0,
+            last_frame_blocked: false,
         }
     }
 
@@ -313,6 +324,11 @@ pub fn simulation_driver_system(
     tick_clock.current_tick = driver.clock.current_tick;
     tick_clock.accumulator = driver.clock.accumulator;
     pending.events.clear();
+
+    // 节奏指标：每帧重置（供 crate::pacing::pacing_metrics_system 采集）。
+    driver.last_frame_ticks = 0;
+    driver.last_frame_blocked = false;
+
     if driver.scheduler.is_paused {
         return;
     }
@@ -353,11 +369,14 @@ pub fn simulation_driver_system(
         // NetworkCommandSource returns false until relay batch arrives.
         // Live and Replay sources always return true (no behavioral change).
         if !driver.source.is_tick_ready(next_tick) {
+            // 本帧到此为止：累加器继续增长，等帧到达后会在同一帧补齐（见 crate::pacing）。
+            driver.last_frame_blocked = true;
             break;
         }
 
         driver.clock.accumulator -= tick_dur;
         driver.clock.current_tick = next_tick;
+        driver.last_frame_ticks += 1;
         let tick = driver.clock.current_tick;
 
         // 1. Get commands from source (scoped borrow so it drops before retain)

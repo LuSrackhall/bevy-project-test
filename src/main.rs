@@ -39,11 +39,22 @@ fn main() {
     // 运行时可观测（P0.4）：`--features remote` 时开放 BRP。
     // agent 可用 JSON-RPC 查询运行中的仿真状态（`city_conquest/probe`），
     // 也可调用官方内置方法（world.query / world.trigger_event / Screenshot）做 UI 验收。
+    //
+    // `--brp-port <port>`：同机跑多个客户端时必须错开（默认 15702），否则第二个实例
+    // 绑定失败——这是"双客户端联机测量/验收"的前提。
     #[cfg(feature = "remote")]
-    app.add_plugins((
-        bevy_adapter::remote::plugin(),
-        bevy::remote::http::RemoteHttpPlugin::default(),
-    ));
+    {
+        let brp_port: u16 = args
+            .iter()
+            .position(|a| a == "--brp-port")
+            .and_then(|i| args.get(i + 1))
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(bevy::remote::http::DEFAULT_PORT);
+        app.add_plugins((
+            bevy_adapter::remote::plugin(),
+            bevy::remote::http::RemoteHttpPlugin::default().with_port(brp_port),
+        ));
+    }
 
     // CLI args for network mode (Phase 1 testing)
     let args: Vec<String> = std::env::args().collect();
@@ -61,11 +72,18 @@ fn main() {
                 .and_then(|i| args.get(i + 1))
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(1);
+            // 必须与 relay 的 `--relay-id` 一致，否则被拒（Relay identity mismatch）。
+            let relay_id: u64 = args
+                .iter()
+                .position(|a| a == "--relay-id")
+                .and_then(|i| args.get(i + 1))
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0);
             app.insert_resource(render_view::NeedsGameReset::Network {
                 relay_addr: relay_addr.clone(),
                 player_count,
                 player_id: Some(player_id),
-                relay_id: RelayId(0),
+                relay_id: RelayId(relay_id),
             });
             app.add_systems(
                 Startup,

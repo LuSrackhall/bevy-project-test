@@ -7,6 +7,7 @@ pub mod lan;
 pub mod lifecycle;
 pub mod mapper;
 pub mod network;
+pub mod pacing;
 pub mod relay_core;
 pub mod reliable_udp;
 /// 运行时可观测（BRP）：仅在 `remote` feature 下编译，见 `remote.rs` 的模块文档。
@@ -110,6 +111,7 @@ impl Plugin for BevyAdapterPlugin {
             .init_resource::<LocalPlayerFaction>()
             .insert_resource(crate::driver::SimulationDriver::new_live())
             .init_resource::<crate::driver::TickClock>()
+            .init_resource::<crate::pacing::PacingMetrics>()
             .init_resource::<ReplayRecorder>()
             .init_resource::<ReplayStatus>()
             .insert_resource(crate::session_host::SessionController::new(Box::new(
@@ -147,6 +149,14 @@ impl Plugin for BevyAdapterPlugin {
                 Update,
                 crate::driver::simulation_driver_system
                     .in_set(SimulationTickSet)
+                    .run_if(resource_exists_and_equals(GameActive(true))),
+            )
+            // 节奏指标采集：必须排在 driver 之后，读取本帧推进结果（见 crate::pacing）
+            .add_systems(
+                Update,
+                crate::pacing::pacing_metrics_system
+                    .in_set(SimulationTickSet)
+                    .after(crate::driver::simulation_driver_system)
                     .run_if(resource_exists_and_equals(GameActive(true))),
             )
             // Entity sync: only run during Playing
