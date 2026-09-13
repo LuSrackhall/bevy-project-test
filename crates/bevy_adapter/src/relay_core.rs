@@ -197,6 +197,11 @@ pub async fn run_relay(socket: UdpSocket, config: RelayConfig, stop: &AtomicBool
     let mut sessions: HashMap<SocketAddr, Arc<AsyncMutex<RelaySession>>> = HashMap::new();
 
     let mut buf = [0u8; 65535];
+    // 常驻 interval（**不要**在 select 每轮重建 sleep：持续 UDP 流量会让新建的计时器
+    // 每轮被重置而永不到期，从而饿死周期任务 —— 实测表现为超时定稿只跑到 ~7.6Hz）。
+    let mut hb_ticker = tokio::time::interval(Duration::from_millis(100));
+    hb_ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
     loop {
         tokio::select! {
             r = shared.recv_from(&mut buf) => {
@@ -229,7 +234,7 @@ pub async fn run_relay(socket: UdpSocket, config: RelayConfig, stop: &AtomicBool
                     }
                 }
             }
-            _ = tokio::time::sleep(Duration::from_millis(100)) => {
+            _ = hb_ticker.tick() => {
                 // Heartbeat sweep: drop sessions that missed their heartbeats.
                 let now = now_ms_ts();
                 let mut dead: Vec<SocketAddr> = Vec::new();

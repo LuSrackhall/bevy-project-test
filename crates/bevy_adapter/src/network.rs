@@ -749,6 +749,58 @@ impl RelayServer {
         Some(batch)
     }
 
+    /// 周期性把"已到超时"的待定 tick 定稿（D5），返回**按 tick 升序**的批次。
+    ///
+    /// 为什么必须存在：`try_finalize` 只在**收到帧**时被调用。若某 tick 的输入丢失或迟到，
+    /// 就没有人再触发它 → 客户端卡在"等该 tick" → 它不再上发 → relay 更没帧可触发 → 死锁
+    /// （直到客户端 3s 后超时重连）。实测：延迟 20±10ms + 丢包 2% 时被限速到 ~6Hz。
+    ///
+    /// **接入状态**：已实现并有单测，但**尚未接入 relay 主循环** —— 直接接入会让
+    /// `test_network_pipeline_e2e`（网络→仿真→回放确定性守门人）报 desync，
+    /// 原因是"提前把某 tick 定稿成 NoOp"与"客户端本地命令仍会被应用"两条路径冲突，
+    /// 需要先解决该交互（见下一轮计划）再接线。
+    ///
+    /// 语义：relay 按 **tick 调度**自由推进；在允许的宽限窗口内到达的输入会被纳入，
+    /// 迟到的缺席者补 NoOp（D7）——这正是 lockstep-with-input-delay 应有的行为。
+    pub fn finalize_due(&mut self, now_ms: u64) -> Vec<TickCommands> {
+        if self.frozen {
+            return Vec::new();
+        }
+        let last_logged = self.log.iter().map(|b| b.tick).max().unwrap_or(0);
+        // 推进上限 = 客户端已送达的最高 tick + 宽限（input_delay + 2）。
+        // 以"已收到的最高 tick"为准，而不是墙钟调度：
+        //   - 某 tick 输入丢失/迟到时，后续 tick 仍会到达 => 上限随之增长 => 缺口被扫出来
+        //     补 NoOp => 整条流不再死锁（RC2 修复）；
+        //   - 但绝不抢在任何客户端输入之前 => 不会把本该由客户端命令填充的 tick 提前定稿
+        //     成 NoOp（那样会与命令日志分叉 => 回放 desync）。
+        let max_arrival = self.first_arrival.keys().copied().max().unwrap_or(0);
+        let upper = last_logged
+            .saturating_add(self.input_delay)
+            .saturating_add(3)
+            .min(max_arrival.saturating_add(self.input_delay).saturating_add(2))
+            .min(last_logged.saturating_add(64));
+
+        let mut ticks: Vec<u32> = self
+            .first_arrival
+            .keys()
+            .copied()
+            .filter(|t| *t > last_logged)
+            .collect();
+        for t in (last_logged + 1)..=upper.max(last_logged + 1) {
+            ticks.push(t);
+        }
+        ticks.sort_unstable();
+        ticks.dedup();
+
+        let mut out = Vec::new();
+        for tick in ticks {
+            if let Some(batch) = self.try_finalize(tick, now_ms) {
+                out.push(batch);
+            }
+        }
+        out
+    }
+
     /// Check if tick has timed out.
     /// D5: Timeout = relay wall clock first_arrival + D * T_tick + jitter
     /// Fallback: if no frame ever arrived for this tick, use an absolute timeout
@@ -1007,6 +1059,44 @@ mod relay_tests {
             .find(|c| c.player_id == 1)
             .expect("player 1 should have a command");
         assert_eq!(noop.action, Action::NoOp);
+    }
+
+    /// 回归（RC2 死锁）：某玩家输入丢失/迟到时，定稿**不得**依赖"后续帧到达"。
+    /// 周期性 `finalize_due` 必须独立把超时 tick 定稿、给缺席者补 NoOp。
+    #[test]
+    fn test_finalize_due_breaks_stall_without_further_frames() {
+        let mut relay = relay_2p();
+        let now = 1_000u64;
+        // tick 1、2 双方齐全 → 正常定稿并置 game_started
+        relay.on_player_frame(&make_empty_frame(1, 0, 1), now);
+        relay.on_player_frame(&make_empty_frame(1, 1, 1), now);
+        relay.on_player_frame(&make_empty_frame(2, 0, 2), now + 10);
+        relay.on_player_frame(&make_empty_frame(2, 1, 2), now + 10);
+        // tick 3：只有 player 0 到达，player 1 的帧丢了 —— 且此后**没有任何新帧**
+        relay.on_player_frame(&make_empty_frame(3, 0, 3), now + 20);
+
+        let due = relay.finalize_due(now + 500);
+        let t3 = due
+            .iter()
+            .find(|b| b.tick == 3)
+            .expect("超时的 tick 3 必须被周期性扫描独立定稿（否则整条 tick 流死锁）");
+        assert!(
+            t3.commands
+                .iter()
+                .any(|c| c.player_id == 1
+                    && matches!(c.action, simulation::command::Action::NoOp)),
+            "缺席玩家必须补 NoOp"
+        );
+        assert!(
+            due.windows(2).all(|w| w[0].tick < w[1].tick),
+            "定稿顺序必须按 tick 升序（否则客户端按序消费会卡住）"
+        );
+        // 再次扫描：可以继续推进后续按调度到期的 tick，但**不得重复定稿 tick 3**
+        let again = relay.finalize_due(now + 600);
+        assert!(
+            !again.iter().any(|b| b.tick == 3),
+            "同一 tick 不得重复定稿/重复广播"
+        );
     }
 
     #[test]
