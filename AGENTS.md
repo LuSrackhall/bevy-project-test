@@ -13,6 +13,7 @@
 - [2. AI 编码准则：工业级 RTS 架构宪法](#2-ai-编码准则工业级-rts-架构宪法)
 - [3. 技能与文档的单真源](#3-技能与文档的单真源)
 - [4. 文档体系](#4-文档体系)
+- [5. 构建缓存与本地环境（agent 迭代）](#5-构建缓存与本地环境agent-迭代)
 
 ---
 
@@ -222,3 +223,26 @@ docs/
 ├── architecture/        ← 系统设计文档（随架构演进）
 └── engineering/         ← 工程实践规范（编码、测试、CI、Command Pipeline 实现指南）
 ```
+
+---
+
+## 5. 构建缓存与本地环境（agent 迭代）
+
+**本机定位**：本机是**调试/迭代环境**；发布产物由 GitHub Actions 构建（`.github/workflows/release.yml`），本地不必跑 release。
+
+**构建缓存**：`target` 位于工作区外（见 `.cargo/config.toml` 的 `target-dir`）。cargo **不回收旧代产物**——依赖版本升级、feature 集变更、profile 变更都会新增一代并永久保留：
+
+- **结构性变更（升级依赖 / 增删 feature / 改 profile）之后跑一次 `cargo clean`**；日常改代码**不需要**（复用同一代，不会增长）。
+- 实例（2026-09-13）：两天内约 10 次结构性变更累积到 66G（`bevy_ecs` 单 crate 竟有 26 代产物）；清理并把 `[profile.dev] debug` 设为 1 后稳态 **7.6G**。
+
+**沙箱写入**：`target` 在工作区外，file 沙箱（`workspace-write`）只允许写工作区与临时目录，会拒绝写入 → 需一次性提权；若想零提权，用 `CARGO_TARGET_DIR=<工作区内路径>`（实测可行，代价是多一份缓存）。
+
+**调试信息取舍（`[profile.dev] debug = 1`）**：出处是 Bevy 随包模板对 macOS 的建议（`.cargo/config_fast_builds.toml`）。
+
+| 类别 | 影响 |
+| --- | --- |
+| 编译器诊断、panic 的 `文件:行号`、回溯的符号与行号、测试输出、`sim-cli --json`、BRP 探针 | **不受影响** |
+| 交互式调试器的**局部变量值** | 退化（`opt-level` 本身也会造成部分变量不可见） |
+| 需要完整变量时 | `CARGO_PROFILE_DEV_DEBUG=2 cargo run`（**只改环境变量，不改文件**） |
+
+结论：agent 迭代依赖**结构化可观测性**（`sim-cli`、BRP 探针、黄金哈希、回放往返），不依赖交互式调试器，因此 `debug = 1` 是正确取舍；**release 与 CI（`--release`）完全不受影响**。

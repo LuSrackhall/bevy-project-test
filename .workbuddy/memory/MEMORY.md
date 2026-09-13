@@ -24,7 +24,8 @@
 
 ## 项目性质（速记）
 
+- **以 agent 主导开发**：本机是**调试/迭代环境**，发布产物由 GitHub Actions 构建（`.github/workflows/release.yml`），本地不需要跑 release 构建。
 - Rust + Bevy 0.19.x 的 RTS；依赖单向：`simulation ← bevy_adapter ← presentation ← render_view`。
 - 仿真层禁浮点（用 `Fixed(i64)`/`FixedVec2`），禁渲染/输入/窗口概念，白名单见 `AGENTS.md` 第 2 节。
 - 工作流：openspec（`openspec/changes`、`openspec/specs`）+ `.agents/skills/myspec-*` 技能族。
-- 工具链钉在 `rust-toolchain.toml`；构建缓存已移出工作区（见 `chore(build)` 提交）。
+- 工具链钉在 `rust-toolchain.toml`；构建缓存已移出工作区（见 `chore(build)` 提交），缓存卫生与沙箱写入见 `AGENTS.md` 第 5 节。
