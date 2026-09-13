@@ -755,10 +755,11 @@ impl RelayServer {
     /// 就没有人再触发它 → 客户端卡在"等该 tick" → 它不再上发 → relay 更没帧可触发 → 死锁
     /// （直到客户端 3s 后超时重连）。实测：延迟 20±10ms + 丢包 2% 时被限速到 ~6Hz。
     ///
-    /// **接入状态**：已实现并有单测，但**尚未接入 relay 主循环** —— 直接接入会让
-    /// `test_network_pipeline_e2e`（网络→仿真→回放确定性守门人）报 desync，
-    /// 原因是"提前把某 tick 定稿成 NoOp"与"客户端本地命令仍会被应用"两条路径冲突，
-    /// 需要先解决该交互（见下一轮计划）再接线。
+    /// **接入状态**：已实现并有单测，但**尚未接入 relay 主循环**。接线需要**配套**改动：
+    /// 1) 客户端提交时钟改为墙钟推进（否则 relay 会跑在客户端提交之前，命令被 NoOp 顶掉 ——
+    ///    `test_two_player_move_command_executes` 会报 "commands for N processed ticks were dropped"）；
+    /// 2) `ReplayFile.enable_ai` 已落地（否则确定性守门人 `test_network_pipeline_e2e` 报 desync，已修）。
+    /// 即：接线 = 本方法 + 客户端墙钟提交，二者必须同批（下一轮执行）。
     ///
     /// 语义：relay 按 **tick 调度**自由推进；在允许的宽限窗口内到达的输入会被纳入，
     /// 迟到的缺席者补 NoOp（D7）——这正是 lockstep-with-input-delay 应有的行为。
