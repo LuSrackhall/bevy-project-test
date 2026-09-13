@@ -369,6 +369,11 @@ pub fn lobby_update_system(
                                 network_start.player_id,
                                 3,
                             ));
+                            // Must track `source`: this path swaps the command source
+                            // mid-session without going through `bootstrap::wire()`, so
+                            // leaving the Live default here would run the AI on top of a
+                            // lockstep game and desync every peer.
+                            d.run_config = simulation::RunConfig::ai_disabled();
                             d.bootstrap_phase = BootstrapPhase::Wired;
                         }
                         // Enable network systems (poll, flush)

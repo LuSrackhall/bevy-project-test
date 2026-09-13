@@ -89,14 +89,20 @@ pub fn wire(ctx: &mut BootstrapCtx, artifacts: SessionArtifacts) {
     match artifacts {
         SessionArtifacts::Live => {
             ctx.driver.source = CommandSource::Live(crate::driver::LiveCommandSource);
+            // Solo play: the AI drives the opposing factions.
+            ctx.driver.run_config = simulation::RunConfig::ai_enabled();
         }
         SessionArtifacts::Replay { replay } => {
             ctx.driver.source =
                 CommandSource::Replay(crate::driver::ReplayCommandSource { replay });
+            ctx.driver.run_config = simulation::RunConfig::ai_enabled();
         }
         SessionArtifacts::Network(result) => {
             let ns = NetworkCommandSource::new(1, result.player_id, 3);
             ctx.driver.source = CommandSource::Network(ns);
+            // Lockstep: every faction is human-driven. Any client that
+            // synthesised AI commands would diverge from its peers.
+            ctx.driver.run_config = simulation::RunConfig::ai_disabled();
             // Register transport resources as Bevy resources (must keep handle alive — its Drop
             // stops the network thread).
             ctx.commands.insert_resource(result.receiver);

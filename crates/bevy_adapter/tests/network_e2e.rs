@@ -143,6 +143,7 @@ fn test_network_pipeline_e2e() {
         }),
         bootstrap_phase: bevy_adapter::session::bootstrap::BootstrapPhase::Active,
         catch_up: false,
+        run_config: simulation::RunConfig::ai_disabled(),
     });
 
     // Support resources

@@ -10,6 +10,7 @@ use crate::tick::{PendingEvents, SimulationWorld};
 use bevy::prelude::*;
 use simulation::command::{CommandBuffer, GameCommand};
 use simulation::replay::ReplayFile;
+use simulation::run_config::RunConfig;
 
 /// Max ticks executed per frame during Scene B catch-up replay (matches the
 /// seek batch density). 500/frame at 60fps ≈ 30k ticks/sec.
@@ -149,6 +150,17 @@ pub struct SimulationDriver {
     /// Scene B fast-replay: when true, the driver consumes buffered ticks in
     /// batches per frame until the reconnect backlog is caught up to live.
     pub catch_up: bool,
+    /// Per-session simulation configuration (currently: whether the AI decision
+    /// phase runs).
+    ///
+    /// This is an explicit session property rather than something the driver
+    /// infers by matching on `source`: the AI switch is a *game rule* that
+    /// differs per session (solo = AI opponents, network = all-human lockstep),
+    /// and inferring it from the transport meant a new `CommandSource` variant —
+    /// or a command source swapped in mid-session, as the lobby does — could
+    /// silently flip it. `session::bootstrap::wire()` sets it from the
+    /// `SessionMode`, so the value always traces back to how the session started.
+    pub run_config: RunConfig,
 }
 
 impl SimulationDriver {
@@ -160,6 +172,7 @@ impl SimulationDriver {
             source: CommandSource::Live(LiveCommandSource),
             bootstrap_phase: BootstrapPhase::Active,
             catch_up: false,
+            run_config: RunConfig::ai_enabled(),
         }
     }
 
@@ -171,6 +184,7 @@ impl SimulationDriver {
             source: CommandSource::Replay(ReplayCommandSource { replay }),
             bootstrap_phase: BootstrapPhase::Active,
             catch_up: false,
+            run_config: RunConfig::ai_enabled(),
         }
     }
 
@@ -182,6 +196,7 @@ impl SimulationDriver {
             source: CommandSource::Network(NetworkCommandSource::default()),
             bootstrap_phase: BootstrapPhase::Init,
             catch_up: false,
+            run_config: RunConfig::ai_disabled(),
         }
     }
 
@@ -374,18 +389,11 @@ pub fn simulation_driver_system(
         cmd_buf.0.retain(|c| c.tick > tick);
 
         // 5. Execute tick — the ONLY run_tick call point (I2, I7)
-        //    Network mode: disable AI (human controls all factions)
+        //    AI availability is a session property (driver.run_config), not a
+        //    function of which transport the commands arrived on.
         #[cfg(feature = "tracing")]
         let _tick_span = tracing::info_span!("tick", tick_number = tick).entered();
-        let events = if matches!(driver.source, CommandSource::Network(_)) {
-            simulation::run_tick(
-                sim_world.world_mut(),
-                tick,
-                &simulation::RunConfig { enable_ai: false },
-            )
-        } else {
-            simulation::run_tick_default(sim_world.world_mut(), tick)
-        };
+        let events = simulation::run_tick(sim_world.world_mut(), tick, &driver.run_config);
         #[cfg(feature = "tracing")]
         drop(_tick_span);
         pending.events.push(events);
@@ -460,6 +468,7 @@ fn handle_seek(
     }
 
     // Advance ticks in batches (500 per frame)
+    let run_config = driver.run_config;
     let end = (driver.clock.current_tick + 500).min(target);
     while driver.clock.current_tick < end {
         driver.clock.current_tick += 1;
@@ -467,7 +476,11 @@ fn handle_seek(
             .source
             .commands_for_tick(driver.clock.current_tick, ctx);
         inject_commands(sim_world, cmds);
-        simulation::run_tick_default(sim_world.world_mut(), driver.clock.current_tick);
+        simulation::run_tick(
+            sim_world.world_mut(),
+            driver.clock.current_tick,
+            &run_config,
+        );
     }
 
     // Seek complete

@@ -84,6 +84,7 @@ fn test_reconnect_catchup_advances_multiple_ticks() {
         source: CommandSource::Network(ns),
         bootstrap_phase: bevy_adapter::session::bootstrap::BootstrapPhase::Active,
         catch_up: false,
+        run_config: simulation::RunConfig::ai_disabled(),
     });
     app.insert_resource(TickClock::default());
     app.init_resource::<PendingEvents>();
