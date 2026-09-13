@@ -9,6 +9,13 @@ use render_view::RenderViewPlugin;
 
 use bevy::log::LogPlugin;
 
+/// 解析 `--flag a,b` 形式的两个整数（用于窗口摆放参数）。
+fn parse_pair(args: &[String], flag: &str) -> Option<(i32, i32)> {
+    let pos = args.iter().position(|a| a == flag)?;
+    let (a, b) = args.get(pos + 1)?.split_once(',')?;
+    Some((a.trim().parse().ok()?, b.trim().parse().ok()?))
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let windowed = args.iter().any(|a| a == "--windowed");
@@ -19,12 +26,24 @@ fn main() {
         bevy::window::WindowMode::BorderlessFullscreen(MonitorSelection::Primary)
     };
 
+    // 同机多客户端铺窗：`--window-pos x,y` / `--window-size w,h`。
+    // 单显示器下做 N 人联机测量与人工验收时，必须能自动把窗口并排/网格摆好，
+    // 否则人要在窗口间来回找、机器也难采样。缺省保持系统默认摆放。
+    let window_position = parse_pair(&args, "--window-pos")
+        .map(|(x, y)| bevy::window::WindowPosition::At(IVec2::new(x, y)))
+        .unwrap_or_default();
+    let window_resolution = parse_pair(&args, "--window-size")
+        .map(|(w, h)| bevy::window::WindowResolution::new(w.max(1) as u32, h.max(1) as u32))
+        .unwrap_or_default();
+
     let mut app = App::new();
     app.add_plugins((DefaultPlugins
         .set(WindowPlugin {
             primary_window: Some(Window {
                 title: "城池争霸".to_string(),
                 mode: window_mode,
+                position: window_position,
+                resolution: window_resolution,
                 ..default()
             }),
             ..default()
