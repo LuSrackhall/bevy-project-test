@@ -135,10 +135,14 @@ for i, (x, y) in enumerate(zip(before, after)):
                     "tick": y["tick"], "hash": y["hash"], "soldiers": y["soldiers"]})
 
 ticks = {r["tick"] for r in results}
-hashes = {r["hash"] for r in results}
-sync = len(hashes) == 1 and (max(ticks) - min(ticks)) <= 1
-print(f"=== 同步: ticks={sorted(ticks)} hashes={len(hashes)} 种 → {'一致 ✓' if sync else '不一致 ✗'}"
-      f"（tick 允许 ±1 采样竞态）")
+by_tick: dict[int, set[str]] = {}
+for r in results:
+    by_tick.setdefault(r["tick"], set()).add(r["hash"])
+# 同一 tick 上所有客户端必须给出同一个 hash；客户端间允许 ±1 tick 的采样竞态
+same_tick_ok = all(len(h) == 1 for h in by_tick.values())
+sync = same_tick_ok and (max(ticks) - min(ticks)) <= 1
+print(f"=== 同步: ticks={sorted(ticks)} 同 tick hash 组={[len(v) for v in by_tick.values()]} → "
+      f"{'一致 ✓' if sync else '不一致 ✗'}（tick 允许 ±1 采样竞态）")
 print(json.dumps({"players": len(results), "sync_ok": sync, "clients": results}, ensure_ascii=False))
 sys.exit(0 if sync else 1)
 PY

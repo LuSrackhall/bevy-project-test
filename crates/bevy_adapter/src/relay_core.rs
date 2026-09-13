@@ -120,21 +120,6 @@ fn now_ms_ts() -> u64 {
 /// Encode a relay→client message and stage it on every connected session's
 /// reliable socket (Control channel, CH=1). Flushed by each session's poll().
 async fn broadcast(ctx: &Arc<RelayCtx>, msg: &RelayServerMessage) {
-    // 链路条件注入（仅在显式配置时生效）：先判丢包，再按延迟 sleep。
-    // 丢包交由可靠层重传处理，因此会同时放大延迟与抖动 —— 正是真实 WiFi 的症状。
-    if let Some(state) = &ctx.netem {
-        let (drop, delay) = {
-            let mut s = state.lock().unwrap();
-            (s.should_drop(), s.delay_ms())
-        };
-        if drop {
-            return;
-        }
-        if delay > 0 {
-            tokio::time::sleep(std::time::Duration::from_millis(u64::from(delay))).await;
-        }
-    }
-
     let Ok(data) = bincode::serde::encode_to_vec(msg, bincode::config::standard()) else {
         return;
     };
@@ -143,8 +128,39 @@ async fn broadcast(ctx: &Arc<RelayCtx>, msg: &RelayServerMessage) {
         let clients = ctx.clients.lock().unwrap();
         clients.values().cloned().collect()
     };
+    // tick 广播走**不可靠 + 冗余**，状态迁移仍走可靠有序通道：
+    // tick 帧时间敏感且幂等（客户端按 tick 去重），单个丢包只该丢那一帧；
+    // 走可靠通道则一个丢包触发重传并队头阻塞整条 tick 流（实测 2% 丢包 → 0.85Hz）。
+    let is_tick = matches!(msg, RelayServerMessage::Broadcast(_));
+    let copies = if is_tick {
+        crate::reliable_udp::protocol::TICK_REDUNDANCY
+    } else {
+        1
+    };
     for session in sessions {
-        session.lock().await.socket.send_reliable(1, data.clone());
+        let mut s = session.lock().await;
+        for _ in 0..copies {
+            // 链路注入按**每个数据报**独立判定 —— 真实丢包是逐包的，
+            // 若按"每次广播"判定，冗余会被一次性抹掉，测不出冗余的效果。
+            if let Some(state) = &ctx.netem {
+                let (drop, delay) = {
+                    let mut st = state.lock().unwrap();
+                    (st.should_drop(), st.delay_ms())
+                };
+                if drop {
+                    continue;
+                }
+                if delay > 0 {
+                    tokio::time::sleep(std::time::Duration::from_millis(u64::from(delay))).await;
+                }
+            }
+            if is_tick {
+                s.socket
+                    .send_unreliable_on(crate::reliable_udp::protocol::CH_TICK, data.clone());
+            } else {
+                s.socket.send_reliable(1, data.clone());
+            }
+        }
     }
 }
 

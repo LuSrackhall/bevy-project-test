@@ -20,7 +20,8 @@ pub mod protocol;
 
 use channel::DatagramChannel;
 use protocol::{
-    ack_frame, decode, encode, Frame, CH_HEARTBEAT, KIND_ACK, KIND_DATA, KIND_FRAG, MAX_PAYLOAD,
+    ack_frame, decode, encode, Frame, CH_HEARTBEAT, KIND_ACK, KIND_DATA, KIND_FRAG, KIND_RAW,
+    MAX_PAYLOAD,
 };
 
 /// Max message payload that fits one datagram (MAX_PAYLOAD minus frag sub-header).
@@ -173,6 +174,15 @@ impl ReliableSocket {
         self.outbound.push_back(frame);
     }
 
+    /// Send an **unreliable, unordered** message on `channel` (KIND_RAW).
+    ///
+    /// 用于时间敏感的 tick 流：不占序号、不进重传队列、不做队头等待；
+    /// 接收端立即投递（不排序、不去重）。幂等性由上层按 tick 保证。
+    pub fn send_unreliable_on(&mut self, channel: u8, payload: Vec<u8>) {
+        let frame = encode(channel, 0, KIND_RAW, None, &payload);
+        self.outbound.push_back(frame);
+    }
+
     fn queue_fragment(&mut self, channel: u8, msg_id: u32, idx: u16, total: u16, data: Vec<u8>) {
         let sender = &mut self.senders[channel as usize];
         let seq = sender.next_seq;
@@ -268,6 +278,8 @@ impl ReliableSocket {
                 }
             }
             KIND_DATA | KIND_FRAG => self.receive_data(frame),
+            // 原始帧：立即投递，不排序、不 ACK、不触发重传
+            KIND_RAW => self.outbox.push_back(frame.payload),
             _ => {}
         }
     }
@@ -385,6 +397,21 @@ impl ReliableSocket {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// KIND_RAW 必须**立即投递**且**不占序号、不重传**：
+    /// 这正是 tick 流不被单个丢包拖住的前提（可靠通道会队头阻塞整条流）。
+    #[test]
+    fn test_raw_frame_is_delivered_immediately_without_ordering() {
+        let (mut sock, _ch) = mk_socket();
+        // 直接喂入原始帧：即使从未收到任何序号帧，也必须立即投递。
+        let frame = decode(&encode(CH_TICK, 0, KIND_RAW, None, b"tick-7")).unwrap();
+        sock.handle_frame(frame);
+        let msgs = sock.take_messages();
+        assert_eq!(msgs.len(), 1, "原始帧必须立即投递");
+        assert_eq!(msgs[0], b"tick-7");
+        assert_eq!(sock.in_flight(), 0, "原始帧不得进入重传队列");
+    }
+
     use crate::reliable_udp::channel_netem::NetemChannel;
     use crate::reliable_udp::protocol::{CH_CONTROL, CH_TICK};
     use async_trait::async_trait;

@@ -435,7 +435,11 @@ async fn udp_session(
         for frame in sender.drain_all() {
             let msg = RelayClientMessage::PlayerTick(frame);
             if let Ok(data) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
-                rs.send_reliable(CH_TICK, data);
+                // 上行同样不可靠 + 冗余：relay 按 (tick, player, sid) 去重，丢帧只会让
+                // 该 tick 缺一份输入（补 NoOp），不会像可靠有序通道那样拖住整条输入流。
+                for _ in 0..crate::reliable_udp::protocol::TICK_REDUNDANCY {
+                    rs.send_unreliable_on(CH_TICK, data.clone());
+                }
             }
         }
 

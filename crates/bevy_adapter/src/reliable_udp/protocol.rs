@@ -19,6 +19,16 @@ pub const CH_HEARTBEAT: u8 = 2;
 pub const KIND_DATA: u8 = 0;
 pub const KIND_ACK: u8 = 1;
 pub const KIND_FRAG: u8 = 2;
+/// 原始帧：不可靠、不排序、无 ACK、不重传。
+///
+/// 专供**时间敏感的 tick 流**：可靠有序通道上一个丢包会触发重传并队头阻塞，
+/// 把整条 tick 流卡住（实测：仅 2% 丢包、零延迟 → 0.85Hz、积压 44 秒）。
+/// tick 帧本身幂等（接收方按 tick 去重），因此丢帧只应丢那一帧。
+pub const KIND_RAW: u8 = 3;
+
+/// tick 帧的冗余重发次数：丢包率 p 时全丢概率约为 p^N。
+/// 2% 丢包下 3 次 ≈ 8e-6，足以让 tick 流不被单个丢包打断。
+pub const TICK_REDUNDANCY: usize = 3;
 
 /// Max payload per datagram — safe under IPv6 minimum MTU (1280) minus headers.
 pub const MAX_PAYLOAD: usize = 1200;
