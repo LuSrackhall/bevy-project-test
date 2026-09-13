@@ -243,4 +243,30 @@ fn test_network_pipeline_e2e() {
             );
         }
     }
+
+    // ── 不变式：已消费的 tick 不得在 cmd_buf 中残留命令 ──────────────
+    //
+    // 网络模式下仿真自己也会从 `cmd_buf` 取用命令（驱动把 relay 定稿批次注入其中）。
+    // 若某个已被仿真越过（或即将被越过）的 tick 仍有本地命令滞留，仿真会**直接应用**
+    // 它，而命令日志（录制）看不到这一步 → 回放必然 desync。
+    // 上发窗口必须覆盖到"下一个将被消费的 tick"，否则就会触发该路径。
+    let sim_tick = app
+        .world()
+        .resource::<SimulationDriver>()
+        .clock
+        .current_tick;
+    let leftover: Vec<u32> = app
+        .world()
+        .resource::<simulation::command::CommandBuffer>()
+        .0
+        .iter()
+        .filter(|c| c.tick <= sim_tick)
+        .map(|c| c.tick)
+        .collect();
+    assert!(
+        leftover.is_empty(),
+        "cmd_buf 中残留了已被仿真消费过的 tick 的命令: {leftover:?} —— \
+         上发窗口没有覆盖到仿真将要消费的 tick（这些命令会被 out-of-band 应用，\
+         而录制看不到，导致回放 desync）"
+    );
 }
