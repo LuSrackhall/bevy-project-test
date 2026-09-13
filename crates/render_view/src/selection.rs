@@ -2,6 +2,7 @@ use crate::camera::MainCamera;
 use bevy::picking::hover::HoverMap;
 use bevy::picking::pointer::PointerId;
 use bevy::prelude::*;
+use bevy_adapter::command::enqueue;
 use bevy_adapter::input::ForceMoveNext;
 use bevy_adapter::tick::SimulationWorld;
 use simulation::command::*;
@@ -405,7 +406,6 @@ pub fn command_issue_system(
     }
 
     let world = sim_world.world_ref();
-    let next_tick = tick_clock.current_tick + driver.command_delay();
 
     // Priority 1: enemy soldier
     let mut hit_enemy: Option<UnitId> = None;
@@ -424,11 +424,13 @@ pub fn command_issue_system(
     }
     if let Some(target) = hit_enemy {
         for &uid in &selection.selected_unit_ids {
-            cmd_buf.push(GameCommand {
-                tick: next_tick,
-                player_id: lid,
-                action: Action::Attack { unit: uid, target },
-            });
+            enqueue(
+                &mut cmd_buf,
+                &driver,
+                tick_clock.current_tick,
+                lid,
+                Action::Attack { unit: uid, target },
+            );
         }
         return;
     }
@@ -456,11 +458,13 @@ pub fn command_issue_system(
     }
     if let Some(target) = hit_city {
         for &uid in &selection.selected_unit_ids {
-            cmd_buf.push(GameCommand {
-                tick: next_tick,
-                player_id: lid,
-                action: Action::Attack { unit: uid, target },
-            });
+            enqueue(
+                &mut cmd_buf,
+                &driver,
+                tick_clock.current_tick,
+                lid,
+                Action::Attack { unit: uid, target },
+            );
         }
         return;
     }
@@ -487,14 +491,16 @@ pub fn command_issue_system(
     }
     if let Some(target) = hit_friendly {
         for &uid in &selection.selected_unit_ids {
-            cmd_buf.push(GameCommand {
-                tick: next_tick,
-                player_id: lid,
-                action: Action::ReturnToCity {
+            enqueue(
+                &mut cmd_buf,
+                &driver,
+                tick_clock.current_tick,
+                lid,
+                Action::ReturnToCity {
                     unit: uid,
                     city: target,
                 },
-            });
+            );
         }
         return;
     }
@@ -510,11 +516,7 @@ pub fn command_issue_system(
         } else {
             Action::MoveTo { unit: uid, target }
         };
-        cmd_buf.push(GameCommand {
-            tick: next_tick,
-            player_id: lid,
-            action,
-        });
+        enqueue(&mut cmd_buf, &driver, tick_clock.current_tick, lid, action);
     }
 }
 
@@ -565,16 +567,17 @@ pub fn seek_stance_shortcut_system(
         return;
     }
 
-    let next_tick = tick_clock.current_tick + driver.command_delay();
     let seek_range: u32 = 30; // default selection seek range per design D4
 
-    cmd_buf.push(GameCommand {
-        tick: next_tick,
-        player_id: lid,
-        action: Action::SetSeekStance {
+    enqueue(
+        &mut cmd_buf,
+        &driver,
+        tick_clock.current_tick,
+        lid,
+        Action::SetSeekStance {
             scope: SeekScope::All, // scope is irrelevant when unit_ids is set
             seek_range,
             unit_ids: selection.selected_unit_ids.clone(),
         },
-    });
+    );
 }

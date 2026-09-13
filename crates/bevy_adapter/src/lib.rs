@@ -1,4 +1,5 @@
 pub mod binding;
+pub mod command;
 pub mod discovery;
 pub mod driver;
 pub mod input;

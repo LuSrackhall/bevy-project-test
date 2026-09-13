@@ -281,12 +281,15 @@ pub(crate) fn setup_hud(
                                     if *game_mode == bevy_adapter::GameMode::Replay { return; }
                                     let Ok(btn) = q.get(ev.entity) else { return };
                                     if let Some(cid) = selection.selected_city {
-                                        // Push command for replay recording — consumed by consume_commands_system
-                                        cmd_buf.push(GameCommand {
-                                                tick: tick_clock.current_tick + driver.command_delay(),
-                                                player_id: crate::local_player_id(&sim),
-                                                action: Action::SetSpawnType { city: cid, soldier_type: btn.0 },
-                                            });
+                                        // Scheduled through the shared channel so the mode-dependent
+                                        // tick offset lives in one place (bevy_adapter::command).
+                                        bevy_adapter::command::enqueue(
+                                            &mut cmd_buf,
+                                            &driver,
+                                            tick_clock.current_tick,
+                                            crate::local_player_id(&sim),
+                                            Action::SetSpawnType { city: cid, soldier_type: btn.0 },
+                                        );
                                     }
                                 })
                                 .observe(move |_ev: On<Pointer<Over>>, q: Query<&SpawnTypeBtn>, mut hovered: ResMut<HoveredSoldierType>| {
@@ -362,11 +365,16 @@ pub(crate) fn setup_hud(
                                         (infantries, all_blocking)
                                     };
                                     let target_state = if all_blocking { simulation::types::ShieldState::Normal } else { simulation::types::ShieldState::Blocking };
-                                    let next_tick = tick_clock.current_tick + driver.command_delay();
                                     let lid = crate::local_player_id(&sim);
 
                                     for uid in &infantries {
-                                        cmd_buf.push(GameCommand { tick: next_tick, player_id: lid, action: simulation::command::Action::SetShield { unit: *uid, state: target_state } });
+                                        bevy_adapter::command::enqueue(
+                                            &mut cmd_buf,
+                                            &driver,
+                                            tick_clock.current_tick,
+                                            lid,
+                                            simulation::command::Action::SetShield { unit: *uid, state: target_state },
+                                        );
                                     }
                                 }
                                 3 => force.active = true,
@@ -504,15 +512,14 @@ pub(crate) fn setup_hud(
                     if *game_mode == bevy_adapter::GameMode::Replay { return; }
                     let lid = crate::local_player_id(&sim);
 
-                    let next_tick = tick_clock.current_tick + driver.command_delay();
                     let has_sel = !selection.selected_unit_ids.is_empty();
                     if has_sel {
-                        cmd_buf.push(GameCommand { tick: next_tick, player_id: lid, action: Action::SetSeekStance { scope: state.scope.clone(), seek_range: state.range_value, unit_ids: selection.selected_unit_ids.clone() } });
+                        bevy_adapter::command::enqueue(&mut cmd_buf, &driver, tick_clock.current_tick, lid, Action::SetSeekStance { scope: state.scope.clone(), seek_range: state.range_value, unit_ids: selection.selected_unit_ids.clone() });
                         let count = count_matching(&selection.selected_unit_ids, &state.scope, &sim);
                         let scope_name = scope_label(&state.scope);
                         toast.text = if matches!(state.scope, SeekScope::All) { format!("已下发选中全体({})索敌 范围{}", selection.selected_unit_ids.len(), state.range_value) } else { format!("已下发选中{}({})索敌 范围{}", scope_name, count, state.range_value) };
                     } else {
-                        cmd_buf.push(GameCommand { tick: next_tick, player_id: lid, action: Action::SetSeekStance { scope: state.scope.clone(), seek_range: state.range_value, unit_ids: vec![] } });
+                        bevy_adapter::command::enqueue(&mut cmd_buf, &driver, tick_clock.current_tick, lid, Action::SetSeekStance { scope: state.scope.clone(), seek_range: state.range_value, unit_ids: vec![] });
                         let scope_name = scope_label(&state.scope);
                         toast.text = format!("已下发{}索敌 范围{}", scope_name, state.range_value);
                     }
