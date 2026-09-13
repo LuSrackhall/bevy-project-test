@@ -16,6 +16,8 @@
 
 - 一个会话只提交自己产出的路径；提交恒用 `git commit -- <paths>` 路径限定。
 - 禁止 `git add -A` / `git add .` / `commit -a` / `stash` / `checkout -- .` / `reset --hard` / `clean -fd`。
+- **禁止 `cargo fmt --all`**：它会格式化其它会话正在编辑的未提交文件。只对自己产出的路径跑 `rustfmt --edition 2021 <files>`（已实际发生：格式化扫到别人的 `remote.rs`）。
+- **完成一个逻辑单元就尽快提交**：未提交的改动会被其它会话的 `git add -A` 卷进他们的提交，与提交主题无关（已实际发生：一次注释修复被卷进 `fix(net)` 提交）。
 - `push`、合并到 `main`、改写已推送历史 —— 必须用户显式批准。
 - 长任务开独立 worktree（`.worktrees/`、`.claude/worktrees/` 已 gitignore），别长期占用 main 工作树。
 - 提交信息：Conventional Commits + 中文描述。
