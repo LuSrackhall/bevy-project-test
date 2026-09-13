@@ -124,6 +124,18 @@ pub fn probe(_: In<Option<Value>>, world: &mut World) -> BrpResult {
         })
         .unwrap_or(Value::Null);
 
+    // 驱动状态快照（见返回 JSON 的注释）：定位"开局后不推进"类卡死。
+    let driver_state = world
+        .get_resource::<crate::driver::SimulationDriver>()
+        .map(|d| {
+            let buffered = match &d.source {
+                crate::driver::CommandSource::Network(ns) => ns.relay_buffer.len(),
+                _ => 0,
+            };
+            (format!("{:?}", d.bootstrap_phase), buffered)
+        })
+        .unwrap_or_else(|| ("<no-driver>".to_string(), 0));
+
     Ok(json!({
         "tick": tick,
         "world_hash": hash,
@@ -131,6 +143,15 @@ pub fn probe(_: In<Option<Value>>, world: &mut World) -> BrpResult {
         "total_cities": counts.total_cities(),
         "factions": factions,
         "pacing": pacing,
+        // 客户端联机状态（定位"开局后不推进"这类卡死）：
+        // bootstrap_phase 决定 driver 是否在跑；relay_buffer_len 是待消费的定稿帧数；
+        // game_active 决定仿真系统是否被门控。
+        "bootstrap_phase": driver_state.0,
+        "relay_buffer_len": driver_state.1,
+        "game_active": world
+            .get_resource::<crate::GameActive>()
+            .map(|g| g.0)
+            .unwrap_or(false),
     }))
 }
 
