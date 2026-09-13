@@ -70,6 +70,8 @@ fn build_client_app(
     app.insert_resource(nrecv);
     app.insert_resource(nsend);
     app.insert_resource(SimulationDriver {
+        last_frame_ticks: 0,
+        last_frame_blocked: false,
         clock: TickClock::default(),
         scheduler: SchedulerState::default(),
         source: CommandSource::Network(NetworkCommandSource {

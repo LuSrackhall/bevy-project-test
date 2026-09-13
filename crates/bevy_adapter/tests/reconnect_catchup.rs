@@ -75,6 +75,8 @@ fn test_reconnect_catchup_advances_multiple_ticks() {
 
     // driver 停在 tick 1,accumulator 积累 10s(=200 tick 的余量,模拟断点期间)
     app.insert_resource(SimulationDriver {
+        last_frame_ticks: 0,
+        last_frame_blocked: false,
         clock: TickClock {
             current_tick: 1,
             tick_duration: 0.05,

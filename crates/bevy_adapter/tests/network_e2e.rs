@@ -130,6 +130,8 @@ fn test_network_pipeline_e2e() {
 
     // Network-mode simulation driver
     app.insert_resource(SimulationDriver {
+        last_frame_ticks: 0,
+        last_frame_blocked: false,
         clock: TickClock::default(),
         scheduler: SchedulerState::default(),
         source: CommandSource::Network(NetworkCommandSource {
