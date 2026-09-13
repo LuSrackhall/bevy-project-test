@@ -6,6 +6,7 @@ pub mod input;
 pub mod lan;
 pub mod lifecycle;
 pub mod mapper;
+pub mod netem;
 pub mod network;
 pub mod pacing;
 pub mod relay_core;

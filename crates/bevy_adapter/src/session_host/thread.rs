@@ -186,6 +186,7 @@ async fn run_local_relay(
         player_count: room.max_players,
         input_delay: 3,
         current_clients: clients_count.clone(),
+        netem: None,
     };
     relay_core::run_relay(socket, config, stop).await;
 }

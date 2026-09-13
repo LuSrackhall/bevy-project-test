@@ -42,6 +42,8 @@ pub struct RelayConfig {
     pub input_delay: u32,
     /// Live connected-client count, shared with the LAN beacon for current_players.
     pub current_clients: Arc<AtomicUsize>,
+    /// 链路条件注入（延迟/抖动/丢包）。`None` = 真实链路，生产路径零开销。
+    pub netem: Option<crate::netem::NetemConfig>,
 }
 
 /// `DatagramChannel` for one relay client: sends over the shared socket,
@@ -87,15 +89,23 @@ struct RelayCtx {
     clients: Mutex<HashMap<u8, Arc<AsyncMutex<RelaySession>>>>,
     player_count: u8,
     current_clients: Arc<AtomicUsize>,
+    /// 链路条件注入状态（`None` = 不注入）。
+    netem: Option<Mutex<crate::netem::NetemState>>,
 }
 
 impl RelayCtx {
-    fn new(server: RelayServer, player_count: u8, current_clients: Arc<AtomicUsize>) -> Arc<Self> {
+    fn new(
+        server: RelayServer,
+        player_count: u8,
+        current_clients: Arc<AtomicUsize>,
+        netem: Option<crate::netem::NetemConfig>,
+    ) -> Arc<Self> {
         Arc::new(Self {
             server: Mutex::new(server),
             clients: Mutex::new(HashMap::new()),
             player_count,
             current_clients,
+            netem: netem.map(crate::netem::NetemState::new).map(Mutex::new),
         })
     }
 }
@@ -110,6 +120,21 @@ fn now_ms_ts() -> u64 {
 /// Encode a relay→client message and stage it on every connected session's
 /// reliable socket (Control channel, CH=1). Flushed by each session's poll().
 async fn broadcast(ctx: &Arc<RelayCtx>, msg: &RelayServerMessage) {
+    // 链路条件注入（仅在显式配置时生效）：先判丢包，再按延迟 sleep。
+    // 丢包交由可靠层重传处理，因此会同时放大延迟与抖动 —— 正是真实 WiFi 的症状。
+    if let Some(state) = &ctx.netem {
+        let (drop, delay) = {
+            let mut s = state.lock().unwrap();
+            (s.should_drop(), s.delay_ms())
+        };
+        if drop {
+            return;
+        }
+        if delay > 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(u64::from(delay))).await;
+        }
+    }
+
     let Ok(data) = bincode::serde::encode_to_vec(msg, bincode::config::standard()) else {
         return;
     };
@@ -139,7 +164,12 @@ pub async fn run_relay(socket: UdpSocket, config: RelayConfig, stop: &AtomicBool
         now_ms,
     );
 
-    let ctx = RelayCtx::new(server, config.player_count, config.current_clients.clone());
+    let ctx = RelayCtx::new(
+        server,
+        config.player_count,
+        config.current_clients.clone(),
+        config.netem,
+    );
     let shared = Arc::new(socket);
     eprintln!(
         "[RELAY] Relay ready (players={}, seed={})",

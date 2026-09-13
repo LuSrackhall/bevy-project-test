@@ -13,8 +13,10 @@ use bevy_adapter::relay_core::{self, RelayConfig};
 
 // 供集成测试切换发现/中继的绑定范围（回环可避免 OS 防火墙的入站授权询问）。
 pub use bevy_adapter::lan::{discovery_scope, set_discovery_scope, DiscoveryScope};
+// 供 relay 二进制注入链路条件（测试用，见 --latency-ms/--jitter-ms/--loss-pct）。
+pub use bevy_adapter::netem::NetemConfig;
 
-/// Start the relay server. Accepts connections until shutdown.
+/// Start the relay server（真实链路）。等价于 [`start_relay_with`] 传 `None`。
 ///
 /// If `relay_id` is `None`, a random `RelayId` is generated.
 pub async fn start_relay(
@@ -22,6 +24,20 @@ pub async fn start_relay(
     seed: u64,
     player_count: u8,
     relay_id: Option<RelayId>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    start_relay_with(port, seed, player_count, relay_id, None).await
+}
+
+/// Start the relay server，可选注入链路条件（延迟/抖动/丢包）。
+///
+/// `netem = None` 与真实链路完全一致（零开销）；注入用于复现"恶劣网络下的联机卡顿"，
+/// 见 `bevy_adapter::netem`（同 seed 同序列 ⇒ 可复现实验）。
+pub async fn start_relay_with(
+    port: u16,
+    seed: u64,
+    player_count: u8,
+    relay_id: Option<RelayId>,
+    netem: Option<NetemConfig>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let relay_id = relay_id.unwrap_or_else(|| RelayId(rand::random::<u64>()));
 
@@ -46,6 +62,7 @@ pub async fn start_relay(
         player_count,
         input_delay: 3,
         current_clients: Arc::new(AtomicUsize::new(0)),
+        netem,
     };
     let stop = AtomicBool::new(false);
     relay_core::run_relay(socket, config, &stop).await;
