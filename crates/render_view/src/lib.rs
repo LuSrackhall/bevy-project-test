@@ -232,10 +232,43 @@ fn replay_seeking(status: Option<Res<bevy_adapter::replay::ReplayStatus>>) -> bo
     status.is_some_and(|s| s.is_seeking)
 }
 
+/// 胜负判定的纯逻辑（便于测试）：返回 `true` 表示应当结束对局。
+///
+/// 规则（三条，缺一不可）：
+/// 1. **世界未就绪**（双方都无单位）⇒ 不下结论 —— `reset_game_system` 会先清空并重建世界；
+/// 2. **尚未仿真**（tick=0）⇒ 不下结论；
+/// 3. **未见过"双方都有单位"的世界** ⇒ 不下结论 —— 单位是逐 tick 生成的，开局若干 tick 内
+///    某一方（尤其是我方）可能暂时为空；只有确认这个世界曾经两方俱在，后面的"一方为空"
+///    才是真的被消灭。
+///
+/// 实测故障（N=4，2026-09-13）：判定在 tick 1 读到我方为空、敌方已在 → 立刻切 `GameOver`
+/// → `OnExit(Playing)` 触发清理（`game_active=false`、driver 换回 Live），该客户端停在
+/// 局前状态（tick=1、10 兵）。每局随机命中一个客户端，与加入顺序/端口无关。
+pub fn victory_verdict(
+    has_my_faction: bool,
+    has_enemy: bool,
+    tick: u32,
+    seen_both_sides: bool,
+) -> bool {
+    if !seen_both_sides {
+        return false; // 世界尚未稳定到"两方俱在"过
+    }
+    if !has_my_faction && !has_enemy {
+        return false; // 世界未就绪：没有任何单位可供判定
+    }
+    if tick == 0 {
+        return false; // 尚未仿真过：不判胜负
+    }
+    !has_my_faction || !has_enemy
+}
+
 /// Check if any active player faction has been eliminated.
-fn check_victory_system(
+pub fn check_victory_system(
     sim_world: bevy::ecs::system::NonSend<bevy_adapter::tick::SimulationWorld>,
+    tick_clock: Res<bevy_adapter::tick::TickClock>,
     mut next_state: ResMut<NextState<GameState>>,
+    // 闩锁：一旦见过"双方都有单位"的世界，就永久置真（见 victory_verdict 规则 3）。
+    mut seen_both_sides: Local<bool>,
 ) {
     let lid = crate::local_player_id(&sim_world);
     let world = sim_world.world_ref();
@@ -263,7 +296,21 @@ fn check_victory_system(
             has_enemy = true;
         }
     }
-    if !has_my_faction || !has_enemy {
+    if has_my_faction && has_enemy {
+        *seen_both_sides = true;
+    }
+    if victory_verdict(
+        has_my_faction,
+        has_enemy,
+        tick_clock.current_tick,
+        *seen_both_sides,
+    ) {
+        bevy::log::info!(
+            "[VICTORY] 判结束: my={} enemy={} tick={} → GameOver",
+            has_my_faction,
+            has_enemy,
+            tick_clock.current_tick
+        );
         next_state.set(GameState::GameOver);
     }
 }
@@ -437,6 +484,7 @@ pub fn lobby_update_system(
                     network_start.seed = *seed;
                     network_start.map_size = Some(*map_size);
                     network_start.received = true;
+                    bevy::log::info!("[LOBBY] 请求状态迁移: Lobby → Playing");
                     next_state.set(GameState::Playing);
                     return;
                 }
@@ -516,6 +564,11 @@ fn reset_game_system(
     game_entities: Query<Entity, With<bevy_adapter::binding::LogicEntityRef>>,
 ) {
     paused.0 = false;
+    // 进局埋点：N 人联机时"最后加入者卡在大厅"的排查依赖它——
+    // 若本行缺失，说明该客户端从未真正进入 Playing（而不是重置失败）。
+    bevy::log::info!(
+        "[RESET] enter Playing: reset_game_system 运行（game_active=true, world 将重建）"
+    );
     // 新局重建世界,清空渲染插值缓存,避免旧局 Entity 复用导致首帧残留插值
     render_interp.prev.clear();
     render_interp.cur.clear();
@@ -543,6 +596,12 @@ fn reset_game_system(
         };
 
     if let Some(map_size) = map_size {
+        bevy::log::info!(
+            "[RESET] 决策: 重建世界 (map_size={:?}, network={}, map_size_hint={:?})",
+            map_size,
+            network_config.is_some(),
+            network_start.map_size
+        );
         // Despawn all stale game entities
         for e in game_entities.iter() {
             commands.entity(e).despawn();
