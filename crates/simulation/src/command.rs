@@ -3,7 +3,7 @@
 //! All player (and AI) actions flow through the command pipeline.
 //! Simulation systems consume command snapshots, never read input directly.
 
-use crate::types::{FixedVec2, ShieldState, SoldierType, UnitId};
+use crate::types::{Fixed, FixedVec2, ShieldState, SoldierType, UnitId};
 use bevy_ecs::prelude::Resource;
 use serde::{Deserialize, Serialize};
 
@@ -85,6 +85,116 @@ impl Action {
             Action::SetSeekStance { .. } => 7,
         }
     }
+
+    /// Number of `Action` variants. MUST be bumped when a variant is added.
+    ///
+    /// `all_action_variants()` asserts its corpus length against this value, so
+    /// a variant that reaches the enum and `sort_tag()` but is forgotten in the
+    /// corpus fails a test instead of silently shipping untested.
+    pub const VARIANT_COUNT: usize = 8;
+}
+
+/// One instance of every `Action` variant, for cross-layer serialization tests.
+///
+/// Exhaustiveness is enforced two ways:
+///   1. `sample()` matches with **no wildcard arm**, so adding a variant breaks
+///      the build here and forces the new variant to be handled.
+///   2. the length assertion catches a variant that `sample()` handles but the
+///      seed list (which drives iteration) omits.
+///
+/// This matters because the two encodings fail differently: replays use RON
+/// (self-describing, forgiving) while the network path uses bincode (positional,
+/// unforgiving). A variant can be replay-clean and wire-broken at the same time,
+/// and only a corpus that provably covers every variant closes that gap.
+pub fn all_action_variants() -> Vec<Action> {
+    fn sample(action: Action) -> Action {
+        match action {
+            Action::MoveTo { .. } => Action::MoveTo {
+                unit: UnitId(11),
+                target: FixedVec2::new(Fixed::from_int(7), Fixed::from_int(-9)),
+            },
+            Action::ForceMove { .. } => Action::ForceMove {
+                unit: UnitId(12),
+                target: FixedVec2::new(Fixed::from_int(-3), Fixed::from_int(4)),
+            },
+            Action::Attack { .. } => Action::Attack {
+                unit: UnitId(13),
+                target: UnitId(14),
+            },
+            Action::ReturnToCity { .. } => Action::ReturnToCity {
+                unit: UnitId(15),
+                city: UnitId(16),
+            },
+            Action::SetShield { .. } => Action::SetShield {
+                unit: UnitId(17),
+                state: ShieldState::Blocking,
+            },
+            Action::SetSpawnType { .. } => Action::SetSpawnType {
+                city: UnitId(18),
+                soldier_type: SoldierType::Cavalry,
+            },
+            Action::SetSeekStance { .. } => Action::SetSeekStance {
+                scope: SeekScope::ByType(SoldierType::Archer),
+                seek_range: 42,
+                unit_ids: vec![UnitId(19), UnitId(20)],
+            },
+            Action::NoOp => Action::NoOp,
+        }
+    }
+
+    // Seed list drives iteration; `sample()` replaces every field.
+    let seeds = [
+        Action::MoveTo {
+            unit: UnitId(0),
+            target: FixedVec2::ZERO,
+        },
+        Action::ForceMove {
+            unit: UnitId(1),
+            target: FixedVec2::ZERO,
+        },
+        Action::Attack {
+            unit: UnitId(2),
+            target: UnitId(3),
+        },
+        Action::ReturnToCity {
+            unit: UnitId(4),
+            city: UnitId(5),
+        },
+        Action::SetShield {
+            unit: UnitId(6),
+            state: ShieldState::Normal,
+        },
+        Action::SetSpawnType {
+            city: UnitId(7),
+            soldier_type: SoldierType::Militia,
+        },
+        Action::SetSeekStance {
+            scope: SeekScope::All,
+            seek_range: 0,
+            unit_ids: Vec::new(),
+        },
+        Action::NoOp,
+    ];
+    let variants: Vec<Action> = seeds.into_iter().map(sample).collect();
+
+    assert_eq!(
+        variants.len(),
+        Action::VARIANT_COUNT,
+        "Action corpus is stale — bump Action::VARIANT_COUNT and add the new variant to `seeds`"
+    );
+
+    // sort_tag() is unique per variant, so a duplicate here means the seed list
+    // repeats one variant instead of covering a distinct one.
+    let mut tags: Vec<u8> = variants.iter().map(Action::sort_tag).collect();
+    tags.sort_unstable();
+    tags.dedup();
+    assert_eq!(
+        tags.len(),
+        variants.len(),
+        "Action corpus repeats a variant instead of covering every one"
+    );
+
+    variants
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -287,5 +397,24 @@ mod tests {
     fn test_local_player_id_fallback() {
         // LocalPlayerId default is 0 — matches single-player expectation
         assert_eq!(crate::types::LocalPlayerId::default().0, 0);
+    }
+
+    #[test]
+    fn every_action_variant_survives_ron_round_trip() {
+        // Replay encoding. RON is self-describing, so this is the *forgiving*
+        // half of the pair — the bincode half lives in
+        // `bevy_adapter/tests/action_wire_format.rs`. Both walk the same corpus,
+        // so a new variant cannot ship having passed one encoding and never
+        // having been tried on the other.
+        for action in all_action_variants() {
+            let cmd = GameCommand {
+                tick: 7,
+                player_id: 3,
+                action: action.clone(),
+            };
+            let encoded = ron::to_string(&cmd).expect("RON encode");
+            let decoded: GameCommand = ron::from_str(&encoded).expect("RON decode");
+            assert_eq!(cmd, decoded, "RON round-trip changed {action:?}");
+        }
     }
 }
