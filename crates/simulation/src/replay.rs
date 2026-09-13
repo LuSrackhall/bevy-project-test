@@ -25,11 +25,23 @@ pub struct ReplayFile {
     /// compared at the same ticks during replay.
     #[serde(default)]
     pub tick_hashes: BTreeMap<u32, u64>,
+    /// 该对局是否运行 AI 决策阶段。
+    ///
+    /// **必须记录**：网络对局用 `RunConfig::ai_disabled()`，而回放侧以前固定用
+    /// `RunConfig::default()`（= AI 开启）→ 两套配置重放同一份命令会分叉。
+    /// 旧文件（v2 及以前）没有这个字段，`serde(default)` 取 `true`（即当时的默认行为）。
+    #[serde(default = "default_enable_ai")]
+    pub enable_ai: bool,
+}
+
+/// 旧版回放文件缺 `enable_ai` 时的回退值：历史默认是 AI 开启。
+fn default_enable_ai() -> bool {
+    true
 }
 
 impl ReplayFile {
     /// Current format version.
-    pub const CURRENT_VERSION: u32 = 2;
+    pub const CURRENT_VERSION: u32 = 3;
 
     /// Desync check interval: record hash every N ticks (20 = once per second at 20Hz).
     pub const DESYNC_CHECK_INTERVAL: u32 = 20;
@@ -43,6 +55,7 @@ impl ReplayFile {
             total_ticks,
             commands_per_tick: BTreeMap::new(),
             tick_hashes: BTreeMap::new(),
+            enable_ai: true,
         }
     }
 
@@ -80,7 +93,7 @@ impl ReplayFile {
     pub fn from_ron(ron_str: &str) -> Result<Self, String> {
         let file: ReplayFile =
             ron::from_str(ron_str).map_err(|e| format!("Failed to parse replay file: {}", e))?;
-        if file.format_version != Self::CURRENT_VERSION {
+        if file.format_version > Self::CURRENT_VERSION {
             return Err(format!(
                 "Replay format version mismatch: file={}, supported={}",
                 file.format_version,
@@ -138,7 +151,7 @@ mod tests {
         let ron_str = replay.to_ron();
         let loaded = ReplayFile::from_ron(&ron_str).unwrap();
 
-        assert_eq!(loaded.format_version, 2);
+        assert_eq!(loaded.format_version, ReplayFile::CURRENT_VERSION);
         assert_eq!(loaded.seed, 42);
         assert_eq!(loaded.total_ticks, 100);
         assert_eq!(loaded.commands_for_tick(5).len(), 1);

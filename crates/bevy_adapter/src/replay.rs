@@ -16,6 +16,8 @@ pub struct ReplayRecorder {
     pub command_log: Vec<(u32, Vec<GameCommand>)>,
     pub tick_hashes: Vec<(u32, u64)>,
     pub is_recording: bool,
+    /// 该会话是否启用 AI（写入回放文件，供回放时复现同一 RunConfig）。
+    pub enable_ai: bool,
 }
 
 impl ReplayRecorder {
@@ -39,6 +41,7 @@ impl ReplayRecorder {
     /// Finalize and produce a ReplayFile.
     pub fn finish(&self, total_ticks: u32) -> ReplayFile {
         let mut replay = ReplayFile::new(self.seed, self.map_size, total_ticks);
+        replay.enable_ai = self.enable_ai;
         for (tick, cmds) in &self.command_log {
             replay.record_tick(*tick, cmds.clone());
         }

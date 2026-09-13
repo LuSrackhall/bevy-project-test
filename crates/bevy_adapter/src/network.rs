@@ -773,10 +773,17 @@ impl RelayServer {
         //     补 NoOp => 整条流不再死锁（RC2 修复）；
         //   - 但绝不抢在任何客户端输入之前 => 不会把本该由客户端命令填充的 tick 提前定稿
         //     成 NoOp（那样会与命令日志分叉 => 回放 desync）。
+        // 两个上限同时生效，缺一不可：
+        //   · 墙钟节拍（schedule）：relay 绝不跑快于 tick 频率（否则客户端会被"喂快"，
+        //     实测 N=4 时冲到 48.7Hz —— 因为客户端越跑越快、上发越多、定稿越多）；
+        //   · 送达节拍（max_arrival + 宽限）：某个 tick 的输入丢了也不卡死，缺口补 NoOp。
         let max_arrival = self.first_arrival.keys().copied().max().unwrap_or(0);
+        let elapsed_ms = now_ms.saturating_sub(self.created_at_ms);
+        let schedule_due = (elapsed_ms / self.tick_duration_ms)
+            .saturating_sub(u64::from(self.input_delay)) as u32;
         let upper = last_logged
-            .saturating_add(self.input_delay)
-            .saturating_add(3)
+            .saturating_add(1)
+            .max(schedule_due.saturating_add(2))
             .min(max_arrival.saturating_add(self.input_delay).saturating_add(2))
             .min(last_logged.saturating_add(64));
 

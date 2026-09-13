@@ -227,7 +227,13 @@ fn test_network_pipeline_e2e() {
         for cmd in cmds {
             replay_world.resource_mut::<CommandBuffer>().0.push(cmd);
         }
-        simulation::run_tick_default(&mut replay_world, tick);
+        simulation::run_tick(
+            &mut replay_world,
+            tick,
+            &simulation::RunConfig {
+                enable_ai: loaded.enable_ai,
+            },
+        );
 
         // Verify determinism: hash at each DESYNC_CHECK_INTERVAL
         if tick % ReplayFile::DESYNC_CHECK_INTERVAL == 0 {

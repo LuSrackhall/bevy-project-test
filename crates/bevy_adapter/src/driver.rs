@@ -185,13 +185,16 @@ impl SimulationDriver {
 
     /// Create a Replay mode driver.
     pub fn new_replay(replay: ReplayFile) -> Self {
+        // 回放必须复现**录制时**的 RunConfig（网络对局是 ai_disabled）。
+        // 以前固定 ai_enabled()，会把网络回放跑成 AI 开启 → 状态分叉。
+        let enable_ai = replay.enable_ai;
         Self {
             clock: TickClock::default(),
             scheduler: SchedulerState::default(),
             source: CommandSource::Replay(ReplayCommandSource { replay }),
             bootstrap_phase: BootstrapPhase::Active,
             catch_up: false,
-            run_config: RunConfig::ai_enabled(),
+            run_config: RunConfig { enable_ai },
             last_frame_ticks: 0,
             last_frame_blocked: false,
         }
@@ -398,6 +401,7 @@ pub fn simulation_driver_system(
 
         // 2. Record if source indicates recording is needed
         if driver.source.should_record() {
+            recorder.enable_ai = driver.run_config.enable_ai;
             recorder.record_tick(tick, &commands);
         }
 
