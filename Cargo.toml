@@ -44,8 +44,18 @@ render_view = { path = "crates/render_view" }
 # 代价：冷编译略慢（415.0s → 425.6s），另需 target/debug/libbevy_dylib.dylib（157M）。
 # 发布构建必须关闭：需随包分发 dylib、阻碍优化、增大体积。
 # Bevy 官方另提示：开启后 `cargo test --doc` 需把 `rustc --print target-libdir` 加入 PATH。
+# ── 开发 profile：体积 / 速度取舍 ──
+# 下面两行 opt-level 来自 Bevy 官方快速开始建议（目的：让 debug 构建跑得动——
+# 未优化的 Bevy 渲染/ECS 慢到没法玩），属于有意的性能取舍，不是磁盘浪费。
+# 而 debug 级别此前一直是 cargo 的默认值（debug = 2，全量 debuginfo），
+# 这才是 target 体积翻倍的主因，且从来没有人主动选过。
+# Bevy 随包模板 .cargo/config_fast_builds.toml 对此明确建议：
+#   "if you are on macOS and have slow compile times you should see significant gains"
+#   → [profile.dev] debug = 1
+# 代价：回溯信息退化为行号表（变量值可能缺失），断点调试体验略降。
 [profile.dev]
 opt-level = 1
+debug = 1
 
 [profile.dev.package."*"]
 opt-level = 2
