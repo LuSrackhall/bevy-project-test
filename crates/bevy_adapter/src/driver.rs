@@ -20,12 +20,24 @@ const CATCH_UP_BATCH: u32 = 500;
 // TickClock — 时序控制
 // ═══════════════════════════════════════════════════════════════
 
+/// 本地 tick 允许领先仿真 tick 的上限（20 tick = 1s @20Hz）。
+pub const MAX_LOCAL_LEAD_TICKS: u32 = 20;
+
+/// 单帧最多追赶的仿真 tick 数（把停顿后的"猛冲"限制在可见范围内）。
+pub const MAX_SIM_CATCHUP_TICKS: u32 = 4;
+
 /// Tick timing state. `current_tick` is the single authoritative tick value.
 #[derive(Resource)]
 pub struct TickClock {
     pub current_tick: u32,
     pub tick_duration: f32, // seconds (0.05 for 20Hz)
     pub accumulator: f32,
+    /// **本地 tick**：按墙钟推进，与受远端定稿帧门控的 `current_tick` 解耦。
+    /// 输入戳记与上发窗口的基准（见 command::target_tick）。不变量：
+    /// `current_tick ≤ local_tick ≤ current_tick + MAX_LOCAL_LEAD_TICKS`。
+    pub local_tick: u32,
+    /// 本地 tick 的累加器（与仿真累加器分开，避免互相吃掉时间）。
+    pub local_accumulator: f32,
 }
 
 impl Default for TickClock {
@@ -34,6 +46,8 @@ impl Default for TickClock {
             current_tick: 0,
             tick_duration: 0.05,
             accumulator: 0.0,
+            local_tick: 0,
+            local_accumulator: 0.0,
         }
     }
 }
@@ -326,6 +340,7 @@ pub fn simulation_driver_system(
     // Sync SimulationDriver.clock → standalone TickClock (presentation layer reads this)
     tick_clock.current_tick = driver.clock.current_tick;
     tick_clock.accumulator = driver.clock.accumulator;
+    tick_clock.local_tick = driver.clock.local_tick;
     pending.events.clear();
 
     // 节奏指标：每帧重置（供 crate::pacing::pacing_metrics_system 采集）。
@@ -354,8 +369,30 @@ pub fn simulation_driver_system(
 
     // Normal playback: accumulate time, advance ticks
     let speed = driver.scheduler.speed_multiplier.max(1);
-    driver.clock.accumulator += time.delta_secs() * speed as f32;
     let tick_dur = driver.clock.tick_duration;
+
+    // 本地 tick：按墙钟推进，**不受**远端帧门控（提交时钟与仿真时钟解耦）。
+    driver.clock.local_accumulator += time.delta_secs() * speed as f32;
+    while driver.clock.local_accumulator >= tick_dur {
+        driver.clock.local_accumulator -= tick_dur;
+        driver.clock.local_tick = driver.clock.local_tick.saturating_add(1);
+    }
+    if driver.clock.local_tick < driver.clock.current_tick {
+        driver.clock.local_tick = driver.clock.current_tick;
+        driver.clock.local_accumulator = 0.0;
+    }
+    let lead_cap = driver.clock.current_tick.saturating_add(MAX_LOCAL_LEAD_TICKS);
+    if driver.clock.local_tick > lead_cap {
+        driver.clock.local_tick = lead_cap;
+        driver.clock.local_accumulator = 0.0;
+    }
+
+    // 仿真 tick：仍受门控，但积压有上限（有界追赶）。
+    driver.clock.accumulator += time.delta_secs() * speed as f32;
+    let catchup_cap = MAX_SIM_CATCHUP_TICKS as f32 * tick_dur;
+    if driver.clock.accumulator > catchup_cap {
+        driver.clock.accumulator = catchup_cap;
+    }
 
     // Scene B catch-up: fast-replay the reconnect backlog. Over-seed the
     // accumulator so the loop below consumes buffered ticks in batches (up to

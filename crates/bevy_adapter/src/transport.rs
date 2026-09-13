@@ -13,6 +13,9 @@ use crate::network::{
 };
 use crate::reliable_udp::channel_udp::UdpChannel;
 use crate::reliable_udp::protocol::{CH_CONTROL, CH_TICK};
+
+/// 单帧最多上发的 tick 帧数（有界追赶：长停顿后不一次性补发过多）。
+const MAX_SEND_TICKS_PER_FRAME: u32 = 8;
 use crate::reliable_udp::{ReliableConfig, ReliableSocket};
 use simulation::command::CommandBuffer;
 use std::collections::VecDeque;
@@ -157,6 +160,8 @@ pub fn network_flush_system(
     sender: Option<Res<NetworkSender>>,
     driver: Res<crate::driver::SimulationDriver>,
     mut cmd_buf: ResMut<CommandBuffer>,
+    // 上发游标：跨帧保持，保证窗口**连续**推进（跳格会让本地命令滞留后被丢弃）。
+    mut last_sent_tick: Local<u32>,
 ) {
     let sender = match sender {
         Some(s) => s,
@@ -170,9 +175,16 @@ pub fn network_flush_system(
         if driver.catch_up {
             return;
         }
-        // Send frames for the ENTIRE window [current_tick+1, current_tick+input_delay].
-        let start = current_tick + 1;
-        let end = ns.delayed_tick(current_tick);
+        // 提交窗口 = [上次上发+1, 本地 tick + input_delay]，**连续且有限**：
+        //   · 连续：不漏 tick（漏了会让该 tick 的本地命令滞留后被驱动丢弃）；
+        //   · 本地 tick 为基准：不受远端帧门控，延迟下不再自我限速（RC2）；
+        //   · 单帧上限：长停顿后不一次性补发过多（有界追赶）。
+        let local_tick = driver.clock.local_tick;
+        let start = (*last_sent_tick).saturating_add(1).max(1);
+        let end = ns
+            .delayed_tick(local_tick)
+            .max(start)
+            .min(start.saturating_add(MAX_SEND_TICKS_PER_FRAME - 1));
         for tick in start..=end {
             let cmds = cmd_buf.take_for_tick(tick);
             let sid = sender.next_sid();
@@ -186,6 +198,9 @@ pub fn network_flush_system(
                 player_sid: sid,
             };
             sender.push(frame);
+        }
+        if end >= start {
+            *last_sent_tick = end;
         }
     }
 }

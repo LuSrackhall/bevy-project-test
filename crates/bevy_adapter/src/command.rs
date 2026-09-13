@@ -19,8 +19,10 @@ use simulation::command::{Action, CommandBuffer, GameCommand};
 ///
 /// Live/Replay → the next tick. Network → `current + input_delay`, the far edge
 /// of the uplink window, so the frame cannot already be late for the relay.
-pub fn target_tick(driver: &SimulationDriver, current_tick: u32) -> u32 {
-    current_tick + driver.command_delay()
+pub fn target_tick(driver: &SimulationDriver, _sim_tick: u32) -> u32 {
+    // 基准是**本地 tick**（墙钟推进）：仿真 tick 在等远端帧时会停住，用它记账会让
+    // 提交随之停摆 → relay 更凑不齐 → 整条管线被限速到 ~1/(RTT+输入延迟)。
+    driver.clock.local_tick + driver.command_delay()
 }
 
 /// Schedule `action` for `player_id` on the correct tick for the driver's
@@ -51,7 +53,9 @@ mod tests {
 
     #[test]
     fn live_targets_the_next_tick() {
-        assert_eq!(target_tick(&SimulationDriver::new_live(), 10), 11);
+        let mut driver = SimulationDriver::new_live();
+        driver.clock.local_tick = 10;
+        assert_eq!(target_tick(&driver, 10), 11);
     }
 
     #[test]
@@ -67,8 +71,10 @@ mod tests {
         };
         ns.input_delay = 3;
 
-        // The far edge of network_flush_system's window [current+1, current+delay]:
-        // a larger offset would never be uplinked, smaller ones risk arriving late.
+        // 窗口 [local+1, local+delay] 的远边。
+        driver.clock.local_tick = 10;
         assert_eq!(target_tick(&driver, 10), 13);
+        driver.clock.current_tick = 4;
+        assert_eq!(target_tick(&driver, 4), 13);
     }
 }

@@ -202,8 +202,25 @@ pub async fn run_relay(socket: UdpSocket, config: RelayConfig, stop: &AtomicBool
     let mut hb_ticker = tokio::time::interval(Duration::from_millis(100));
     hb_ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
+    // 周期"超时定稿"：relay 按墙钟节拍推进，缺席者补 NoOp。没有这一步，某 tick 的
+    // 输入丢失/迟到就无人再触发定稿 → 整条流死锁（详见 RelayServer::finalize_due）。
+    let mut finalize_ticker = tokio::time::interval(Duration::from_millis(10));
+    finalize_ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
     loop {
         tokio::select! {
+            _ = finalize_ticker.tick() => {
+                let now = now_ms_ts();
+                let batches = { ctx.server.lock().unwrap().finalize_due(now) };
+                for payload in batches {
+                    broadcast(&ctx, &RelayServerMessage::Broadcast(BroadcastFrame {
+                        game_id: 1,
+                        ruleset_version: 1,
+                        payload,
+                        relay_ts_ms: now,
+                    })).await;
+                }
+            }
             r = shared.recv_from(&mut buf) => {
                 if let Ok((n, from)) = r {
                     let data = buf[..n].to_vec();
