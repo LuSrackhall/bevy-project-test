@@ -10,3 +10,11 @@ target-dir = "/Volumes/SSD980/bevy-cache/target"
 
 [target.wasm32-unknown-unknown]
 rustflags = ['--cfg', 'getrandom_backend="wasm_js"', '-Ctarget-feature=+atomics']
+
+[alias]
+# 本地迭代：带 dynamic_linking 跑客户端（实测增量重建 4.60s → 0.99–1.55s）。
+# 只影响本地开发：CI/发布显式走 `cargo build --release`，不受影响。
+# 用法：cargo dev -- --windowed
+# 注意：不用别名覆盖 `run`，否则 `cargo run -p sim-cli`（无 bevy 依赖）会因
+# `--features bevy/dynamic_linking` 报错。
+dev = "run -p city-conquest --features bevy/dynamic_linking"

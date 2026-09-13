@@ -230,6 +230,8 @@ docs/
 
 **本机定位**：本机是**调试/迭代环境**；发布产物由 GitHub Actions 构建（`.github/workflows/release.yml`），本地不必跑 release。
 
+**本地跑客户端**：用 `cargo dev -- --windowed`。该别名 = `cargo run -p city-conquest --features bevy/dynamic_linking`（实测增量重建 4.60s → **0.99–1.55s**）。刻意**不覆盖 `run`**——否则 `cargo run -p sim-cli`（无 bevy 依赖）会因 `--features bevy/dynamic_linking` 直接报错。
+
 **构建缓存**：`target` 位于工作区外（见 `.cargo/config.toml` 的 `target-dir`）。cargo **不回收旧代产物**——依赖版本升级、feature 集变更、profile 变更都会新增一代并永久保留：
 
 - **结构性变更（升级依赖 / 增删 feature / 改 profile）之后跑一次 `cargo clean`**；日常改代码**不需要**（复用同一代，不会增长）。
